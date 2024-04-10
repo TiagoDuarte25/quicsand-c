@@ -1,0 +1,24 @@
+version: '3'
+services:
+  quicsand_client:
+    build:
+      context: .
+      dockerfile: quicsand/src/client/Dockerfile
+    image: quicsand_client
+    container_name: quicsand_client_container
+    networks:
+      - quicsand_network
+    command: tail -f /dev/null
+  quicsand_server:
+    build:
+      context: .
+      dockerfile: quicsand/src/server/Dockerfile
+    image: quicsand_server
+    container_name: quicsand_server_container
+    networks:
+      - quicsand_network
+    command: tail -f /dev/null
+
+networks:
+  quicsand_network:
+    driver: bridge
