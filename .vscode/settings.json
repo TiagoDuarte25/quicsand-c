@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "quicsand_client_adapter.h": "c"
+        "quicsand_client_adapter.h": "c",
+        "lsquic_int_types.h": "c",
+        "utils.h": "c"
     }
 }
