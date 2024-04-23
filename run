@@ -1,5 +1,46 @@
 #!/bin/bash
 
+# Function to display usage
+usage() {
+    echo "Usage: $0 [-i <implementation>]" 1>&2
+    echo "Options:" 1>&2
+    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
+    exit 1
+}
+
+# Parse command-line arguments
+while [[ "$#" -eq 1 ]]; do
+    usage
+done
+
+# Parse command-line arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -i|--implementation)
+            IMPLEMENTATION="$2"
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Error: Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Check if the implementation is valid
+if [[ "$IMPLEMENTATION" != "lsquic" && "$IMPLEMENTATION" != "msquic" ]]; then
+    echo "Error: Invalid implementation specified."
+    usage
+fi
+
+# Remove all existing containers
 docker rm -f $(docker ps -qa)
 
-docker-compose up -d --build
+echo "Implementation: $IMPLEMENTATION"
+
+# Pass flags to docker-compose and start the containers
+IMPLEMENTATION="$IMPLEMENTATION" docker-compose up -d --build

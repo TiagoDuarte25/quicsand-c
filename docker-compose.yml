@@ -3,7 +3,7 @@ services:
   quicsand_client:
     build:
       context: .
-      dockerfile: quicsand/src/client/Dockerfile
+      dockerfile: quicsand/src/client/Dockerfile.${IMPLEMENTATION}
     image: quicsand_client
     container_name: quicsand_client_container
     networks:
@@ -12,7 +12,7 @@ services:
   quicsand_server:
     build:
       context: .
-      dockerfile: quicsand/src/server/Dockerfile
+      dockerfile: quicsand/src/server/Dockerfile.${IMPLEMENTATION}
     image: quicsand_server
     container_name: quicsand_server_container
     networks:
