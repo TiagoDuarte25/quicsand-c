@@ -9,7 +9,7 @@ usage() {
 }
 
 # Parse command-line arguments
-while [[ "$#" -eq 1 ]]; do
+while [[ "$#" -le 1 ]]; do
     usage
 done
 
@@ -32,15 +32,38 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Check if the implementation is valid
-if [[ "$IMPLEMENTATION" != "lsquic" && "$IMPLEMENTATION" != "msquic" ]]; then
+if [ ! -d "implementations/$IMPLEMENTATION" ]; then
     echo "Error: Invalid implementation specified."
     usage
 fi
 
+cp quicsand/src/client_"$IMPLEMENTATION"/"$IMPLEMENTATION"_build.sh quicsand/src/client/build.sh
+cp quicsand/src/server_"$IMPLEMENTATION"/"$IMPLEMENTATION"_build.sh quicsand/src/server/build.sh
+
 # Remove all existing containers
 docker rm -f $(docker ps -qa)
 
-echo "Implementation: $IMPLEMENTATION"
+docker images | awk '$1 == "quicsand_client" {print $3}' | xargs -I {} docker rmi {}
+docker images | awk '$1 == "quicsand_server" {print $3}' | xargs -I {} docker rmi {}
+docker images | awk '$1 == "<none>" {print $3}' | xargs -I {} docker rmi {}
 
 # Pass flags to docker-compose and start the containers
-IMPLEMENTATION="$IMPLEMENTATION" docker-compose up -d --build
+IMPLEMENTATION="$IMPLEMENTATION" docker-compose build
+
+# Check if the network is already created
+if ! docker network ls | grep -q quicsand_network; then
+    docker network create quicsand_network
+else
+    echo "Network 'quicsand_network' already created"
+fi
+
+# Check if the images exist
+if docker images | grep -q quicsand_client && docker images | grep -q quicsand_server; then
+    # Launch second process in another new terminal
+    gnome-terminal -- bash -c "docker run -it --network=quicsand_network --name quicsand_client_container quicsand_client; exec bash" &
+
+    # Launch first process in a new terminal
+    gnome-terminal -- bash -c "docker run -it --network=quicsand_network --name quicsand_server_container quicsand_server bash; exec bash"
+else
+    echo "Images quicsand_client and quicsand_server do not exist."
+fi

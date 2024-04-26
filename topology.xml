@@ -16,7 +16,7 @@
 	</services>
     <links>
 		<!-- definition of the links, the "network" should match the name of an existing container network -->
-                <link origin="client1" dest="server" latency="10" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
+                <link origin="client1" dest="server" latency="100" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
                 <!--link origin="server" dest="client1" latency="5" upload="100Mbps" download="100Mbps" network="kollaps_network"-->
 	</links>
 </experiment>
