@@ -1,0 +1,4 @@
+[submodule "kollaps"]
+    path = kollaps
+    url = https://github.com/miguelammatos/kollaps.git
+
