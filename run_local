@@ -1,0 +1,40 @@
+#!/bin/bash
+
+rm -rf quicsand/bin/*
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 [-i <implementation>]" 1>&2
+    echo "Options:" 1>&2
+    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
+    exit 1
+}
+
+# Parse command-line arguments
+while [[ "$#" -le 1 ]]; do
+    usage
+done
+
+# Parse command-line arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -i|--implementation)
+            IMPLEMENTATION="$2"
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Error: Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+make IMPLEMENTATION="$IMPLEMENTATION" $IMPLEMENTATION
+
+gnome-terminal -- bash -c "cd quicsand; ./bin/server/server; exec bash"
+
+gnome-terminal -- bash -c "cd quicsand; ./bin/client/client; exec bash"
