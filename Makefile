@@ -11,7 +11,7 @@ MSQUIC_LDLIBS = -lyaml -lmsquic
 # Flags for lsquic compilation
 LSQUIC_CFLAGS = -I$(LOCAL_PATH_VAR)/quicsand/include -I$(LOCAL_PATH_VAR)/implementations/lsquic/include
 LSQUIC_LDFLAGS = -L$(LOCAL_PATH_VAR)/implementations/lsquic/src/liblsquic
-LSQUIC_LDLIBS = -lyaml
+LSQUIC_LDLIBS = -lyaml -llsquic -lm
 
 # Directories
 SRCDIR = quicsand/src
