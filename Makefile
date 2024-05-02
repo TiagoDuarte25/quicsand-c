@@ -3,11 +3,6 @@ CC = gcc
 
 LOCAL_PATH_VAR = /home/tiagoduarte25/Desktop/thesis/app
 
-# Flags for local compilation
-LOCAL_CFLAGS = -I$(LOCAL_PATH_VAR)/quicsand/include -I$(LOCAL_PATH_VAR)/implementations/msquic/src/inc
-LOCAL_LDFLAGS = -L$(LOCAL_PATH_VAR)/msquic/build/bin/Release/
-LOCAL_LDLIBS = -lyaml -lmsquic
-
 # Flags for msquic deployment
 MSQUIC_CFLAGS = -I$(LOCAL_PATH_VAR)/quicsand/include -I$(LOCAL_PATH_VAR)/implementations/msquic/src/inc
 MSQUIC_LDFLAGS = -L$(LOCAL_PATH_VAR)/implementations/msquic/build/bin/Release
@@ -15,7 +10,7 @@ MSQUIC_LDLIBS = -lyaml -lmsquic
 
 # Flags for lsquic compilation
 LSQUIC_CFLAGS = -I$(LOCAL_PATH_VAR)/quicsand/include -I$(LOCAL_PATH_VAR)/implementations/lsquic/include
-LSQUIC_LDFLAGS = -Llsquic/
+LSQUIC_LDFLAGS = -L$(LOCAL_PATH_VAR)/implementations/lsquic/src/liblsquic
 LSQUIC_LDLIBS = -lyaml
 
 # Directories

@@ -2,3 +2,9 @@
     path = kollaps
     url = https://github.com/miguelammatos/kollaps.git
 
+[submodule "Kollaps"]
+	path = Kollaps
+	url = https://github.com/miguelammatos/Kollaps.git
+[submodule "quicsand"]
+	path = quicsand
+	url = https://github.com/tiagoduarte25/quicsand.git
