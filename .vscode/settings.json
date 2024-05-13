@@ -3,7 +3,14 @@
         "quicsand_client_adapter.h": "c",
         "lsquic_int_types.h": "c",
         "utils.h": "c",
-        "quicsand_server_adapter.h": "c"
+        "quicsand_server_adapter.h": "c",
+        "types.h": "c",
+        "stdlib.h": "c",
+        "string.h": "c",
+        "event.h": "c",
+        "hash_map": "c",
+        "hash_set": "c",
+        "lsquic_logger.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

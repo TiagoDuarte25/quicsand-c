@@ -35,6 +35,8 @@ done
 
 make IMPLEMENTATION="$IMPLEMENTATION" $IMPLEMENTATION
 
-gnome-terminal -- bash -c "cd quicsand; LD_LIBRARY_PATH=/home/tiagoduarte25/Desktop/thesis/app/implementations/lsquic/src/liblsquic:$LD_LIBRARY_PATH ./bin/server/server; exec bash"
+gnome-terminal -- bash -c "cd quicsand; LD_LIBRARY_PATH=/home/tiagoduarte25/Desktop/thesis/app/implementations/lsquic/src/liblsquic:/home/tiagoduarte25/Desktop/thesis/app/implementations/boringssl/ssl:/home/tiagoduarte25/Desktop/thesis/app/implementations/boringssl/crypto:$LD_LIBRARY_PATH ./bin/server/server; exec bash"
 
-gnome-terminal -- bash -c "cd quicsand; LD_LIBRARY_PATH=/home/tiagoduarte25/Desktop/thesis/app/implementations/lsquic/src/liblsquic:$LD_LIBRARY_PATH ./bin/client/client; exec bash"
+sleep 2
+
+gnome-terminal -- bash -c "cd quicsand; LD_LIBRARY_PATH=/home/tiagoduarte25/Desktop/thesis/app/implementations/lsquic/src/liblsquic:/home/tiagoduarte25/Desktop/thesis/app/implementations/boringssl/ssl:/home/tiagoduarte25/Desktop/thesis/app/implementations/boringssl/crypto:$LD_LIBRARY_PATH ./bin/client/client; exec bash"

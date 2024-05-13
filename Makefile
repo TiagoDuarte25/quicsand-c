@@ -9,9 +9,9 @@ MSQUIC_LDFLAGS = -L$(LOCAL_PATH_VAR)/implementations/msquic/build/bin/Release
 MSQUIC_LDLIBS = -lyaml -lmsquic
 
 # Flags for lsquic compilation
-LSQUIC_CFLAGS = -I$(LOCAL_PATH_VAR)/quicsand/include -I$(LOCAL_PATH_VAR)/implementations/lsquic/include
-LSQUIC_LDFLAGS = -L$(LOCAL_PATH_VAR)/implementations/lsquic/src/liblsquic
-LSQUIC_LDLIBS = -lyaml -llsquic -lm
+LSQUIC_CFLAGS = -I$(LOCAL_PATH_VAR)/quicsand/include -I$(LOCAL_PATH_VAR)/implementations/lsquic/include -I$(LOCAL_PATH_VAR)/implementations/boringssl/include -D_GNU_SOURCE
+LSQUIC_LDFLAGS = -L$(LOCAL_PATH_VAR)/implementations/lsquic/src/liblsquic -L$(LOCAL_PATH_VAR)/implementations/boringssl/ssl -L$(LOCAL_PATH_VAR)/implementations/boringssl/crypto
+LSQUIC_LDLIBS = -lyaml -llsquic -lm -levent -lssl -lcrypto 
 
 # Directories
 SRCDIR = quicsand/src
