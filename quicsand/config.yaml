@@ -1,0 +1,20 @@
+# The number of repetitions for the experiment
+repetitions: 10
+
+# The number of seconds to run the experiment
+buffer_size: 1460
+
+# The request size in bytes
+request_size: 200
+
+# Credential validation 
+#       0 -> secure
+#       1 -> unsecure
+unsecure: 1
+
+#docker
+#target: "quicsand_server_container"
+#local
+target: "127.0.0.1"
+
+port: 4567
