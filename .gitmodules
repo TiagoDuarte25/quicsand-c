@@ -1,10 +1,12 @@
 [submodule "kollaps"]
     path = kollaps
     url = https://github.com/miguelammatos/kollaps.git
-
-[submodule "Kollaps"]
-	path = Kollaps
-	url = https://github.com/miguelammatos/Kollaps.git
-[submodule "quicsand"]
-	path = quicsand
-	url = https://github.com/tiagoduarte25/quicsand.git
+[submodule "implementations/boringssl"]
+	path = implementations/boringssl
+	url = https://github.com/google/boringssl.git
+[submodule "implementations/lsquic"]
+	path = implementations/lsquic
+	url = https://github.com/litespeedtech/lsquic.git
+[submodule "implementations/msquic"]
+	path = implementations/msquic
+	url = https://github.com/microsoft/msquic.git
