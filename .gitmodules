@@ -1,5 +1,5 @@
 [submodule "kollaps"]
-    path = kollaps
+    path = Kollaps
     url = https://github.com/miguelammatos/kollaps.git
 [submodule "implementations/boringssl"]
 	path = implementations/boringssl
