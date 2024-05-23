@@ -70,13 +70,29 @@ void create_ssl_ctx(server_ctx_t *server_ctx)
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, "./certs/quicsand-server.pem") != 1)
+
+    char cwd[PATH_MAX];
+    char cert_path[PATH_MAX];
+    char key_path[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+    {
+        perror("getcwd() error");
+        exit(EXIT_FAILURE);
+    }
+    strcpy(cert_path, cwd);
+    strcpy(key_path, cwd);
+    strcat(cert_path, "/certs/quicsand-server.pem");
+    strcat(key_path, "/certs/key.pem");
+    printf("cert_path: %s\n", cert_path);
+    printf("key_path: %s\n", key_path);
+
+    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, cert_path) != 1)
     {
         printf("Cannot load server certificate\n");
         fflush(stdout);
         exit(EXIT_FAILURE);
     }
-    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, "./certs/key.pem", SSL_FILETYPE_PEM) != 1)
+    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, key_path, SSL_FILETYPE_PEM) != 1)
     {
         printf("Cannot load key\n");
         fflush(stdout);

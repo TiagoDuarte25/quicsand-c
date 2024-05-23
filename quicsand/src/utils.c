@@ -1,13 +1,20 @@
 #define _POSIX_C_SOURCE 200809L
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+
 #include <utils.h>
-#include <msquic.h>
 
 Config *read_config(char *filename)
 {
-    FILE *fh = fopen(filename, "r");
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+    {
+        perror("getcwd() error");
+        exit(EXIT_FAILURE);
+    }
+
+    strcat(cwd, "/");
+    strcat(cwd, filename);
+
+    FILE *fh = fopen(cwd, "r");
     yaml_parser_t parser;
     yaml_token_t token;
     Config *config = malloc(sizeof(Config));
