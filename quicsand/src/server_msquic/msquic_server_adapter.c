@@ -383,14 +383,26 @@ server_load_configuration()
     memset(&Config, 0, sizeof(Config));
     Config.CredConfig.Flags = QUIC_CREDENTIAL_FLAG_NONE;
 
-    const char *Cert = "server.cert";
-    const char *KeyFile = "server.key";
+    char cwd[PATH_MAX];
+    char cert_path[PATH_MAX];
+    char key_path[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+    {
+        perror("getcwd() error");
+        exit(EXIT_FAILURE);
+    }
+    strcpy(cert_path, cwd);
+    strcpy(key_path, cwd);
+    strcat(cert_path, "/certs/quicsand-server.pem");
+    strcat(key_path, "/certs/key.pem");
+    printf("cert_path: %s\n", cert_path);
+    printf("key_path: %s\n", key_path);
     printf("Certifying...\n");
     //
     // Loads the server's certificate from the file.
     //
-    Config.CertFile.CertificateFile = (char *)Cert;
-    Config.CertFile.PrivateKeyFile = (char *)KeyFile;
+    Config.CertFile.CertificateFile = cert_path;
+    Config.CertFile.PrivateKeyFile = key_path;
     Config.CredConfig.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
     Config.CredConfig.CertificateFile = &Config.CertFile;
     printf("Certified.\n");

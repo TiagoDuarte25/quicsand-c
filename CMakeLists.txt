@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.22.1)
-project(quicsand)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.22.1)
+PROJECT(quicsand)
 
 IF(CMAKE_BUILD_TYPE STREQUAL "")
     SET(CMAKE_BUILD_TYPE Debug)
@@ -14,42 +14,61 @@ SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} $ENV{EXTRA_CFLAGS}")
 
 MESSAGE(STATUS "Compiler flags: ${CMAKE_C_FLAGS}")
 
-# Set the BoringSSL directory
-set(BORINGSSL_DIR ${CMAKE_SOURCE_DIR}/implementations/boringssl)
-add_subdirectory(${BORINGSSL_DIR})
-INCLUDE_DIRECTORIES(implementations/boringssl/include)
-INCLUDE_DIRECTORIES(implementations/lsquic/include)
-INCLUDE_DIRECTORIES(implementations/lsquic/src/liblsquic)
-add_subdirectory(implementations/lsquic/src/liblsquic)
-# add_subdirectory(implementations/msquic)
+FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
+FILE(GLOB SERVER_SRC "quicsand/src/server/*.c")
+FILE(GLOB SRC "quicsand/src/*.c")
+FILE(GLOB IMPL_CLIENT_SRC "quicsand/src/client_${IMPL}/*.c")
+FILE(GLOB IMPL_SERVER_SRC "quicsand/src/server_${IMPL}/*.c")
 
-file(GLOB CLIENT_SRC "quicsand/src/client/*.c")
-file(GLOB SERVER_SRC "quicsand/src/server/*.c")
-file(GLOB SRC "quicsand/src/*.c")
-file(GLOB IMPL_CLIENT_SRC "quicsand/src/client_${IMPL}/*.c")
-file(GLOB IMPL_SERVER_SRC "quicsand/src/server_${IMPL}/*.c")
+# Create executables targets
+ADD_EXECUTABLE(client ${CLIENT_SRC} ${SRC} ${IMPL_CLIENT_SRC})
+ADD_EXECUTABLE(server ${SERVER_SRC} ${SRC} ${IMPL_SERVER_SRC})
 
-# Add these lines before the add_executable(client ...) command
-link_directories(${CMAKE_BINARY_DIR}/implementations/lsquic/src/liblsquic)
-link_directories(${CMAKE_BINARY_DIR}/implementations/boringssl)
+IF(${IMPL} STREQUAL "lsquic")
 
-# Add these lines before the add_executable(server ...) command
-link_directories(${CMAKE_BINARY_DIR}/implementations/lsquic/src/liblsquic)
-link_directories(${CMAKE_BINARY_DIR}/implementations/boringssl)
+    # Add boringssl and lsquic
+    SET(BORINGSSL_DIR ${CMAKE_SOURCE_DIR}/implementations/boringssl)
+    ADD_SUBDIRECTORY(${BORINGSSL_DIR})
+    INCLUDE_DIRECTORIES(implementations/boringssl/include)
+    INCLUDE_DIRECTORIES(implementations/lsquic/include)
+    INCLUDE_DIRECTORIES(implementations/lsquic/src/liblsquic)
+    ADD_SUBDIRECTORY(implementations/lsquic/src/liblsquic)
 
-# Create client executable
-add_executable(client ${CLIENT_SRC} ${SRC} ${IMPL_CLIENT_SRC})
-target_include_directories(client PUBLIC implementations/boringssl/include)
-target_include_directories(client PUBLIC implementations/lsquic/include)
-target_include_directories(client PUBLIC quicsand/include)
-SET(LIBS lsquic crypto ssl event m yaml z)
-TARGET_LINK_LIBRARIES(client ${LIBS})
-set_target_properties(client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+    LINK_DIRECTORIES(${CMAKE_BINARY_DIR}/implementations/lsquic/src/liblsquic)
+    LINK_DIRECTORIES(${CMAKE_BINARY_DIR}/implementations/boringssl)
+    
+    # Set libraries
+    SET(LIBS lsquic crypto ssl event m yaml z)
 
-# Create server executable
-add_executable(server ${SERVER_SRC} ${SRC} ${IMPL_SERVER_SRC})
-target_include_directories(server PUBLIC implementations/boringssl/include)
-target_include_directories(server PUBLIC implementations/lsquic/include)
-target_include_directories(server PUBLIC quicsand/include)
+    # Include directories to client and server
+    TARGET_INCLUDE_DIRECTORIES(client PRIVATE implementations/boringssl/include)
+    TARGET_INCLUDE_DIRECTORIES(client PRIVATE implementations/lsquic/include)
+    TARGET_INCLUDE_DIRECTORIES(server PRIVATE implementations/boringssl/include)
+    TARGET_INCLUDE_DIRECTORIES(server PRIVATE implementations/lsquic/include)
+
+ELSEIF(${IMPL} STREQUAL "msquic")
+
+    # Add msquic
+    ADD_SUBDIRECTORY(implementations/msquic)
+    INCLUDE_DIRECTORIES(implementations/msquic/include)
+
+    # Include directories to client and server
+    TARGET_INCLUDE_DIRECTORIES(client PRIVATE implementations/msquic/include)
+    TARGET_INCLUDE_DIRECTORIES(server PRIVATE implementations/msquic/include)
+
+    # Set libraries
+    SET(LIBS msquic yaml)
+
+ELSE()
+    MESSAGE(FATAL_ERROR "Invalid implementation: ${IMPL}")
+ENDIF()
+    
+TARGET_INCLUDE_DIRECTORIES(server PUBLIC quicsand/include)
 TARGET_LINK_LIBRARIES(server ${LIBS})
-set_target_properties(server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+SET_TARGET_PROPERTIES(server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+    
+TARGET_INCLUDE_DIRECTORIES(client PUBLIC quicsand/include)
+TARGET_LINK_LIBRARIES(client ${LIBS})
+SET_TARGET_PROPERTIES(client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+
