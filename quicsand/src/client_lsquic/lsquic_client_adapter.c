@@ -87,27 +87,43 @@ int create_sock(char *ip, unsigned int port, struct sockaddr_storage *local_sas)
 
 static int send_packets_out(void *ctx, const struct lsquic_out_spec *specs, unsigned n_specs)
 {
-    struct msghdr msg;
-    int *sockfd;
+    fprintf(stdout, "Sending out packets\n");
     unsigned n;
+    int fd, s = 0;
+    struct msghdr msg;
 
-    memset(&msg, 0, sizeof(msg));
-    sockfd = (int *)ctx;
+    if (0 == n_specs)
+        return 0;
 
-    for (n = 0; n < n_specs; ++n)
+    n = 0;
+    msg.msg_flags = 0;
+    msg.msg_control = NULL;
+    msg.msg_controllen = 0;
+    do
     {
+        fd = (int)(uint64_t)specs[n].peer_ctx;
         msg.msg_name = (void *)specs[n].dest_sa;
-        msg.msg_namelen = sizeof(struct sockaddr_in);
+        msg.msg_namelen = (AF_INET == specs[n].dest_sa->sa_family ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)),
         msg.msg_iov = specs[n].iov;
         msg.msg_iovlen = specs[n].iovlen;
-        if (sendmsg(*sockfd, &msg, 0) < 0)
+        s = sendmsg(fd, &msg, 0);
+        if (s < 0)
         {
-            perror("cannot send\n");
+            printf("sendmsg failed: %s\n", strerror(errno));
             break;
         }
-    }
+        ++n;
+    } while (n < n_specs);
 
-    return (int)n;
+    if (n < n_specs)
+        printf("could not send all of them\n"); /* TODO */
+    if (n > 0)
+        return n;
+    else
+    {
+        assert(s < 0);
+        return -1;
+    }
 }
 
 static void read_sock(evutil_socket_t fd, short what, void *arg)
@@ -192,8 +208,11 @@ static void on_hsk_done(lsquic_conn_t *conn, enum lsquic_hsk_status status)
     switch (status)
     {
     case LSQ_HSK_OK:
+        printf("OK: handshake successful, start stdin watcher\n");
+        fflush(stdout);
+        break;
     case LSQ_HSK_RESUMED_OK:
-        printf("handshake successful, start stdin watcher\n");
+        printf("RESUME OK: handshake successful, start stdin watcher\n");
         fflush(stdout);
         lsquic_conn_make_stream(client_ctx->conn);
         break;

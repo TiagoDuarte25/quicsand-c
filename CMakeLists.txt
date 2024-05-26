@@ -33,28 +33,15 @@ IF(${IMPL} STREQUAL "lsquic")
     INCLUDE_DIRECTORIES(implementations/lsquic/include)
     INCLUDE_DIRECTORIES(implementations/lsquic/src/liblsquic)
     ADD_SUBDIRECTORY(implementations/lsquic/src/liblsquic)
-
-    LINK_DIRECTORIES(${CMAKE_BINARY_DIR}/implementations/lsquic/src/liblsquic)
-    LINK_DIRECTORIES(${CMAKE_BINARY_DIR}/implementations/boringssl)
     
     # Set libraries
     SET(LIBS lsquic crypto ssl event m yaml z)
-
-    # Include directories to client and server
-    TARGET_INCLUDE_DIRECTORIES(client PRIVATE implementations/boringssl/include)
-    TARGET_INCLUDE_DIRECTORIES(client PRIVATE implementations/lsquic/include)
-    TARGET_INCLUDE_DIRECTORIES(server PRIVATE implementations/boringssl/include)
-    TARGET_INCLUDE_DIRECTORIES(server PRIVATE implementations/lsquic/include)
 
 ELSEIF(${IMPL} STREQUAL "msquic")
 
     # Add msquic
     ADD_SUBDIRECTORY(implementations/msquic)
     INCLUDE_DIRECTORIES(implementations/msquic/include)
-
-    # Include directories to client and server
-    TARGET_INCLUDE_DIRECTORIES(client PRIVATE implementations/msquic/include)
-    TARGET_INCLUDE_DIRECTORIES(server PRIVATE implementations/msquic/include)
 
     # Set libraries
     SET(LIBS msquic yaml)
@@ -63,12 +50,10 @@ ELSE()
     MESSAGE(FATAL_ERROR "Invalid implementation: ${IMPL}")
 ENDIF()
     
-TARGET_INCLUDE_DIRECTORIES(server PUBLIC quicsand/include)
+TARGET_INCLUDE_DIRECTORIES(server PRIVATE quicsand/include)
 TARGET_LINK_LIBRARIES(server ${LIBS})
 SET_TARGET_PROPERTIES(server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
     
-TARGET_INCLUDE_DIRECTORIES(client PUBLIC quicsand/include)
+TARGET_INCLUDE_DIRECTORIES(client PRIVATE quicsand/include)
 TARGET_LINK_LIBRARIES(client ${LIBS})
 SET_TARGET_PROPERTIES(client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-
-

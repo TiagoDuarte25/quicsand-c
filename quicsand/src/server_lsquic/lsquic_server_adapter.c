@@ -281,6 +281,7 @@ void process_conns(server_ctx_t *server_ctx)
         if (diff > 0)
         {
             timeout.tv_sec = (time_t)diff / 1000000;
+            timeout.tv_usec = diff % 1000000;
         }
         else
         {
@@ -290,6 +291,7 @@ void process_conns(server_ctx_t *server_ctx)
     else
     {
         timeout.tv_sec = 2;
+        timeout.tv_usec = 200000;
     }
     server_ctx->timer = event_new(server_ctx->loop, -1, EV_TIMEOUT, process_conns_cb, server_ctx);
     event_add(server_ctx->timer, &timeout);
