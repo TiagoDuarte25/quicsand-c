@@ -102,6 +102,62 @@ void create_ssl_ctx(server_ctx_t *server_ctx)
     server_ctx->ssl_ctx = ssl_ctx;
 }
 
+static int
+set_nonblocking(int fd)
+{
+    int flags;
+
+    flags = fcntl(fd, F_GETFL);
+    if (-1 == flags)
+        return -1;
+    flags |= O_NONBLOCK;
+    if (0 != fcntl(fd, F_SETFL, flags))
+        return -1;
+
+    return 0;
+}
+
+/* ToS is used to get ECN value */
+static int
+set_ecn(int fd, const struct sockaddr *sa)
+{
+    int on, s;
+
+    on = 1;
+    if (AF_INET == sa->sa_family)
+        s = setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
+    else
+        s = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
+    if (s != 0)
+        perror("setsockopt(ecn)");
+
+    return s;
+}
+
+/* Set up the socket to return original destination address in ancillary data */
+static int
+set_origdst(int fd, const struct sockaddr *sa)
+{
+    int on, s;
+
+    on = 1;
+    if (AF_INET == sa->sa_family)
+        s = setsockopt(fd, IPPROTO_IP,
+#if defined(IP_RECVORIGDSTADDR)
+                       IP_RECVORIGDSTADDR,
+#else
+                       IP_PKTINFO,
+#endif
+                       &on, sizeof(on));
+    else
+        s = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on));
+
+    if (s != 0)
+        perror("setsockopt");
+
+    return s;
+}
+
 struct sockaddr_in new_addr(char *ip, unsigned int port)
 {
     struct sockaddr_in addr;
@@ -120,19 +176,6 @@ int create_sock(char *ip, unsigned int port, struct sockaddr_storage *local_sas)
         fflush(stdout);
         exit(EXIT_FAILURE);
     }
-
-    int flags;
-    flags = fcntl(sockfd, F_GETFL);
-    if (-1 == flags)
-        return -1;
-    flags |= O_NONBLOCK;
-    if (0 != fcntl(sockfd, F_SETFL, flags))
-        return -1;
-    int on, s;
-    on = 1;
-    s = setsockopt(sockfd, IPPROTO_IP, IP_RECVORIGDSTADDR, &on, sizeof(on));
-    if (s != 0)
-        perror("setsockopt");
 
     struct sockaddr_in local_addr = new_addr(ip, port);
     if (bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) != 0)
@@ -318,7 +361,29 @@ void server_init()
 
     server_ctx.sockfd = create_sock(conf->target, atoi(conf->port), &server_ctx.local_sas);
 
-    if (0 != lsquic_global_init(LSQUIC_GLOBAL_CLIENT | LSQUIC_GLOBAL_SERVER))
+    if (0 != set_nonblocking(server_ctx.sockfd))
+    {
+        perror("set_nonblocking");
+        exit(EXIT_FAILURE);
+    }
+
+    if (0 != set_ecn(server_ctx.sockfd, (struct sockaddr *)&server_ctx.local_sas))
+    {
+        perror("set_ecn");
+        exit(EXIT_FAILURE);
+    }
+
+    if (0 != set_origdst(server_ctx.sockfd, (struct sockaddr *)&server_ctx.local_sas))
+    {
+        perror("set_origdst");
+        exit(EXIT_FAILURE);
+    }
+
+    server_ctx.loop = event_base_new();
+    server_ctx.read = event_new(server_ctx.loop, server_ctx.sockfd, EV_READ | EV_PERSIST, read_sock, &server_ctx);
+    event_add(server_ctx.read, NULL);
+
+    if (0 != lsquic_global_init(LSQUIC_GLOBAL_SERVER | LSQUIC_GLOBAL_CLIENT))
     {
         exit(EXIT_FAILURE);
     }
@@ -333,7 +398,7 @@ void server_init()
     }
 
     // Initialization of lsquic logger
-    lsquic_log_to_fstream(stderr, LLTS_HHMMSSMS);
+    lsquic_log_to_fstream(stdout, LLTS_HHMMSSMS);
     lsquic_set_log_level("debug");
 
     struct lsquic_engine_api engine_api;
@@ -347,13 +412,12 @@ void server_init()
 
     server_ctx.engine = lsquic_engine_new(LSENG_SERVER, &engine_api);
 
-    server_ctx.loop = event_base_new();
-    server_ctx.read = event_new(server_ctx.loop, server_ctx.sockfd, EV_READ | EV_PERSIST, read_sock, &server_ctx);
-    event_add(server_ctx.read, NULL);
     server_ctx.timer = event_new(server_ctx.loop, -1, EV_TIMEOUT, process_conns_cb, &server_ctx);
     timeout.tv_sec = 2;
     timeout.tv_usec = 0;
     event_add(server_ctx.timer, &timeout);
+    printf("Listening on %s:%s\n", conf->target, conf->port);
+
     event_base_dispatch(server_ctx.loop);
 }
 

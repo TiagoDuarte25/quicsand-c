@@ -48,6 +48,38 @@ const struct lsquic_stream_if stream_if = {
     .on_write = on_write_cb,
     .on_hsk_done = on_hsk_done};
 
+static int
+set_nonblocking(int fd)
+{
+    int flags;
+
+    flags = fcntl(fd, F_GETFL);
+    if (-1 == flags)
+        return -1;
+    flags |= O_NONBLOCK;
+    if (0 != fcntl(fd, F_SETFL, flags))
+        return -1;
+
+    return 0;
+}
+
+/* ToS is used to get ECN value */
+static int
+set_ecn(int fd, const struct sockaddr *sa)
+{
+    int on, s;
+
+    on = 1;
+    if (AF_INET == sa->sa_family)
+        s = setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
+    else
+        s = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
+    if (s != 0)
+        perror("setsockopt(ecn)");
+
+    return s;
+}
+
 struct sockaddr_in new_addr(char *ip, unsigned int port)
 {
 
@@ -289,11 +321,27 @@ client_init()
     client_ctx.sockfd = create_sock("127.0.0.1", 5000, &client_ctx.local_sas);
     struct sockaddr_in peer_addr = new_addr(conf->target, atoi(conf->port));
 
+    if (set_nonblocking(client_ctx.sockfd) != 0)
+    {
+        fprintf(stderr, "Error setting non-blocking socket\n");
+        close(client_ctx.sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    if (set_ecn(client_ctx.sockfd, (struct sockaddr *)&client_ctx.local_sas) != 0)
+    {
+        fprintf(stderr, "Error setting ECN\n");
+        close(client_ctx.sockfd);
+        exit(EXIT_FAILURE);
+    }
+
     // Event initialiazation
     client_ctx.loop = event_base_new();
     client_ctx.sock_ev = event_new(client_ctx.loop, client_ctx.sockfd, EV_READ | EV_PERSIST, read_sock, &client_ctx);
     client_ctx.conn_ev = event_new(client_ctx.loop, -1, EV_TIMEOUT, process_conns_cb, &client_ctx);
     client_ctx.strm_ev = event_new(client_ctx.loop, -1, 0, read_stdin, &client_ctx);
+
+    event_add(client_ctx.sock_ev, NULL);
 
     if (0 != lsquic_global_init(LSQUIC_GLOBAL_CLIENT))
     {
@@ -312,6 +360,7 @@ client_init()
     };
     client_ctx.engine = lsquic_engine_new(0, &engine_api);
     printf("Engine created with success!\n");
+
     client_ctx.conn = lsquic_engine_connect(client_ctx.engine, N_LSQVER,
                                             (struct sockaddr *)&client_ctx.local_sas,
                                             (struct sockaddr *)&peer_addr, (void *)&client_ctx.sockfd, NULL,
@@ -324,12 +373,13 @@ client_init()
         exit(EXIT_FAILURE);
     }
 
-    printf("Cheguei aqui!\n");
+    event_add(client_ctx.conn_ev, NULL);
+    event_add(client_ctx.strm_ev, NULL);
+
     lsquic_engine_process_conns(client_ctx.engine);
 
     event_base_dispatch(client_ctx.loop);
 
-    lsquic_global_cleanup();
     return conf;
 }
 
