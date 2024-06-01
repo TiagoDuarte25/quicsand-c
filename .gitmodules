@@ -10,3 +10,9 @@
 [submodule "implementations/msquic"]
 	path = implementations/msquic
 	url = https://github.com/microsoft/msquic.git
+[submodule "quiche"]
+	path = quiche
+	url = https://github.com/cloudflare/quiche.git
+[submodule "implementations/quiche"]
+	path = implementations/quiche
+	url = https://github.com/cloudflare/quiche.git
