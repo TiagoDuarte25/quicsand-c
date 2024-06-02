@@ -10,12 +10,15 @@
 #include <openssl/x509.h>
 #include <openssl/ssl.h>
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 static lsquic_conn_ctx_t *on_new_conn_cb(void *ea_stream_if_ctx, lsquic_conn_t *conn);
 static void on_conn_closed_cb(lsquic_conn_t *conn);
 static lsquic_stream_ctx_t *on_new_stream_cb(void *ea_stream_if_ctx, lsquic_stream_t *stream);
 static void on_read_cb(lsquic_stream_t *stream, lsquic_stream_ctx_t *h);
 static void on_write_cb(lsquic_stream_t *stream, lsquic_stream_ctx_t *h);
 static void on_hsk_done(lsquic_conn_t *c, enum lsquic_hsk_status s);
+static void on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h);
 
 typedef struct client_ctx
 {
@@ -33,7 +36,7 @@ typedef struct client_ctx
     // SSL
     SSL_CTX *ssl_ctx;
 
-    // msg to send
+    // Connection
     char *buf;
     int size;
 } client_ctx_t;
@@ -46,7 +49,9 @@ const struct lsquic_stream_if stream_if = {
     .on_new_stream = on_new_stream_cb,
     .on_read = on_read_cb,
     .on_write = on_write_cb,
-    .on_hsk_done = on_hsk_done};
+    .on_hsk_done = on_hsk_done,
+    .on_close = on_close_cb,
+};
 
 static int
 set_nonblocking(int fd)
@@ -117,14 +122,99 @@ int create_sock(char *ip, unsigned int port, struct sockaddr_storage *local_sas)
     return sockfd;
 }
 
-static int send_packets_out(void *ctx, const struct lsquic_out_spec *specs, unsigned n_specs)
+enum ctl_what
 {
-    fprintf(stdout, "Sending out packets\n");
+    CW_SENDADDR = 1 << 0,
+    CW_ECN = 1 << 1,
+};
+
+static void
+setup_control_msg(struct msghdr *msg, enum ctl_what cw,
+                  const struct lsquic_out_spec *spec, unsigned char *buf, size_t bufsz)
+{
+    struct cmsghdr *cmsg;
+    struct sockaddr_in *local_sa;
+    struct sockaddr_in6 *local_sa6;
+    struct in_pktinfo info;
+    struct in6_pktinfo info6;
+    size_t ctl_len;
+
+    msg->msg_control = buf;
+    msg->msg_controllen = bufsz;
+
+    /* Need to zero the buffer due to a bug(?) in CMSG_NXTHDR.  See
+     * https://stackoverflow.com/questions/27601849/cmsg-nxthdr-returns-null-even-though-there-are-more-cmsghdr-objects
+     */
+    memset(buf, 0, bufsz);
+
+    ctl_len = 0;
+    for (cmsg = CMSG_FIRSTHDR(msg); cw && cmsg; cmsg = CMSG_NXTHDR(msg, cmsg))
+    {
+        if (cw & CW_SENDADDR)
+        {
+            if (AF_INET == spec->dest_sa->sa_family)
+            {
+                local_sa = (struct sockaddr_in *)spec->local_sa;
+                memset(&info, 0, sizeof(info));
+                info.ipi_spec_dst = local_sa->sin_addr;
+                cmsg->cmsg_level = IPPROTO_IP;
+                cmsg->cmsg_type = IP_PKTINFO;
+                cmsg->cmsg_len = CMSG_LEN(sizeof(info));
+                ctl_len += CMSG_SPACE(sizeof(info));
+                memcpy(CMSG_DATA(cmsg), &info, sizeof(info));
+            }
+            else
+            {
+                local_sa6 = (struct sockaddr_in6 *)spec->local_sa;
+                memset(&info6, 0, sizeof(info6));
+                info6.ipi6_addr = local_sa6->sin6_addr;
+                cmsg->cmsg_level = IPPROTO_IPV6;
+                cmsg->cmsg_type = IPV6_PKTINFO;
+                cmsg->cmsg_len = CMSG_LEN(sizeof(info6));
+                memcpy(CMSG_DATA(cmsg), &info6, sizeof(info6));
+                ctl_len += CMSG_SPACE(sizeof(info6));
+            }
+            cw &= ~CW_SENDADDR;
+        }
+        else if (cw & CW_ECN)
+        {
+            if (AF_INET == spec->dest_sa->sa_family)
+            {
+                const int tos = spec->ecn;
+                cmsg->cmsg_level = IPPROTO_IP;
+                cmsg->cmsg_type = IP_TOS;
+                cmsg->cmsg_len = CMSG_LEN(sizeof(tos));
+                memcpy(CMSG_DATA(cmsg), &tos, sizeof(tos));
+                ctl_len += CMSG_SPACE(sizeof(tos));
+            }
+            else
+            {
+                const int tos = spec->ecn;
+                cmsg->cmsg_level = IPPROTO_IPV6;
+                cmsg->cmsg_type = IPV6_TCLASS;
+                cmsg->cmsg_len = CMSG_LEN(sizeof(tos));
+                memcpy(CMSG_DATA(cmsg), &tos, sizeof(tos));
+                ctl_len += CMSG_SPACE(sizeof(tos));
+            }
+            cw &= ~CW_ECN;
+        }
+        else
+            assert(0);
+    }
+
+    msg->msg_controllen = ctl_len;
+}
+
+/* A simple version of ea_packets_out -- does not use ancillary messages */
+static int
+packets_out_v0(void *packets_out_ctx, const struct lsquic_out_spec *specs,
+               unsigned count)
+{
     unsigned n;
     int fd, s = 0;
     struct msghdr msg;
 
-    if (0 == n_specs)
+    if (0 == count)
         return 0;
 
     n = 0;
@@ -141,14 +231,15 @@ static int send_packets_out(void *ctx, const struct lsquic_out_spec *specs, unsi
         s = sendmsg(fd, &msg, 0);
         if (s < 0)
         {
-            printf("sendmsg failed: %s\n", strerror(errno));
+            printf("sendmsg failed: %s", strerror(errno));
             break;
         }
         ++n;
-    } while (n < n_specs);
+    } while (n < count);
 
-    if (n < n_specs)
-        printf("could not send all of them\n"); /* TODO */
+    if (n < count)
+        printf("could not send all of them"); /* TODO */
+
     if (n > 0)
         return n;
     else
@@ -157,6 +248,81 @@ static int send_packets_out(void *ctx, const struct lsquic_out_spec *specs, unsi
         return -1;
     }
 }
+
+/* A more complicated version of ea_packets_out -- this one sets source IP
+ * address and ECN.
+ */
+static int
+packets_out_v1(void *packets_out_ctx, const struct lsquic_out_spec *specs,
+               unsigned count)
+{
+    client_ctx_t *const client_ctx = packets_out_ctx;
+    unsigned n;
+    int fd, s = 0;
+    struct msghdr msg;
+    enum ctl_what cw;
+    union
+    {
+        /* cmsg(3) recommends union for proper alignment */
+        unsigned char buf[CMSG_SPACE(MAX(sizeof(struct in_pktinfo),
+                                         sizeof(struct in6_pktinfo))) +
+                          CMSG_SPACE(sizeof(int))];
+        struct cmsghdr cmsg;
+    } ancil;
+
+    if (0 == count)
+        return 0;
+
+    n = 0;
+    msg.msg_flags = 0;
+    do
+    {
+        fd = (int)(uint64_t)specs[n].peer_ctx;
+        msg.msg_name = (void *)specs[n].dest_sa;
+        msg.msg_namelen = (AF_INET == specs[n].dest_sa->sa_family ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)),
+        msg.msg_iov = specs[n].iov;
+        msg.msg_iovlen = specs[n].iovlen;
+
+        /* Set up ancillary message */
+        cw = CW_SENDADDR;
+        if (specs[n].ecn)
+            cw |= CW_ECN;
+        if (cw)
+            setup_control_msg(&msg, cw, &specs[n], ancil.buf,
+                              sizeof(ancil.buf));
+        else
+        {
+            msg.msg_control = NULL;
+            msg.msg_controllen = 0;
+        }
+
+        s = sendmsg(fd, &msg, 0);
+        if (s < 0)
+        {
+            printf("sendmsg failed: %s", strerror(errno));
+            break;
+        }
+        ++n;
+    } while (n < count);
+
+    if (n < count)
+        printf("could not send all of them"); /* TODO */
+
+    if (n > 0)
+        return n;
+    else
+    {
+        assert(s < 0);
+        return -1;
+    }
+}
+
+static int (*const packets_out[])(void *packets_out_ctx,
+                                  const struct lsquic_out_spec *specs, unsigned count) =
+    {
+        packets_out_v0,
+        packets_out_v1,
+};
 
 static void read_sock(evutil_socket_t fd, short what, void *arg)
 {
@@ -218,78 +384,111 @@ void process_conns(client_ctx_t *client_ctx)
 static lsquic_conn_ctx_t *on_new_conn_cb(void *ea_stream_if_ctx, lsquic_conn_t *conn)
 {
     printf("On new connection\n");
-    client_ctx_t *client_ctx = ea_stream_if_ctx;
     fflush(stdout);
+    client_ctx_t *const client_ctx = ea_stream_if_ctx;
+    client_ctx->conn = conn;
+    printf("created connection\n");
     return (void *)client_ctx;
 }
 
 static void on_conn_closed_cb(lsquic_conn_t *conn)
 {
     printf("On connection close\n");
-    char errbuf[2048];
-    enum LSQUIC_CONN_STATUS status = lsquic_conn_status(conn, errbuf, 2048);
-    printf("errbuf: %s\n", errbuf);
-    // printf("conn status: %s\n", get_conn_status_str(status));
-    fflush(stdout);
+
+    client_ctx_t *const client_ctx = (void *)lsquic_conn_get_ctx(conn);
+
+    printf("client connection closed -- stop reading from socket\n");
+    event_del(client_ctx->sock_ev);
 }
 
 static void on_hsk_done(lsquic_conn_t *conn, enum lsquic_hsk_status status)
 {
-    client_ctx_t *client_ctx = (void *)lsquic_conn_get_ctx(conn);
+    client_ctx_t *const client_ctx = (void *)lsquic_conn_get_ctx(conn);
 
     switch (status)
     {
     case LSQ_HSK_OK:
-        printf("OK: handshake successful, start stdin watcher\n");
-        fflush(stdout);
-        break;
     case LSQ_HSK_RESUMED_OK:
-        printf("RESUME OK: handshake successful, start stdin watcher\n");
-        fflush(stdout);
-        lsquic_conn_make_stream(client_ctx->conn);
+        printf("handshake successful, start stdin watcher\n");
         break;
     default:
         printf("handshake failed\n");
-        fflush(stdout);
         break;
     }
 }
 
 static lsquic_stream_ctx_t *on_new_stream_cb(void *ea_stream_if_ctx, lsquic_stream_t *stream)
 {
-    printf("On new stream\n");
-    fflush(stdout);
     client_ctx_t *client_ctx = ea_stream_if_ctx;
-    client_ctx->stream = stream;
-    event_active(client_ctx->strm_ev, 0, 0);
+    printf("created new stream, we want to write\n");
+    lsquic_stream_wantwrite(stream, 1);
     return (void *)client_ctx;
 }
 
 static void on_read_cb(lsquic_stream_t *stream, lsquic_stream_ctx_t *h)
 {
-    lsquic_conn_t *conn = lsquic_stream_conn(stream);
-    client_ctx_t *client_ctx = (void *)lsquic_conn_get_ctx(conn);
+    client_ctx_t *client_ctx = (client_ctx_t *)h;
+    ssize_t nread;
+    unsigned char buf[3];
 
-    unsigned char buf[256] = {0};
-
-    ssize_t nr = lsquic_stream_read(stream, buf, sizeof(buf));
-
-    buf[nr] = '\0';
-    printf("recv %zd bytes: %s\n", nr, buf);
-
-    // lsquic_stream_wantread(stream, 0);
-    // event_add(client_ctx->strm_ev, NULL);
+    nread = lsquic_stream_read(stream, buf, sizeof(buf));
+    if (nread > 0)
+    {
+        fwrite(buf, 1, nread, stdout);
+        fflush(stdout);
+    }
+    else if (nread == 0)
+    {
+        printf("read to end-of-stream: close and read from stdin again\n");
+        lsquic_stream_shutdown(stream, 0);
+    }
+    else
+    {
+        printf("error reading from stream (%s) -- exit loop\n", strerror(errno));
+        event_base_loopbreak(client_ctx->loop);
+    }
 }
 
 static void on_write_cb(lsquic_stream_t *stream, lsquic_stream_ctx_t *h)
 {
-    lsquic_conn_t *conn = lsquic_stream_conn(stream);
-    client_ctx_t *client_ctx = (void *)lsquic_conn_get_ctx(conn);
+    lsquic_conn_t *conn;
+    client_ctx_t *client_ctx;
+    ssize_t nw;
 
-    lsquic_stream_write(stream, client_ctx->buf, client_ctx->size);
-    lsquic_stream_wantwrite(stream, 0);
-    lsquic_stream_flush(stream);
-    lsquic_stream_wantread(stream, 1);
+    conn = lsquic_stream_conn(stream);
+    client_ctx = (void *)lsquic_conn_get_ctx(conn);
+
+    nw = lsquic_stream_write(stream, client_ctx->buf, client_ctx->size);
+    if (nw > 0)
+    {
+        client_ctx->size -= (size_t)nw;
+        if (client_ctx->size == 0)
+        {
+            printf("wrote all %zd bytes to stream, switch to reading\n", (size_t)nw);
+            lsquic_stream_shutdown(stream, 1); /* This flushes as well */
+            lsquic_stream_wantread(stream, 1);
+        }
+        else
+        {
+            memmove(client_ctx->buf, client_ctx->buf + nw, client_ctx->size);
+            printf("wrote %zd bytes to stream, still have %zd bytes to write\n", (size_t)nw, client_ctx->size);
+        }
+    }
+    else
+    {
+        /* When `on_write()' is called, the library guarantees that at least
+         * something can be written.  If not, that's an error whether 0 or -1
+         * is returned.
+         */
+        printf("stream_write() returned %ld, abort connection\n", (long)nw);
+        lsquic_conn_abort(lsquic_stream_conn(stream));
+    }
+}
+
+static void
+on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    printf("stream closed");
 }
 
 void read_stdin(evutil_socket_t fd, short what, void *ctx)
@@ -353,7 +552,7 @@ client_init()
     lsquic_set_log_level("debug");
 
     struct lsquic_engine_api engine_api = {
-        .ea_packets_out = send_packets_out,
+        .ea_packets_out = packets_out[0],
         .ea_packets_out_ctx = (void *)&client_ctx.sockfd,
         .ea_stream_if = &stream_if,
         .ea_stream_if_ctx = (void *)&client_ctx,

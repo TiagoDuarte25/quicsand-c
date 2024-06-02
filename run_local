@@ -33,7 +33,17 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-cmake -S . -B build -DIMPL=$IMPLEMENTATION
+if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ]; then
+    cmake -S . -B build -DIMPL=$IMPLEMENTATION
+else
+    # cd implementations/quiche 
+    
+    # cargo build
+
+    # cd ../../
+
+    cmake -S . -B build -DIMPL=$IMPLEMENTATION
+fi
 
 cd build
 
@@ -44,3 +54,4 @@ gnome-terminal -- bash -c "cd bin; ./server; exec bash"
 sleep 2
 
 gnome-terminal -- bash -c "cd bin; ./client; exec bash"
+
