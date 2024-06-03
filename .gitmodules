@@ -16,3 +16,6 @@
 [submodule "implementations/quiche"]
 	path = implementations/quiche
 	url = https://github.com/cloudflare/quiche.git
+[submodule "implementations/libev"]
+	path = implementations/libev
+	url = https://github.com/enki/libev.git
