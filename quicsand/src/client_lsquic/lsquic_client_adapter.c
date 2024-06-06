@@ -1,7 +1,7 @@
 #include "lsquic.h"
 #include "quicsand_client_adapter.h"
 #include <errno.h>
-#include <event2/event.h>
+#include <ev.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -22,9 +22,9 @@ static void on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h);
 
 typedef struct client_ctx
 {
-    // event loop
-    struct event_base *loop;
-    struct event *sock_ev, *conn_ev, *strm_ev;
+    struct ev_loop *loop;
+    ev_io sock_w; /* socket watcher */
+    ev_timer timer;
 
     // lsquic
     int sockfd;
@@ -324,9 +324,9 @@ static int (*const packets_out[])(void *packets_out_ctx,
         packets_out_v1,
 };
 
-static void read_sock(evutil_socket_t fd, short what, void *arg)
+static void read_sock(EV_P_ ev_io *w, int revents)
 {
-    client_ctx_t *client_ctx = arg;
+    client_ctx_t *client_ctx = w->data;
     ssize_t nread;
     struct sockaddr_storage peer_sas;
     unsigned char buf[0x1000];
@@ -338,7 +338,7 @@ static void read_sock(evutil_socket_t fd, short what, void *arg)
         .msg_iov = vec,
         .msg_iovlen = 1,
     };
-    nread = recvmsg(fd, &msg, 0);
+    nread = recvmsg(client_ctx->sockfd, &msg, 0);
     if (-1 == nread)
     {
         return;
@@ -350,34 +350,35 @@ static void read_sock(evutil_socket_t fd, short what, void *arg)
     (void)lsquic_engine_packet_in(client_ctx->engine, buf, nread,
                                   (struct sockaddr *)&client_ctx->local_sas,
                                   (struct sockaddr *)&peer_sas,
-                                  (void *)(uintptr_t)fd, ecn);
+                                  (void *)(uintptr_t)client_ctx->sockfd, ecn);
 
     process_conns(client_ctx);
 }
 
-static void process_conns_cb(evutil_socket_t fd, short what, void *arg)
+static void process_conns_cb(EV_P_ ev_timer *timer, int revents)
 {
-    process_conns(arg);
+    process_conns(timer->data);
 }
 
 void process_conns(client_ctx_t *client_ctx)
 {
     int diff;
-    struct timeval timeout;
+    ev_tstamp timeout;
 
-    event_del(client_ctx->conn_ev);
+    ev_timer_stop(client_ctx->loop, &client_ctx->timer);
     lsquic_engine_process_conns(client_ctx->engine);
     if (lsquic_engine_earliest_adv_tick(client_ctx->engine, &diff))
     {
         if (diff > 0)
         {
-            timeout.tv_sec = (time_t)diff / 1000000;
+            timeout = (ev_tstamp)diff / 1000000;
         }
         else
         {
-            timeout.tv_sec = 0;
+            timeout = 0;
         }
-        event_add(client_ctx->conn_ev, &timeout);
+        ev_timer_init(&client_ctx->timer, process_conns_cb, timeout, 0.);
+        ev_timer_start(client_ctx->loop, &client_ctx->timer);
     }
 }
 
@@ -398,7 +399,7 @@ static void on_conn_closed_cb(lsquic_conn_t *conn)
     client_ctx_t *const client_ctx = (void *)lsquic_conn_get_ctx(conn);
 
     printf("client connection closed -- stop reading from socket\n");
-    event_del(client_ctx->sock_ev);
+    ev_io_stop(client_ctx->loop, &client_ctx->sock_w);
 }
 
 static void on_hsk_done(lsquic_conn_t *conn, enum lsquic_hsk_status status)
@@ -445,7 +446,7 @@ static void on_read_cb(lsquic_stream_t *stream, lsquic_stream_ctx_t *h)
     else
     {
         printf("error reading from stream (%s) -- exit loop\n", strerror(errno));
-        event_base_loopbreak(client_ctx->loop);
+        ev_break(client_ctx->loop, EVBREAK_ONE);
     }
 }
 
@@ -491,17 +492,6 @@ on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
     printf("stream closed");
 }
 
-void read_stdin(evutil_socket_t fd, short what, void *ctx)
-{
-    char *req = "Client request\n";
-    client_ctx_t *client_ctx = ctx;
-    client_ctx->buf = req;
-    client_ctx->size = sizeof(req);
-    event_del(client_ctx->strm_ev);
-    lsquic_stream_wantwrite(client_ctx->stream, 1);
-    process_conns(client_ctx);
-}
-
 Config *
 client_init()
 {
@@ -535,12 +525,10 @@ client_init()
     }
 
     // Event initialiazation
-    client_ctx.loop = event_base_new();
-    client_ctx.sock_ev = event_new(client_ctx.loop, client_ctx.sockfd, EV_READ | EV_PERSIST, read_sock, &client_ctx);
-    client_ctx.conn_ev = event_new(client_ctx.loop, -1, EV_TIMEOUT, process_conns_cb, &client_ctx);
-    client_ctx.strm_ev = event_new(client_ctx.loop, -1, 0, read_stdin, &client_ctx);
-
-    event_add(client_ctx.sock_ev, NULL);
+    client_ctx.loop = EV_DEFAULT;
+    ev_io_init(&client_ctx.sock_w, read_sock, client_ctx.sockfd, EV_READ);
+    ev_io_start(client_ctx.loop, &client_ctx.sock_w);
+    ev_init(&client_ctx.timer, process_conns_cb);
 
     if (0 != lsquic_global_init(LSQUIC_GLOBAL_CLIENT))
     {
@@ -557,8 +545,17 @@ client_init()
         .ea_stream_if = &stream_if,
         .ea_stream_if_ctx = (void *)&client_ctx,
     };
+
     client_ctx.engine = lsquic_engine_new(0, &engine_api);
-    printf("Engine created with success!\n");
+    if (!client_ctx.engine)
+    {
+        printf("Cannot create engine\n");
+        fflush(stdout);
+        exit(EXIT_FAILURE);
+    }
+
+    client_ctx.timer.data = &client_ctx;
+    client_ctx.sock_w.data = &client_ctx;
 
     client_ctx.conn = lsquic_engine_connect(client_ctx.engine, N_LSQVER,
                                             (struct sockaddr *)&client_ctx.local_sas,
@@ -572,12 +569,13 @@ client_init()
         exit(EXIT_FAILURE);
     }
 
-    event_add(client_ctx.conn_ev, NULL);
-    event_add(client_ctx.strm_ev, NULL);
+    printf("Connection created\n");
 
-    lsquic_engine_process_conns(client_ctx.engine);
+    process_conns(&client_ctx);
 
-    event_base_dispatch(client_ctx.loop);
+    printf("Client initialized\n");
+
+    ev_run(client_ctx.loop, 0);
 
     return conf;
 }
@@ -611,7 +609,7 @@ Connection open_connection(Config *conf)
 
 void close_connection(Connection conn)
 {
-    lsquic_conn_close((lsquic_conn_t *)conn);
+    // lsquic_conn_close((lsquic_conn_t *)conn);
     printf("conn[%x] Connection closed\n", lsquic_conn_id(conn)->buf);
 }
 
@@ -640,7 +638,7 @@ void receive_data()
 void client_shutdown()
 {
     // lsquic_engine_destroy(engine);
-    printf("Client shutdown\n");
-    lsquic_global_cleanup();
-    exit(EXIT_SUCCESS);
+    // printf("Client shutdown\n");
+    // lsquic_global_cleanup();
+    // exit(EXIT_SUCCESS);
 }

@@ -49,6 +49,9 @@ cd build
 
 make
 
+cp -r ../quicsand/config.yaml bin/
+cp -r ../quicsand/certs bin/
+
 gnome-terminal -- bash -c "cd bin; ./server; exec bash"
 
 sleep 2

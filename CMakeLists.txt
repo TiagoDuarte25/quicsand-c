@@ -29,16 +29,18 @@ ADD_EXECUTABLE(server ${SERVER_SRC} ${SRC} ${IMPL_SERVER_SRC})
 IF(${IMPL} STREQUAL "lsquic")
 
     # Add boringssl and lsquic
-    SET(BORINGSSL_DIR ${CMAKE_SOURCE_DIR}/implementations/boringssl)
-    ADD_SUBDIRECTORY(${BORINGSSL_DIR})
+    ADD_SUBDIRECTORY(implementations/boringssl)
     INCLUDE_DIRECTORIES(implementations/boringssl/include)
     INCLUDE_DIRECTORIES(implementations/lsquic/include)
     INCLUDE_DIRECTORIES(implementations/lsquic/src/liblsquic)
     INCLUDE_DIRECTORIES(implementation/libev)
     ADD_SUBDIRECTORY(implementations/lsquic/src/liblsquic)
+
+    # Find the libev library
+    FIND_LIBRARY(EVENT_LIBRARY NAMES libev.so PATHS implementations/libev/.libs NO_DEFAULT_PATH)
     
     # Set libraries
-    SET(LIBS lsquic crypto ssl event m yaml z)
+    SET(LIBS ${EVENT_LIBRARY} lsquic crypto ssl m yaml z)
 
     IF(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # If using older glibc, need to link with -lrt.  See clock_getres(2).
@@ -62,26 +64,30 @@ ELSEIF(${IMPL} STREQUAL "msquic")
 ELSEIF(${IMPL} STREQUAL "quiche")
 
     # Add a custom command to build libquiche.so
-    ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_SOURCE_DIR}/implementations/quiche/target/debug/libquiche.so
-                        COMMAND cargo build
+    ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_SOURCE_DIR}/implementations/quiche/target/release/libquiche.so
+                        COMMAND cargo build --release --features ffi
                         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/implementations/quiche
                         COMMENT "Building libquiche.so")
 
     # Add a custom target that depends on the custom command
-    ADD_CUSTOM_TARGET(BuildQuiche DEPENDS ${CMAKE_SOURCE_DIR}/implementations/quiche/target/debug/libquiche.so)
+    ADD_CUSTOM_TARGET(BuildQuiche DEPENDS implementations/quiche/target/release/libquiche.so)
 
     # Add the custom target as a dependency for the client and server executables
     ADD_DEPENDENCIES(client BuildQuiche)
     ADD_DEPENDENCIES(server BuildQuiche)
 
     # Add quiche
-    INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/implementations/quiche/quiche/include)
+    INCLUDE_DIRECTORIES(implementations/quiche/quiche/include)
 
     # Find the quiche library
-    find_library(QUICHE_LIBRARY NAMES libquiche.so PATHS ${CMAKE_SOURCE_DIR}/implementations/quiche/target/debug NO_DEFAULT_PATH)
+    FIND_LIBRARY(QUICHE_LIBRARY NAMES quiche PATHS implementations/quiche/target/release NO_DEFAULT_PATH)
+    FIND_LIBRARY(EVENT_LIBRARY NAMES ev PATHS implementations/libev/.libs NO_DEFAULT_PATH)
+
+    MESSAGE(STATUS "QUICHE_LIBRARY: ${QUICHE_LIBRARY}")
+    MESSAGE(STATUS "EVENT_LIBRARY: ${EVENT_LIBRARY}")
 
     # Set libraries
-    SET(LIBS ${QUICHE_LIBRARY} yaml)
+    SET(LIBS ${QUICHE_LIBRARY} ${EVENT_LIBRARY} yaml)
 
 ELSE()
     MESSAGE(FATAL_ERROR "Invalid implementation: ${IMPL}")

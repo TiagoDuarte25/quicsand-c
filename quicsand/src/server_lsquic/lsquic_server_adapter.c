@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <event2/event.h>
+#include <ev.h>
 #include <fcntl.h>
 
 #include <openssl/pem.h>
@@ -26,9 +26,9 @@ static void on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h);
 
 typedef struct server_ctx
 {
-    // event loop
-    struct event_base *loop;
-    struct event *read, *timer;
+    struct ev_loop *loop;
+    ev_io sock_w; /* socket watcher */
+    ev_timer timer;
 
     // lsquic
     int sockfd;
@@ -589,10 +589,10 @@ proc_ancillary(struct msghdr *msg, struct sockaddr_storage *storage,
                                sizeof(struct in6_pktinfo))) + \
                 ECN_SZ)
 
-static void read_sock(evutil_socket_t fd, short what, void *arg)
+static void read_sock(EV_P_ ev_io *w, int revents)
 {
     fprintf(stdout, "Reading socket...\n");
-    server_ctx_t *server_ctx = arg;
+    server_ctx_t *server_ctx = w->data;
     ssize_t nread;
     struct sockaddr_storage peer_sas, local_sas;
     unsigned char buf[0x1000];
@@ -604,7 +604,7 @@ static void read_sock(evutil_socket_t fd, short what, void *arg)
         .msg_iov = vec,
         .msg_iovlen = 1,
     };
-    nread = recvmsg((int)fd, &msg, 0);
+    nread = recvmsg(server_ctx->sockfd, &msg, 0);
     if (-1 == nread)
     {
         return;
@@ -617,43 +617,41 @@ static void read_sock(evutil_socket_t fd, short what, void *arg)
     (void)lsquic_engine_packet_in(server_ctx->engine, buf, nread,
                                   (struct sockaddr *)&server_ctx->local_sas,
                                   (struct sockaddr *)&peer_sas,
-                                  (void *)(uintptr_t)fd, ecn);
+                                  (void *)(uintptr_t)server_ctx->sockfd, ecn);
 
     process_conns(server_ctx);
 }
 
-static void process_conns_cb(evutil_socket_t fd, short what, void *arg)
+static void process_conns_cb(EV_P_ ev_timer *timer, int revents)
 {
     fprintf(stdout, "Processing connections...\n");
-    process_conns(arg);
+    process_conns(timer->data);
 }
 
 void process_conns(server_ctx_t *server_ctx)
 {
     int diff;
-    struct timeval timeout;
+    ev_tstamp timeout;
 
-    event_del(server_ctx->timer);
+    ev_timer_stop(server_ctx->loop, &server_ctx->timer);
     lsquic_engine_process_conns(server_ctx->engine);
     if (lsquic_engine_earliest_adv_tick(server_ctx->engine, &diff))
     {
         if (diff > 0)
         {
-            timeout.tv_sec = (time_t)diff / 1000000;
-            timeout.tv_usec = diff % 1000000;
+            timeout = (ev_tstamp)diff / 1000000;
         }
         else
         {
-            timeout.tv_sec = 0;
+            timeout = 0;
         }
     }
     else
     {
-        timeout.tv_sec = 2;
-        timeout.tv_usec = 200000;
+        timeout = 2;
     }
-    server_ctx->timer = event_new(server_ctx->loop, -1, EV_TIMEOUT, process_conns_cb, server_ctx);
-    event_add(server_ctx->timer, &timeout);
+    ev_timer_init(&server_ctx->timer, process_conns_cb, timeout, 0.);
+    ev_timer_start(server_ctx->loop, &server_ctx->timer);
 }
 
 void server_init()
@@ -695,9 +693,9 @@ void server_init()
         exit(EXIT_FAILURE);
     }
 
-    server_ctx.loop = event_base_new();
-    server_ctx.read = event_new(server_ctx.loop, server_ctx.sockfd, EV_READ | EV_PERSIST, read_sock, &server_ctx);
-    event_add(server_ctx.read, NULL);
+    server_ctx.loop = EV_DEFAULT;
+    ev_io_init(&server_ctx.sock_w, read_sock, server_ctx.sockfd, EV_READ);
+    ev_io_start(server_ctx.loop, &server_ctx.sock_w);
 
     if (0 != lsquic_global_init(LSQUIC_GLOBAL_SERVER | LSQUIC_GLOBAL_CLIENT))
     {
@@ -728,13 +726,16 @@ void server_init()
 
     server_ctx.engine = lsquic_engine_new(LSENG_SERVER, &engine_api);
 
-    server_ctx.timer = event_new(server_ctx.loop, -1, EV_TIMEOUT, process_conns_cb, &server_ctx);
-    timeout.tv_sec = 2;
-    timeout.tv_usec = 0;
-    event_add(server_ctx.timer, &timeout);
-    printf("Listening on %s:%s\n", conf->target, conf->port);
+    if (!server_ctx.engine)
+    {
+        fprintf(stderr, "cannot create engine\n");
+        exit(EXIT_FAILURE);
+    }
 
-    event_base_dispatch(server_ctx.loop);
+    server_ctx.timer.data = &server_ctx;
+    server_ctx.sock_w.data = &server_ctx;
+
+    ev_run(server_ctx.loop, 0);
 }
 
 void server_shutdown()
