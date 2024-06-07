@@ -8,16 +8,15 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-typedef void *Connection;
-typedef void *Stream;
+typedef void *Client_CTX;
 
-Connection open_connection(Config *conf);
-void close_connection(Connection conn);
-Stream open_stream(Connection connection);
-void close_stream(Stream stream);
-void send_data(Connection connnection, Stream stream, int *reqsize);
-void receive_data();
-Config *client_init();
-void client_shutdown();
+void open_connection(Client_CTX tx);
+void close_connection(Client_CTX ctx);
+void open_stream(Client_CTX ctx);
+void close_stream(Client_CTX ctx);
+void send_data(Client_CTX ctx, int *reqsize);
+void receive_data(Client_CTX ctx);
+Client_CTX client_init();
+void client_shutdown(Client_CTX ctx);
 
 #endif // QUICSAND_CLIENT_ADAPTER_H

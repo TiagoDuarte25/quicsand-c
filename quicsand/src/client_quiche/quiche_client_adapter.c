@@ -224,15 +224,8 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     }
 }
 
-Config *client_init()
+Client_CTX *client_init(Config *conf)
 {
-    Config *conf = read_config("config.yaml");
-    if (!conf)
-    {
-        fprintf(stderr, "Error: Failed to read configuration file\n");
-        exit(EXIT_FAILURE);
-    }
-
     const char *host = conf->target;
     const char *port = conf->port;
 
@@ -353,33 +346,33 @@ Config *client_init()
 
     quiche_config_free(config);
 
-    return conf;
+    return (Client_CTX)&conn_io;
 }
 
-Connection open_connection(Config *conf)
+void open_connection(Client_CTX ctx)
 {
 }
 
-void close_connection(Connection conn)
+void close_connection(Client_CTX ctx)
 {
 }
 
-Stream open_stream(Connection connection)
+void open_stream(Client_CTX ctx)
 {
 }
 
-void close_stream(Stream stream)
+void close_stream(Client_CTX ctx)
 {
 }
 
-void send_data(Connection connnection, Stream stream, int *reqsize)
+void send_data(Client_CTX ctx, int *reqsize)
 {
 }
 
-void receive_data()
+void receive_data(Client_CTX ctx)
 {
 }
 
-void client_shutdown()
+void client_shutdown(Client_CTX ctx)
 {
 }

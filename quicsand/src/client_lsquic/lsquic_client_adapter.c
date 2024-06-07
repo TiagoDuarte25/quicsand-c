@@ -492,20 +492,13 @@ on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
     printf("stream closed");
 }
 
-Config *
-client_init()
+Client_CTX
+client_init(Config *conf)
 {
     printf("Starting client...\n");
 
     client_ctx_t client_ctx;
     memset(&client_ctx, 0, sizeof(client_ctx));
-
-    Config *conf = read_config("config.yaml");
-    if (!conf)
-    {
-        fprintf(stderr, "Error: Failed to read configuration file\n");
-        exit(EXIT_FAILURE);
-    }
 
     client_ctx.sockfd = create_sock("127.0.0.1", 5000, &client_ctx.local_sas);
     struct sockaddr_in peer_addr = new_addr(conf->target, atoi(conf->port));
@@ -577,10 +570,10 @@ client_init()
 
     ev_run(client_ctx.loop, 0);
 
-    return conf;
+    return (Client_CTX)&client_ctx;
 }
 
-Connection open_connection(Config *conf)
+void open_connection(Client_CTX ctx)
 {
     // printf("Openning connection...\n");
 
@@ -607,35 +600,34 @@ Connection open_connection(Config *conf)
     return (void *)0;
 }
 
-void close_connection(Connection conn)
+void close_connection(Client_CTX ctx)
 {
     // lsquic_conn_close((lsquic_conn_t *)conn);
-    printf("conn[%x] Connection closed\n", lsquic_conn_id(conn)->buf);
 }
 
-Stream open_stream(Connection conn)
+void open_stream(Client_CTX ctx)
 {
     // lsquic_conn_make_stream((lsquic_conn_t *)conn);
 
     // return (Stream)stream;
 }
 
-void close_stream(Stream stream)
+void close_stream(Client_CTX ctx)
 {
     // lsquic_stream_close((lsquic_stream_t *)stream);
 }
 
-void send_data(Connection connnection, Stream stream, int *reqsize)
+void send_data(Client_CTX ctx, int *reqsize)
 {
     // lsquic_stream_write((lsquic_stream_t *)stream, data, strlen(data));
     // lsquic_stream_flush((lsquic_stream_t *)stream);
 }
 
-void receive_data()
+void receive_data(Client_CTX ctx)
 {
 }
 
-void client_shutdown()
+void client_shutdown(Client_CTX ctx)
 {
     // lsquic_engine_destroy(engine);
     // printf("Client shutdown\n");

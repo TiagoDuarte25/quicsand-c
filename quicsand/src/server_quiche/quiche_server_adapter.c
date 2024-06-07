@@ -492,6 +492,7 @@ void server_init()
         exit(EXIT_FAILURE);
     }
 
+    printf("Openning socket on %s:%s\n", host, port);
     int sock = socket(local->ai_family, SOCK_DGRAM, 0);
     if (sock < 0)
     {
@@ -511,6 +512,7 @@ void server_init()
         exit(EXIT_FAILURE);
     }
 
+    printf("Starting quiche server\n");
     config = quiche_config_new(QUICHE_PROTOCOL_VERSION);
     if (config == NULL)
     {
@@ -518,8 +520,8 @@ void server_init()
         exit(EXIT_FAILURE);
     }
 
-    quiche_config_load_cert_chain_from_pem_file(config, "./cert.crt");
-    quiche_config_load_priv_key_from_pem_file(config, "./cert.key");
+    quiche_config_load_cert_chain_from_pem_file(config, "./certs/quicsand-server.pem");
+    quiche_config_load_priv_key_from_pem_file(config, "./certs/key.pem");
 
     quiche_config_set_application_protos(config,
                                          (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
@@ -558,5 +560,6 @@ void server_init()
 
 void server_shutdown()
 {
-    // close(conns->sock);
+    close(conns->sock);
+    printf("Shutting down server\n");
 }

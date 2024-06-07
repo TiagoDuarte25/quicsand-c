@@ -25,8 +25,15 @@ int main()
   log_add_fp(fp, LOG_INFO);
 
   Config *config = malloc(sizeof(Config));
+  config = read_config("config.yaml");
+  if (!config)
+  {
+    fprintf(stderr, "Error: Failed to read configuration file\n");
+    exit(EXIT_FAILURE);
+  }
 
-  config = client_init();
+  Client_CTX ctx = client_init(config);
+
   log_debug("Client configuration initialized");
 
   struct timespec start_cpu, end_cpu;
@@ -36,14 +43,14 @@ int main()
 
   // open connection to the server
   log_debug("Openning connection to the server...");
-  Connection connection = open_connection(config);
+  open_connection(ctx);
   log_debug("Connection opened");
 
   for (int i = 0; i < config->reps; i++)
   {
     log_debug("Openning stream...");
     // open stream to the server
-    Stream stream = open_stream(connection);
+    open_stream(ctx);
     log_debug("Stream opened");
 
     clock_t begin_ttfb = clock();
@@ -52,12 +59,12 @@ int main()
 
     log_debug("Sending data...");
     // send content to the server
-    send_data(connection, stream, &config->reqsize);
+    send_data(ctx, &config->reqsize);
     log_debug("Data sent");
 
     log_debug("Receiving data...");
     // receive content from the server
-    receive_data(stream);
+    receive_data(ctx);
     log_debug("Data received");
 
     clock_t end_lat = clock();
@@ -67,7 +74,7 @@ int main()
     double latency = (double)(end_lat - start_lat) / CLOCKS_PER_SEC * 1000;
     log_info(LOGS_FORMAT, "LAT", latency);
 
-    close_stream(stream);
+    close_stream(ctx);
 
     // Calculate throughput
     // double throughput = (double)NUM_PACKETS * PACKET_SIZE / (double)(1024 * 1024) / ((double)(end.tv_sec - start.tv_sec) + (double)(end.tv_usec - start.tv_usec) / 1000000.0);
@@ -78,7 +85,7 @@ int main()
     log_info(LOGS_FORMAT, TTFB, ttfb);
   }
 
-  close_connection(connection);
+  close_connection(ctx);
 
   clock_t end_wall = clock();
   clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_cpu);
@@ -91,5 +98,5 @@ int main()
   double cpu_usage = cpu_time / num_cores / wall_time * 100;
   log_info(LOGS_FORMAT, CPU, cpu_usage);
 
-  client_shutdown();
+  client_shutdown(ctx);
 }

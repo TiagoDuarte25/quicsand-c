@@ -14,54 +14,31 @@
 #define UNREFERENCED_PARAMETER(P) (void)(P)
 #endif
 
-//
-// The (optional) registration configuration for the app. This sets a name for
-// the app (used for persistent storage and for debugging). It also configures
-// the execution profile, using the default "low latency" profile.
-//
-const QUIC_REGISTRATION_CONFIG RegConfig = {"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
-
-//
-// The protocol name used in the Application Layer Protocol Negotiation (ALPN).
-//
-const QUIC_BUFFER Alpn = {sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
-
-//
-// The default idle timeout period (1 second) used for the protocol.
-//
-const uint64_t IdleTimeoutMs = 1000;
-
-//
-// The QUIC API/function table returned from MsQuicOpen2. It contains all the
-// functions called by the app to interact with MsQuic.
-//
-const QUIC_API_TABLE *MsQuic;
-
-//
-// The QUIC handle to the registration object. This is the top level API object
-// that represents the execution context for all work done by MsQuic on behalf
-// of the app.
-//
-HQUIC registration;
-
-//
-// The QUIC handle to the configuration object. This object abstracts the
-// connection configuration. This includes TLS configuration and any other
-// QUIC layer settings.
-//
-HQUIC configuration;
-
-typedef struct Buffer
-{
-    QUIC_BUFFER *QUICBuffer;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-} Buffer;
-
-Buffer *recvBuffer;
-
 int connected = 0;
 int streamStarted = 0;
+
+struct client_ctx
+{
+    QUIC_API_TABLE *MsQuic;
+
+    QUIC_REGISTRATION_CONFIG RegConfig;
+    QUIC_BUFFER Alpn;
+    uint64_t IdleTimeoutMs;
+    HQUIC Registration;
+    HQUIC Configuration;
+    HQUIC Connection;
+    HQUIC Stream;
+
+    char *Host;
+    char *Port;
+
+    struct Buffer
+    {
+        QUIC_BUFFER *QUICBuffer;
+        pthread_mutex_t mutex;
+        pthread_cond_t cond;
+    } *recvBuffer;
+} ctx;
 
 uint8_t
 decode_hex_char(
@@ -102,33 +79,36 @@ decode_hex_buffer(
     return HexBufferLen;
 }
 
-void receive_data()
+void receive_data(Client_CTX ctx)
 {
-    pthread_mutex_lock(&recvBuffer->mutex);
-    while (recvBuffer->QUICBuffer->Length == 0)
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
+    pthread_mutex_lock(&client_ctx->recvBuffer->mutex);
+    while (client_ctx->recvBuffer->QUICBuffer->Length == 0)
     {
         printf("Waiting for data...\n");
-        pthread_cond_wait(&recvBuffer->cond, &recvBuffer->mutex);
+        pthread_cond_wait(&client_ctx->recvBuffer->cond, &client_ctx->recvBuffer->mutex);
     }
-    printf("Leave while loop with Length = %d\n", recvBuffer->QUICBuffer->Length);
-    pthread_mutex_unlock(&recvBuffer->mutex);
+    printf("Leave while loop with Length = %d\n", client_ctx->recvBuffer->QUICBuffer->Length);
+    pthread_mutex_unlock(&client_ctx->recvBuffer->mutex);
 }
 
-void close_stream(Stream stream)
+void close_stream(Client_CTX ctx)
 {
-    MsQuic->StreamClose((HQUIC)stream);
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
+    client_ctx->MsQuic->StreamClose((HQUIC)client_ctx->Stream);
 }
 
-void close_connection(Connection conn)
+void close_connection(Client_CTX ctx)
 {
-    MsQuic->ConnectionClose((HQUIC)conn);
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
+    client_ctx->MsQuic->ConnectionClose((HQUIC)client_ctx->Connection);
 }
 
-void send_data(
-    _In_ Connection connection, _In_ Stream stream, int *reqsize)
+void send_data(Client_CTX ctx, int *reqsize)
 {
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
     QUIC_STATUS status;
-    HQUIC Stream = (HQUIC)stream;
+    HQUIC Stream = (HQUIC)client_ctx->Stream;
     uint8_t *SendBufferRaw;
     QUIC_BUFFER *SendBuffer;
 
@@ -157,7 +137,7 @@ void send_data(
     // the buffer. This indicates this is the last buffer on the stream and the
     // the stream is shut down (in the send direction) immediately after.
     //
-    if (QUIC_FAILED(status = MsQuic->StreamSend(Stream, SendBuffer, 1, QUIC_SEND_FLAG_FIN, SendBuffer)))
+    if (QUIC_FAILED(status = client_ctx->MsQuic->StreamSend(Stream, SendBuffer, 1, QUIC_SEND_FLAG_FIN, SendBuffer)))
     {
         printf("StreamSend failed, 0x%x!\n", status);
         free(SendBufferRaw);
@@ -168,8 +148,8 @@ Error:
 
     if (QUIC_FAILED(status))
     {
-        MsQuic->StreamClose(Stream);
-        MsQuic->ConnectionShutdown(connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+        client_ctx->MsQuic->StreamClose(Stream);
+        client_ctx->MsQuic->ConnectionShutdown(client_ctx->Connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
     }
 }
 
@@ -185,7 +165,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         _In_opt_ void *Context,
         _Inout_ QUIC_STREAM_EVENT *Event)
 {
-    UNREFERENCED_PARAMETER(Context);
+    struct client_ctx *client_ctx = (struct client_ctx *)Context;
     switch (Event->Type)
     {
     case QUIC_STREAM_EVENT_START_COMPLETE:
@@ -211,22 +191,22 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         // Process data from ReceiveData->Buffers and store it in destinationBuffer
         size_t totalSize = 0;
-        pthread_mutex_lock(&recvBuffer->mutex);
-        recvBuffer->QUICBuffer->Length = Event->RECEIVE.TotalBufferLength;
+        pthread_mutex_lock(&client_ctx->recvBuffer->mutex);
+        client_ctx->recvBuffer->QUICBuffer->Length = Event->RECEIVE.TotalBufferLength;
         printf("Total buffer length: %d\n", Event->RECEIVE.TotalBufferLength);
         printf("Receive Buffer Count: %d\n", Event->RECEIVE.BufferCount);
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i)
         {
             printf("Received data: %s\n", Event->RECEIVE.Buffers[i].Buffer);
             // Copy data from ReceiveData->Buffers[i].Buffer to destinationBuffer
-            recvBuffer->QUICBuffer->Buffer = Event->RECEIVE.Buffers[i].Buffer;
-            recvBuffer->QUICBuffer->Length = Event->RECEIVE.Buffers[i].Length;
+            client_ctx->recvBuffer->QUICBuffer->Buffer = Event->RECEIVE.Buffers[i].Buffer;
+            client_ctx->recvBuffer->QUICBuffer->Length = Event->RECEIVE.Buffers[i].Length;
             totalSize += Event->RECEIVE.Buffers[i].Length;
         }
-        printf("Data received: %s\n", recvBuffer->QUICBuffer->Buffer);
-        pthread_cond_signal(&recvBuffer->cond);
+        printf("Data received: %s\n", client_ctx->recvBuffer->QUICBuffer->Buffer);
+        pthread_cond_signal(&client_ctx->recvBuffer->cond);
         printf("Signaled\n");
-        pthread_mutex_unlock(&recvBuffer->mutex);
+        pthread_mutex_unlock(&client_ctx->recvBuffer->mutex);
         printf("[strm][%p] Data received\n", (void *)Stream);
         break;
     }
@@ -250,7 +230,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         printf("[strm][%p] All done\n", (void *)Stream);
         if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress)
         {
-            MsQuic->StreamClose(Stream);
+            client_ctx->MsQuic->StreamClose(Stream);
         }
         break;
     default:
@@ -259,31 +239,31 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
     return QUIC_STATUS_SUCCESS;
 }
 
-Stream open_stream(Connection connection)
+void open_stream(Client_CTX ctx)
 {
     QUIC_STATUS status;
-    HQUIC conn = (HQUIC)connection;
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
+    HQUIC conn = client_ctx->Connection;
     HQUIC stream = NULL;
     //
     // Create/allocate a new bidirectional stream. The stream is just allocated
     // and no QUIC stream identifier is assigned until it's started.
     //
-    if (QUIC_FAILED(status = MsQuic->StreamOpen(conn, QUIC_STREAM_OPEN_FLAG_NONE, client_stream_callback, NULL, &stream)))
+    if (QUIC_FAILED(status = client_ctx->MsQuic->StreamOpen(conn, QUIC_STREAM_OPEN_FLAG_NONE, client_stream_callback, ctx, &stream)))
     {
         printf("StreamOpen failed, 0x%x!\n", status);
         goto Error;
     }
-
     printf("[strm][%p] Starting...\n", (void *)stream);
 
     //
     // Starts the bidirectional stream. By default, the peer is not notified of
     // the stream being started until data is sent on the stream.
     //
-    if (QUIC_FAILED(status = MsQuic->StreamStart(stream, QUIC_STREAM_START_FLAG_NONE)))
+    if (QUIC_FAILED(status = client_ctx->MsQuic->StreamStart(stream, QUIC_STREAM_START_FLAG_NONE)))
     {
         printf("StreamStart failed, 0x%x!\n", status);
-        MsQuic->StreamClose(stream);
+        client_ctx->MsQuic->StreamClose(stream);
         goto Error;
     }
 
@@ -293,15 +273,15 @@ Stream open_stream(Connection connection)
     }
     streamStarted = 0;
 
-    return (Stream)stream;
+    client_ctx->Stream = stream;
 
 Error:
 
     if (QUIC_FAILED(status))
     {
-        MsQuic->ConnectionShutdown(conn, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+        client_ctx->MsQuic->ConnectionShutdown(conn, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+        exit(EXIT_FAILURE);
     }
-    return NULL;
 }
 
 //
@@ -316,7 +296,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         _In_opt_ void *Context,
         _Inout_ QUIC_CONNECTION_EVENT *Event)
 {
-    UNREFERENCED_PARAMETER(Context);
+    struct client_ctx *client_ctx = (struct client_ctx *)Context;
     switch (Event->Type)
     {
     case QUIC_CONNECTION_EVENT_CONNECTED:
@@ -355,7 +335,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         printf("[conn][%p] All done\n", (void *)Connection);
         if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress)
         {
-            MsQuic->ConnectionClose(Connection);
+            client_ctx->MsQuic->ConnectionClose(Connection);
         }
         break;
     case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
@@ -376,26 +356,23 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
     return QUIC_STATUS_SUCCESS;
 }
 
-Connection open_connection(Config *conf)
+void open_connection(Client_CTX ctx)
 {
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
     QUIC_STATUS status;
-    HQUIC conn = NULL;
 
-    //
-    // Allocate a new connection object.
-    //
-    if (QUIC_FAILED(status = MsQuic->ConnectionOpen(registration, client_connection_callback, NULL, &conn)))
+    if (QUIC_FAILED(status = client_ctx->MsQuic->ConnectionOpen(client_ctx->Registration, client_connection_callback, ctx, &client_ctx->Connection)))
     {
         printf("ConnectionOpen failed, 0x%x!\n", status);
         goto Error;
     }
 
-    printf("[conn][%p] Connecting...\n", (void *)conn);
+    printf("[conn][%p] Connecting...\n", (void *)client_ctx->Connection);
 
     //
     // Start the connection to the server.
     //
-    if (QUIC_FAILED(status = MsQuic->ConnectionStart(conn, configuration, QUIC_ADDRESS_FAMILY_INET, conf->target, (uint16_t)atoi(conf->port))))
+    if (QUIC_FAILED(status = client_ctx->MsQuic->ConnectionStart(client_ctx->Connection, client_ctx->Configuration, QUIC_ADDRESS_FAMILY_INET, client_ctx->Host, (uint16_t)atoi(client_ctx->Port))))
     {
         printf("ConnectionStart failed, 0x%x!\n", status);
         goto Error;
@@ -409,25 +386,23 @@ Connection open_connection(Config *conf)
 
 Error:
 
-    if (QUIC_FAILED(status) && conn != NULL)
+    if (QUIC_FAILED(status) && client_ctx->Connection != NULL)
     {
-        MsQuic->ConnectionClose(conn);
+        client_ctx->MsQuic->ConnectionClose(client_ctx->Connection);
     }
-
-    return (Connection)conn;
 }
 
 //
 // Helper function to load a client configuration.
 //
 BOOLEAN
-client_load_configuration(Config *conf)
+client_load_configuration(struct client_ctx *ctx, int unsecure)
 {
     QUIC_SETTINGS Settings = {0};
     //
     // Configures the client's idle timeout.
     //
-    Settings.IdleTimeoutMs = IdleTimeoutMs;
+    Settings.IdleTimeoutMs = ctx->IdleTimeoutMs;
     Settings.IsSet.IdleTimeoutMs = TRUE;
 
     //
@@ -437,7 +412,7 @@ client_load_configuration(Config *conf)
     QUIC_CREDENTIAL_CONFIG CredConfig;
     memset(&CredConfig, 0, sizeof(CredConfig));
     CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
-    if (conf->unsecure)
+    if (unsecure)
     {
         printf("Unsecure mode\n");
         CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
@@ -448,7 +423,7 @@ client_load_configuration(Config *conf)
     // and settings.
     //
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
-    if (QUIC_FAILED(status = MsQuic->ConfigurationOpen(registration, &Alpn, 1, &Settings, sizeof(Settings), NULL, &configuration)))
+    if (QUIC_FAILED(status = ctx->MsQuic->ConfigurationOpen(ctx->Registration, &ctx->Alpn, 1, &Settings, sizeof(Settings), NULL, &ctx->Configuration)))
     {
         printf("ConfigurationOpen failed, 0x%x!\n", status);
         return FALSE;
@@ -458,50 +433,53 @@ client_load_configuration(Config *conf)
     // Loads the TLS credential part of the configuration. This is required even
     // on client side, to indicate if a certificate is required or not.
     //
-    if (QUIC_FAILED(status = MsQuic->ConfigurationLoadCredential(configuration, &CredConfig)))
+    if (QUIC_FAILED(status = ctx->MsQuic->ConfigurationLoadCredential(ctx->Configuration, &CredConfig)))
     {
         printf("ConfigurationLoadCredential failed, 0x%x!\n", status);
         return FALSE;
     }
-
     return TRUE;
 }
 
-void client_shutdown()
+void client_shutdown(Client_CTX ctx)
 {
-    if (MsQuic != NULL)
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
+    if (client_ctx->MsQuic != NULL)
     {
-        if (configuration != NULL)
+        if (client_ctx->Configuration != NULL)
         {
-            MsQuic->ConfigurationClose(configuration);
+            client_ctx->MsQuic->ConfigurationClose(client_ctx->Configuration);
         }
-        if (registration != NULL)
+        if (client_ctx->Registration != NULL)
         {
             //
             // This will block until all outstanding child objects have been
             // closed.
             //
-            MsQuic->RegistrationClose(registration);
+            client_ctx->MsQuic->RegistrationClose(client_ctx->Registration);
         }
-        MsQuicClose(MsQuic);
+        MsQuicClose(client_ctx->MsQuic);
     }
 }
 
 //
 // Runs the client side of the protocol.
 //
-Config *client_init()
+Client_CTX client_init(Config *conf)
 {
     printf("Starting client...\n");
-    Config *conf = read_config("config.yaml");
-    printf("Configuration loaded\n");
+
+    ctx.RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
+    ctx.Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
+    ctx.IdleTimeoutMs = 1000;
+    ctx.Host = conf->target;
+    ctx.Port = conf->port;
 
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
-
     //
     // Open a handle to the library and get the API function table.
     //
-    if (QUIC_FAILED(status = MsQuicOpen2(&MsQuic)))
+    if (QUIC_FAILED(status = MsQuicOpen2(&ctx.MsQuic)))
     {
         printf("MsQuicOpen2 failed, 0x%x!\n", status);
         goto Error;
@@ -510,7 +488,7 @@ Config *client_init()
     //
     // Create a registration for the app's connections.
     //
-    if (QUIC_FAILED(status = MsQuic->RegistrationOpen(&RegConfig, &registration)))
+    if (QUIC_FAILED(status = ctx.MsQuic->RegistrationOpen(&ctx.RegConfig, &ctx.Registration)))
     {
         printf("RegistrationOpen failed, 0x%x!\n", status);
         goto Error;
@@ -519,16 +497,15 @@ Config *client_init()
     //
     // Load the client configuration based on the "unsecure" command line option.
     //
-    if (!client_load_configuration(conf))
+    if (!client_load_configuration(&ctx, conf->unsecure))
     {
         return NULL;
     }
     printf("Client initialized\n");
 
     // Ensure recvBuffer is initialized
-    recvBuffer = NULL;
-    recvBuffer = (Buffer *)malloc(sizeof(Buffer));
-    if (recvBuffer == NULL)
+    ctx.recvBuffer = malloc(sizeof(*ctx.recvBuffer));
+    if (ctx.recvBuffer == NULL)
     {
         printf("recvBuffer allocation failed!\n");
         // Handle memory allocation failure
@@ -536,39 +513,39 @@ Config *client_init()
     }
 
     // Allocate memory for the destination buffer
-    recvBuffer->QUICBuffer = NULL;
+    ctx.recvBuffer->QUICBuffer = NULL;
 
-    if ((recvBuffer->QUICBuffer = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER))) == NULL)
+    if ((ctx.recvBuffer->QUICBuffer = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER))) == NULL)
     {
         printf("recvBuffer->QUICBuffer allocation failed!\n");
         // Handle memory allocation failure
         return NULL;
     }
-    recvBuffer->QUICBuffer->Length = 0;
-    pthread_mutex_init(&recvBuffer->mutex, NULL);
-    pthread_cond_init(&recvBuffer->cond, NULL);
+    ctx.recvBuffer->QUICBuffer->Length = 0;
+    pthread_mutex_init(&ctx.recvBuffer->mutex, NULL);
+    pthread_cond_init(&ctx.recvBuffer->cond, NULL);
 
     printf("recvBuffer allocated\n");
 
-    return conf;
+    return (Client_CTX)&ctx;
 
 Error:
 
-    if (MsQuic != NULL)
+    if (ctx.MsQuic != NULL)
     {
-        if (configuration != NULL)
+        if (ctx.Configuration != NULL)
         {
-            MsQuic->ConfigurationClose(configuration);
+            ctx.MsQuic->ConfigurationClose(ctx.Configuration);
         }
-        if (registration != NULL)
+        if (ctx.Registration != NULL)
         {
             //
             // This will block until all outstanding child objects have been
             // closed.
             //
-            MsQuic->RegistrationClose(registration);
+            ctx.MsQuic->RegistrationClose(ctx.Registration);
         }
-        MsQuicClose(MsQuic);
+        MsQuicClose(ctx.MsQuic);
     }
     return NULL;
 }
