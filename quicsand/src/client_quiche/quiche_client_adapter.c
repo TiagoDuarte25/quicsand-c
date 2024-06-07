@@ -224,7 +224,7 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     }
 }
 
-Client_CTX *client_init(Config *conf)
+Client_CTX client_init(Config *conf)
 {
     const char *host = conf->target;
     const char *port = conf->port;
@@ -346,7 +346,7 @@ Client_CTX *client_init(Config *conf)
 
     quiche_config_free(config);
 
-    return (Client_CTX)&conn_io;
+    return (Client_CTX)conn_io;
 }
 
 void open_connection(Client_CTX ctx)

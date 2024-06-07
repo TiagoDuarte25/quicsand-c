@@ -43,25 +43,30 @@ Abstract:
 #define UNREFERENCED_PARAMETER(P) (void)(P)
 #endif
 
-const QUIC_REGISTRATION_CONFIG RegConfig = {"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
+struct server_ctx
+{
+    QUIC_API_TABLE *MsQuic;
 
-//
-// The protocol name used in the Application Layer Protocol Negotiation (ALPN).
-//
-const QUIC_BUFFER Alpn = {sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
+    QUIC_REGISTRATION_CONFIG RegConfig;
+    QUIC_BUFFER Alpn;
+    uint64_t IdleTimeoutMs;
+    HQUIC Registration;
+    HQUIC Configuration;
+    HQUIC Connection;
+    HQUIC Stream;
 
-//
-// The default idle timeout period (1 second) used for the protocol.
-//
-const uint64_t IdleTimeoutMs = 1000;
+    char *Host;
+    char *Port;
+
+    struct Buffer
+    {
+        QUIC_BUFFER *QUICBuffer;
+        pthread_mutex_t mutex;
+        pthread_cond_t cond;
+    } *recvBuffer;
+} ctx;
 
 const uint32_t SendBufferLength = 100;
-
-const QUIC_API_TABLE *MsQuic;
-
-HQUIC Registration;
-
-HQUIC Configuration;
 
 void set_family(
     _In_ QUIC_ADDR *Addr,
@@ -139,9 +144,9 @@ decode_hex_buffer(
 //
 // Allocates and sends some data over a QUIC stream.
 //
-void server_send(
-    _In_ HQUIC Stream)
+void server_send(struct server_ctx *ctx)
 {
+    HQUIC Stream = ctx->Stream;
     //
     // Allocates and builds the buffer to send over the stream.
     //
@@ -149,7 +154,7 @@ void server_send(
     if (SendBufferRaw == NULL)
     {
         printf("SendBuffer allocation failed!\n");
-        MsQuic->StreamShutdown(Stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
+        ctx->MsQuic->StreamShutdown(Stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
         return;
     }
     char *data = "Server Response!";
@@ -169,11 +174,11 @@ void server_send(
     // the stream is shut down (in the send direction) immediately after.
     //
     QUIC_STATUS Status;
-    if (QUIC_FAILED(Status = MsQuic->StreamSend(Stream, SendBuffer, 1, QUIC_SEND_FLAG_FIN, SendBuffer)))
+    if (QUIC_FAILED(Status = ctx->MsQuic->StreamSend(Stream, SendBuffer, 1, QUIC_SEND_FLAG_FIN, SendBuffer)))
     {
         printf("StreamSend failed, 0x%x!\n", Status);
         free(SendBufferRaw);
-        MsQuic->StreamShutdown(Stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
+        ctx->MsQuic->StreamShutdown(Stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
     }
 }
 
@@ -189,7 +194,8 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         _In_opt_ void *Context,
         _Inout_ QUIC_STREAM_EVENT *Event)
 {
-    UNREFERENCED_PARAMETER(Context);
+    struct server_ctx *ctx = (struct server_ctx *)Context;
+    ctx->Stream = Stream;
     switch (Event->Type)
     {
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -206,7 +212,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         printf("[strm][%p] Data received\n", (void *)Stream);
         printf("Data: %s\n", Event->RECEIVE.Buffers->Buffer);
-        server_send(Stream);
+        server_send(ctx);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         //
@@ -219,7 +225,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // The peer aborted its send direction of the stream.
         //
         printf("[strm][%p] Peer aborted\n", (void *)Stream);
-        MsQuic->StreamShutdown(Stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
+        ctx->MsQuic->StreamShutdown(Stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
         //
@@ -227,7 +233,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // with the stream. It can now be safely cleaned up.
         //
         printf("[strm][%p] All done\n", (void *)Stream);
-        MsQuic->StreamClose(Stream);
+        ctx->MsQuic->StreamClose(Stream);
         break;
     default:
         break;
@@ -247,7 +253,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         _In_opt_ void *Context,
         _Inout_ QUIC_CONNECTION_EVENT *Event)
 {
-    UNREFERENCED_PARAMETER(Context);
+    struct server_ctx *ctx = (struct server_ctx *)Context;
     switch (Event->Type)
     {
     case QUIC_CONNECTION_EVENT_CONNECTED:
@@ -255,7 +261,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // The handshake has completed for the connection.
         //
         printf("[conn][%p] Connected\n", (void *)Connection);
-        MsQuic->ConnectionSendResumptionTicket(Connection, QUIC_SEND_RESUMPTION_FLAG_NONE, 0, NULL);
+        ctx->MsQuic->ConnectionSendResumptionTicket(Connection, QUIC_SEND_RESUMPTION_FLAG_NONE, 0, NULL);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
         //
@@ -284,7 +290,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // safely cleaned up.
         //
         printf("[conn][%p] All done\n", (void *)Connection);
-        MsQuic->ConnectionClose(Connection);
+        ctx->MsQuic->ConnectionClose(Connection);
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         //
@@ -292,7 +298,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // callback handler before returning.
         //
         printf("[strm][%p] Peer started\n", (void *)Event->PEER_STREAM_STARTED.Stream);
-        MsQuic->SetCallbackHandler(Event->PEER_STREAM_STARTED.Stream, (void *)server_stream_callback, NULL);
+        ctx->MsQuic->SetCallbackHandler(Event->PEER_STREAM_STARTED.Stream, (void *)server_stream_callback, ctx);
         break;
     case QUIC_CONNECTION_EVENT_RESUMED:
         //
@@ -320,7 +326,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         _Inout_ QUIC_LISTENER_EVENT *Event)
 {
     UNREFERENCED_PARAMETER(Listener);
-    UNREFERENCED_PARAMETER(Context);
+    struct server_ctx *ctx = (struct server_ctx *)Context;
     QUIC_STATUS Status = QUIC_STATUS_NOT_SUPPORTED;
     switch (Event->Type)
     {
@@ -330,8 +336,8 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         // proceed, the server must provide a configuration for QUIC to use. The
         // app MUST set the callback handler before returning.
         //
-        MsQuic->SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void *)server_connection_callback, NULL);
-        Status = MsQuic->ConnectionSetConfiguration(Event->NEW_CONNECTION.Connection, Configuration);
+        ctx->MsQuic->SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void *)server_connection_callback, ctx);
+        Status = ctx->MsQuic->ConnectionSetConfiguration(Event->NEW_CONNECTION.Connection, ctx->Configuration);
         printf("[list][%p] New Connection\n", (void *)Listener);
         break;
     default:
@@ -357,13 +363,13 @@ typedef struct QUIC_CREDENTIAL_CONFIG_HELPER
 // arguments to load the credential part of the configuration.
 //
 BOOLEAN
-server_load_configuration()
+server_load_configuration(struct server_ctx *ctx)
 {
     QUIC_SETTINGS Settings = {0};
     //
     // Configures the server's idle timeout.
     //
-    Settings.IdleTimeoutMs = IdleTimeoutMs;
+    Settings.IdleTimeoutMs = ctx->IdleTimeoutMs;
     Settings.IsSet.IdleTimeoutMs = TRUE;
     //
     // Configures the server's resumption level to allow for resumption and
@@ -409,19 +415,11 @@ server_load_configuration()
 
     QUIC_STATUS Status = QUIC_STATUS_SUCCESS;
 
-    //
-    // Open a handle to the library and get the API function table.
-    //
-    if (QUIC_FAILED(Status = MsQuicOpen2(&MsQuic)))
-    {
-        printf("MsQuicOpen2 failed, 0x%x!\n", Status);
-        goto Error;
-    }
     printf("Opening registration...\n");
     //
     // Create a registration for the app's connections.
     //
-    if (QUIC_FAILED(Status = MsQuic->RegistrationOpen(&RegConfig, &Registration)))
+    if (QUIC_FAILED(Status = ctx->MsQuic->RegistrationOpen(&ctx->RegConfig, &ctx->Registration)))
     {
         printf("RegistrationOpen failed, 0x%x!\n", Status);
         goto Error;
@@ -433,7 +431,7 @@ server_load_configuration()
     // Allocate/initialize the configuration object, with the configured ALPN
     // and settings.
     //
-    if (QUIC_FAILED(Status = MsQuic->ConfigurationOpen(Registration, &Alpn, 1, &Settings, sizeof(Settings), NULL, &Configuration)))
+    if (QUIC_FAILED(Status = ctx->MsQuic->ConfigurationOpen(ctx->Registration, &ctx->Alpn, 1, &Settings, sizeof(Settings), NULL, &ctx->Configuration)))
     {
         printf("ConfigurationOpen failed, 0x%x!\n", Status);
         return FALSE;
@@ -443,7 +441,7 @@ server_load_configuration()
     //
     // Loads the TLS credential part of the configuration.
     //
-    if (QUIC_FAILED(Status = MsQuic->ConfigurationLoadCredential(Configuration, &Config.CredConfig)))
+    if (QUIC_FAILED(Status = ctx->MsQuic->ConfigurationLoadCredential(ctx->Configuration, &Config.CredConfig)))
     {
         printf("ConfigurationLoadCredential failed, 0x%x!\n", Status);
         return FALSE;
@@ -454,21 +452,21 @@ server_load_configuration()
 
 Error:
 
-    if (MsQuic != NULL)
+    if (ctx->MsQuic != NULL)
     {
-        if (Configuration != NULL)
+        if (ctx->Configuration != NULL)
         {
-            MsQuic->ConfigurationClose(Configuration);
+            ctx->MsQuic->ConfigurationClose(ctx->Configuration);
         }
-        if (Registration != NULL)
+        if (ctx->Registration != NULL)
         {
             //
             // This will block until all outstanding child objects have been
             // closed.
             //
-            MsQuic->RegistrationClose(Registration);
+            ctx->MsQuic->RegistrationClose(ctx->Registration);
         }
-        MsQuicClose(MsQuic);
+        MsQuicClose(ctx->MsQuic);
     }
     return FALSE;
 }
@@ -476,14 +474,26 @@ Error:
 //
 // Runs the server side of the protocol.
 //
-void server_init()
+Server_CTX server_init(Config *conf)
 {
     printf("Starting server...\n");
     QUIC_STATUS Status;
     HQUIC Listener = NULL;
+    ctx = (struct server_ctx){0};
+    ctx.RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
+    ctx.Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
+    ctx.IdleTimeoutMs = 1000;
+    ctx.Host = conf->target;
+    ctx.Port = conf->port;
 
-    Config *conf = read_config("config.yaml");
-    printf("Configuration loaded\n");
+    //
+    // Open a handle to the library and get the API function table.
+    //
+    if (QUIC_FAILED(Status = MsQuicOpen2(&ctx.MsQuic)))
+    {
+        printf("MsQuicOpen2 failed, 0x%x!\n", Status);
+        goto Error;
+    }
 
     //
     // Configures the address used for the listener to listen on all IP
@@ -496,15 +506,15 @@ void server_init()
     //
     // Load the server configuration based on the command line.
     //
-    if (!server_load_configuration())
+    if (!server_load_configuration(&ctx))
     {
-        return;
+        return NULL;
     }
     printf("Configuration loaded.\n");
     //
     // Create/allocate a new listener object.
     //
-    if (QUIC_FAILED(Status = MsQuic->ListenerOpen(Registration, server_listener_callback, NULL, &Listener)))
+    if (QUIC_FAILED(Status = ctx.MsQuic->ListenerOpen(ctx.Registration, server_listener_callback, &ctx, &Listener)))
     {
         printf("ListenerOpen failed, 0x%x!\n", Status);
         goto Error;
@@ -513,11 +523,25 @@ void server_init()
     //
     // Starts listening for incoming connections.
     //
-    if (QUIC_FAILED(Status = MsQuic->ListenerStart(Listener, &Alpn, 1, &Address)))
+    if (QUIC_FAILED(Status = ctx.MsQuic->ListenerStart(Listener, &ctx.Alpn, 1, &Address)))
     {
         printf("ListenerStart failed, 0x%x!\n", Status);
         goto Error;
     }
+
+    return (Server_CTX)&ctx;
+Error:
+
+    if (Listener != NULL)
+    {
+        ctx.MsQuic->ListenerClose(Listener);
+    }
+    exit(0);
+}
+
+void server_shutdown(Server_CTX ctx)
+{
+    struct server_ctx *server_ctx = (struct server_ctx *)ctx;
 
     //
     // Continue listening for connections until the Enter key is pressed.
@@ -525,16 +549,6 @@ void server_init()
     printf("Press Enter to exit.\n\n");
     getchar();
 
-Error:
-
-    if (Listener != NULL)
-    {
-        MsQuic->ListenerClose(Listener);
-    }
-}
-
-void server_shutdown()
-{
-    MsQuic->ConfigurationClose(Configuration);
-    MsQuic->RegistrationClose(Registration);
+    server_ctx->MsQuic->ConfigurationClose(server_ctx->Configuration);
+    server_ctx->MsQuic->RegistrationClose(server_ctx->Registration);
 }

@@ -466,15 +466,8 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     }
 }
 
-void server_init()
+Server_CTX server_init(Config *conf)
 {
-    Config *conf = read_config("config.yaml");
-    if (!conf)
-    {
-        fprintf(stderr, "Error: Failed to read configuration file\n");
-        exit(EXIT_FAILURE);
-    }
-
     const char *host = conf->target;
     const char *port = conf->port;
 
@@ -556,9 +549,11 @@ void server_init()
     freeaddrinfo(local);
 
     quiche_config_free(config);
+
+    return (Server_CTX)&c;
 }
 
-void server_shutdown()
+void server_shutdown(Server_CTX ctx)
 {
     close(conns->sock);
     printf("Shutting down server\n");

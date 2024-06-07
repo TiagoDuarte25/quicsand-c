@@ -19,6 +19,13 @@ int main()
 	fp = fopen("server.log", "w+");
 	log_add_fp(fp, LOG_INFO);
 
-	server_init();
-	server_shutdown();
+	Config *config = read_config("config.yaml");
+	if (!config)
+	{
+		fprintf(stderr, "Error: Failed to read configuration file\n");
+		exit(EXIT_FAILURE);
+	}
+
+	Server_CTX ctx = server_init(config);
+	server_shutdown(ctx);
 }

@@ -43,6 +43,8 @@ typedef struct server_ctx
 
 } server_ctx_t;
 
+server_ctx_t server_ctx;
+
 void process_conns(server_ctx_t *server_ctx);
 
 const struct lsquic_stream_if stream_if = {
@@ -654,18 +656,13 @@ void process_conns(server_ctx_t *server_ctx)
     ev_timer_start(server_ctx->loop, &server_ctx->timer);
 }
 
-void server_init()
+Server_CTX server_init(Config *conf)
 {
     printf("Server initialization...\n");
     char err_buf[100];
     struct timeval timeout;
     struct lsquic_engine_settings settings;
 
-    // Loading server configuration
-    Config *conf = read_config("config.yaml");
-    printf("Server configuration loaded\n");
-
-    server_ctx_t server_ctx;
     // Initialization of the server context structure
     memset(&server_ctx, 0, sizeof(server_ctx));
 
@@ -736,10 +733,13 @@ void server_init()
     server_ctx.sock_w.data = &server_ctx;
 
     ev_run(server_ctx.loop, 0);
+
+    return (Server_CTX)&server_ctx;
 }
 
-void server_shutdown()
+void server_shutdown(Server_CTX ctx)
 {
+    server_ctx_t *server_ctx = (server_ctx_t *)ctx;
     printf("Server shutdown\n");
     lsquic_global_cleanup();
     exit(EXIT_SUCCESS);

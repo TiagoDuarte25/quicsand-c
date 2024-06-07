@@ -6,10 +6,9 @@
 #include <stdlib.h>
 #include <pthread.h>
 
-typedef void *Connection;
-typedef void *Stream;
+typedef void *Server_CTX;
 
-void server_init();
-void server_shutdown();
+Server_CTX server_init(Config *config);
+void server_shutdown(Server_CTX ctx);
 
 #endif // QUICSAND_CLIENT_ADAPTER_H
