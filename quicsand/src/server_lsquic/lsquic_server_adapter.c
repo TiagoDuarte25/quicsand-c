@@ -43,8 +43,6 @@ typedef struct server_ctx
 
 } server_ctx_t;
 
-server_ctx_t server_ctx;
-
 void process_conns(server_ctx_t *server_ctx);
 
 const struct lsquic_stream_if stream_if = {
@@ -88,8 +86,8 @@ void create_ssl_ctx(server_ctx_t *server_ctx)
     }
     strcpy(cert_path, cwd);
     strcpy(key_path, cwd);
-    strcat(cert_path, "/certs/quicsand-server.pem");
-    strcat(key_path, "/certs/key.pem");
+    strcat(cert_path, "/certs/servercert.pem");
+    strcat(key_path, "/certs/serverkey.pem");
     printf("cert_path: %s\n", cert_path);
     printf("key_path: %s\n", key_path);
 
@@ -656,43 +654,48 @@ void process_conns(server_ctx_t *server_ctx)
     ev_timer_start(server_ctx->loop, &server_ctx->timer);
 }
 
-Server_CTX server_init(Config *conf)
+void server_init(Config *conf, Server_CTX *ctx)
 {
     printf("Server initialization...\n");
+    *ctx = malloc(sizeof(server_ctx_t));
+    server_ctx_t *server_ctx = (server_ctx_t *)*ctx;
+    if (!server_ctx)
+    {
+        perror("Error: Failed to allocate memory for server context");
+        exit(EXIT_FAILURE);
+    }
+
     char err_buf[100];
     struct timeval timeout;
     struct lsquic_engine_settings settings;
 
-    // Initialization of the server context structure
-    memset(&server_ctx, 0, sizeof(server_ctx));
-
     // Create SSL Context
-    create_ssl_ctx(&server_ctx);
-    ssl_ctx = server_ctx.ssl_ctx;
+    create_ssl_ctx(server_ctx);
+    ssl_ctx = server_ctx->ssl_ctx;
 
-    server_ctx.sockfd = create_sock(conf->target, atoi(conf->port), &server_ctx.local_sas);
+    server_ctx->sockfd = create_sock(conf->target, atoi(conf->port), &server_ctx->local_sas);
 
-    if (0 != set_nonblocking(server_ctx.sockfd))
+    if (0 != set_nonblocking(server_ctx->sockfd))
     {
         perror("set_nonblocking");
         exit(EXIT_FAILURE);
     }
 
-    if (0 != set_ecn(server_ctx.sockfd, (struct sockaddr *)&server_ctx.local_sas))
+    if (0 != set_ecn(server_ctx->sockfd, (struct sockaddr *)&server_ctx->local_sas))
     {
         perror("set_ecn");
         exit(EXIT_FAILURE);
     }
 
-    if (0 != set_origdst(server_ctx.sockfd, (struct sockaddr *)&server_ctx.local_sas))
+    if (0 != set_origdst(server_ctx->sockfd, (struct sockaddr *)&server_ctx->local_sas))
     {
         perror("set_origdst");
         exit(EXIT_FAILURE);
     }
 
-    server_ctx.loop = EV_DEFAULT;
-    ev_io_init(&server_ctx.sock_w, read_sock, server_ctx.sockfd, EV_READ);
-    ev_io_start(server_ctx.loop, &server_ctx.sock_w);
+    server_ctx->loop = EV_DEFAULT;
+    ev_io_init(&server_ctx->sock_w, read_sock, server_ctx->sockfd, EV_READ);
+    ev_io_start(server_ctx->loop, &server_ctx->sock_w);
 
     if (0 != lsquic_global_init(LSQUIC_GLOBAL_SERVER | LSQUIC_GLOBAL_CLIENT))
     {
@@ -715,26 +718,24 @@ Server_CTX server_init(Config *conf)
     struct lsquic_engine_api engine_api;
     memset(&engine_api, 0, sizeof(engine_api));
     engine_api.ea_packets_out = packets_out[0];
-    engine_api.ea_packets_out_ctx = (void *)&server_ctx.sockfd;
+    engine_api.ea_packets_out_ctx = (void *)&server_ctx->sockfd;
     engine_api.ea_stream_if = &stream_if;
     engine_api.ea_stream_if_ctx = (void *)&server_ctx;
     engine_api.ea_get_ssl_ctx = get_ssl_ctx;
     engine_api.ea_settings = &settings;
 
-    server_ctx.engine = lsquic_engine_new(LSENG_SERVER, &engine_api);
+    server_ctx->engine = lsquic_engine_new(LSENG_SERVER, &engine_api);
 
-    if (!server_ctx.engine)
+    if (!server_ctx->engine)
     {
         fprintf(stderr, "cannot create engine\n");
         exit(EXIT_FAILURE);
     }
 
-    server_ctx.timer.data = &server_ctx;
-    server_ctx.sock_w.data = &server_ctx;
+    server_ctx->timer.data = &server_ctx;
+    server_ctx->sock_w.data = &server_ctx;
 
-    ev_run(server_ctx.loop, 0);
-
-    return (Server_CTX)&server_ctx;
+    ev_run(server_ctx->loop, 0);
 }
 
 void server_shutdown(Server_CTX ctx)

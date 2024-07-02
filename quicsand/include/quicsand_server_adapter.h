@@ -8,7 +8,7 @@
 
 typedef void *Server_CTX;
 
-Server_CTX server_init(Config *config);
+void server_init(Config *config, Server_CTX *ctx);
 void server_shutdown(Server_CTX ctx);
 
 #endif // QUICSAND_CLIENT_ADAPTER_H

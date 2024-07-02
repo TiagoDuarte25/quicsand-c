@@ -492,36 +492,40 @@ on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
     printf("stream closed");
 }
 
-Client_CTX
-client_init(Config *conf)
+void client_init(Config *conf, Client_CTX *ctx)
 {
     printf("Starting client...\n");
 
-    client_ctx_t client_ctx;
-    memset(&client_ctx, 0, sizeof(client_ctx));
-
-    client_ctx.sockfd = create_sock("127.0.0.1", 5000, &client_ctx.local_sas);
-    struct sockaddr_in peer_addr = new_addr(conf->target, atoi(conf->port));
-
-    if (set_nonblocking(client_ctx.sockfd) != 0)
+    *ctx = malloc(sizeof(client_ctx_t));
+    client_ctx_t *client_ctx = (client_ctx_t *)*ctx;
+    if (client_ctx == NULL)
     {
-        fprintf(stderr, "Error setting non-blocking socket\n");
-        close(client_ctx.sockfd);
+        fprintf(stderr, "Error allocating memory for client context\n");
         exit(EXIT_FAILURE);
     }
 
-    if (set_ecn(client_ctx.sockfd, (struct sockaddr *)&client_ctx.local_sas) != 0)
+    client_ctx->sockfd = create_sock("127.0.0.1", 5000, &client_ctx->local_sas);
+    struct sockaddr_in peer_addr = new_addr(conf->target, atoi(conf->port));
+
+    if (set_nonblocking(client_ctx->sockfd) != 0)
+    {
+        fprintf(stderr, "Error setting non-blocking socket\n");
+        close(client_ctx->sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    if (set_ecn(client_ctx->sockfd, (struct sockaddr *)&client_ctx->local_sas) != 0)
     {
         fprintf(stderr, "Error setting ECN\n");
-        close(client_ctx.sockfd);
+        close(client_ctx->sockfd);
         exit(EXIT_FAILURE);
     }
 
     // Event initialiazation
-    client_ctx.loop = EV_DEFAULT;
-    ev_io_init(&client_ctx.sock_w, read_sock, client_ctx.sockfd, EV_READ);
-    ev_io_start(client_ctx.loop, &client_ctx.sock_w);
-    ev_init(&client_ctx.timer, process_conns_cb);
+    client_ctx->loop = EV_DEFAULT;
+    ev_io_init(&client_ctx->sock_w, read_sock, client_ctx->sockfd, EV_READ);
+    ev_io_start(client_ctx->loop, &client_ctx->sock_w);
+    ev_init(&client_ctx->timer, process_conns_cb);
 
     if (0 != lsquic_global_init(LSQUIC_GLOBAL_CLIENT))
     {
@@ -534,28 +538,28 @@ client_init(Config *conf)
 
     struct lsquic_engine_api engine_api = {
         .ea_packets_out = packets_out[0],
-        .ea_packets_out_ctx = (void *)&client_ctx.sockfd,
+        .ea_packets_out_ctx = (void *)&client_ctx->sockfd,
         .ea_stream_if = &stream_if,
         .ea_stream_if_ctx = (void *)&client_ctx,
     };
 
-    client_ctx.engine = lsquic_engine_new(0, &engine_api);
-    if (!client_ctx.engine)
+    client_ctx->engine = lsquic_engine_new(0, &engine_api);
+    if (!client_ctx->engine)
     {
         printf("Cannot create engine\n");
         fflush(stdout);
         exit(EXIT_FAILURE);
     }
 
-    client_ctx.timer.data = &client_ctx;
-    client_ctx.sock_w.data = &client_ctx;
+    client_ctx->timer.data = &client_ctx;
+    client_ctx->sock_w.data = &client_ctx;
 
-    client_ctx.conn = lsquic_engine_connect(client_ctx.engine, N_LSQVER,
-                                            (struct sockaddr *)&client_ctx.local_sas,
-                                            (struct sockaddr *)&peer_addr, (void *)&client_ctx.sockfd, NULL,
-                                            NULL, 0, NULL, 0, NULL, 0);
+    client_ctx->conn = lsquic_engine_connect(client_ctx->engine, N_LSQVER,
+                                             (struct sockaddr *)&client_ctx->local_sas,
+                                             (struct sockaddr *)&peer_addr, (void *)&client_ctx->sockfd, NULL,
+                                             NULL, 0, NULL, 0, NULL, 0);
 
-    if (!client_ctx.conn)
+    if (!client_ctx->conn)
     {
         printf("Cannot create connection\n");
         fflush(stdout);
@@ -564,29 +568,27 @@ client_init(Config *conf)
 
     printf("Connection created\n");
 
-    process_conns(&client_ctx);
+    process_conns(client_ctx);
 
     printf("Client initialized\n");
 
-    ev_run(client_ctx.loop, 0);
-
-    return (Client_CTX)&client_ctx;
+    ev_run(client_ctx->loop, 0);
 }
 
 void open_connection(Client_CTX ctx)
 {
     // printf("Openning connection...\n");
 
-    // if (0 != connect(client_ctx.sport->sockfd, (const struct sockaddr *)&client_ctx.sport->sas, sizeof(struct sockaddr_in)))
+    // if (0 != connect(client_ctx->sport->sockfd, (const struct sockaddr *)&client_ctx->sport->sas, sizeof(struct sockaddr_in)))
     // {
     //     fprintf(stderr, "Error connecting sockets: %s\n", strerror(errno));
-    //     close(client_ctx.sport->sockfd);
+    //     close(client_ctx->sport->sockfd);
     //     exit(EXIT_FAILURE);
     // }
 
-    // struct lsquic_conn_t *conn = lsquic_engine_connect(client_ctx.engine, N_LSQVER,
-    //                                                    (struct sockaddr *)&client_ctx.sport->sp_local_addr,
-    //                                                    (struct sockaddr *)&client_ctx.sport->sas, (void *)&client_ctx.sport->sockfd, NULL,
+    // struct lsquic_conn_t *conn = lsquic_engine_connect(client_ctx->engine, N_LSQVER,
+    //                                                    (struct sockaddr *)&client_ctx->sport->sp_local_addr,
+    //                                                    (struct sockaddr *)&client_ctx->sport->sas, (void *)&client_ctx->sport->sockfd, NULL,
     //                                                    NULL, 0, NULL, 0, NULL, 0);
     // if (!conn)
     // {
@@ -594,10 +596,7 @@ void open_connection(Client_CTX ctx)
     //     exit(EXIT_FAILURE);
     // }
 
-    // lsquic_engine_process_conns(client_ctx.engine);
-
-    // return (Connection)conn;
-    return (void *)0;
+    // lsquic_engine_process_conns(client_ctx->engine);
 }
 
 void close_connection(Client_CTX ctx)

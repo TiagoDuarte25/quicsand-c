@@ -34,6 +34,20 @@ struct conn_io
     quiche_conn *conn;
 };
 
+struct client_ctx
+{
+    struct conn_io *conn_io;
+
+    struct ev_loop *loop;
+    struct ev_io watcher;
+    struct ev_timer timer;
+    char *host;
+    char *port;
+    struct addrinfo *peer;
+    quiche_config *config;
+    uint8_t scid[LOCAL_CONN_ID_LEN];
+};
+
 static void debug_log(const char *line, void *argp)
 {
     fprintf(stderr, "%s\n", line);
@@ -42,6 +56,12 @@ static void debug_log(const char *line, void *argp)
 static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io)
 {
     static uint8_t out[MAX_DATAGRAM_SIZE];
+
+    for (int i = 0; i < MAX_DATAGRAM_SIZE; i++)
+    {
+        printf("%02x ", out[i]);
+    }
+    printf("\n");
 
     quiche_send_info send_info;
 
@@ -195,8 +215,6 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
 
         quiche_stream_iter_free(readable);
     }
-
-    flush_egress(loop, conn_io);
 }
 
 static void timeout_cb(EV_P_ ev_timer *w, int revents)
@@ -205,8 +223,6 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     quiche_conn_on_timeout(conn_io->conn);
 
     fprintf(stderr, "timeout\n");
-
-    flush_egress(loop, conn_io);
 
     if (quiche_conn_is_closed(conn_io->conn))
     {
@@ -224,10 +240,18 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     }
 }
 
-Client_CTX client_init(Config *conf)
+void client_init(Config *conf, Client_CTX *client_ctx)
 {
-    const char *host = conf->target;
-    const char *port = conf->port;
+    *client_ctx = malloc(sizeof(struct client_ctx));
+    if (*client_ctx == NULL)
+    {
+        fprintf(stderr, "failed to allocate connection IO\n");
+        exit(EXIT_FAILURE);
+    }
+
+    struct client_ctx *ctx = (struct client_ctx *)*client_ctx;
+    ctx->host = conf->target;
+    ctx->port = conf->port;
 
     const struct addrinfo hints = {
         .ai_family = PF_UNSPEC,
@@ -236,14 +260,44 @@ Client_CTX client_init(Config *conf)
 
     quiche_enable_debug_logging(debug_log, NULL);
 
-    struct addrinfo *peer;
-    if (getaddrinfo(host, port, &hints, &peer) != 0)
+    printf("connecting to %s:%s\n", ctx->host, ctx->port);
+    if (getaddrinfo(ctx->host, ctx->port, &hints, &ctx->peer) != 0)
     {
         perror("failed to resolve host");
         exit(EXIT_FAILURE);
     }
 
-    int sock = socket(peer->ai_family, SOCK_DGRAM, 0);
+    ctx->config = quiche_config_new(0xbabababa);
+    if (ctx->config == NULL)
+    {
+        fprintf(stderr, "failed to create config\n");
+        exit(EXIT_FAILURE);
+    }
+
+    quiche_config_set_application_protos(ctx->config,
+                                         (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
+
+    quiche_config_set_max_idle_timeout(ctx->config, 5000);
+    quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
+    quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
+    quiche_config_set_initial_max_data(ctx->config, 10000000);
+    quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1000000);
+    quiche_config_set_initial_max_stream_data_uni(ctx->config, 1000000);
+    quiche_config_set_initial_max_streams_bidi(ctx->config, 100);
+    quiche_config_set_initial_max_streams_uni(ctx->config, 100);
+    quiche_config_set_disable_active_migration(ctx->config, true);
+
+    if (getenv("SSLKEYLOGFILE"))
+    {
+        quiche_config_log_keys(ctx->config);
+    }
+}
+
+void open_connection(Client_CTX client_ctx)
+{
+    struct client_ctx *ctx = (struct client_ctx *)client_ctx;
+
+    int sock = socket(ctx->peer->ai_family, SOCK_DGRAM, 0);
     if (sock < 0)
     {
         perror("failed to create socket");
@@ -256,32 +310,6 @@ Client_CTX client_init(Config *conf)
         exit(EXIT_FAILURE);
     }
 
-    quiche_config *config = quiche_config_new(0xbabababa);
-    if (config == NULL)
-    {
-        fprintf(stderr, "failed to create config\n");
-        exit(EXIT_FAILURE);
-    }
-
-    quiche_config_set_application_protos(config,
-                                         (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
-
-    quiche_config_set_max_idle_timeout(config, 5000);
-    quiche_config_set_max_recv_udp_payload_size(config, MAX_DATAGRAM_SIZE);
-    quiche_config_set_max_send_udp_payload_size(config, MAX_DATAGRAM_SIZE);
-    quiche_config_set_initial_max_data(config, 10000000);
-    quiche_config_set_initial_max_stream_data_bidi_local(config, 1000000);
-    quiche_config_set_initial_max_stream_data_uni(config, 1000000);
-    quiche_config_set_initial_max_streams_bidi(config, 100);
-    quiche_config_set_initial_max_streams_uni(config, 100);
-    quiche_config_set_disable_active_migration(config, true);
-
-    if (getenv("SSLKEYLOGFILE"))
-    {
-        quiche_config_log_keys(config);
-    }
-
-    uint8_t scid[LOCAL_CONN_ID_LEN];
     int rng = open("/dev/urandom", O_RDONLY);
     if (rng < 0)
     {
@@ -289,32 +317,32 @@ Client_CTX client_init(Config *conf)
         exit(EXIT_FAILURE);
     }
 
-    ssize_t rand_len = read(rng, &scid, sizeof(scid));
+    ssize_t rand_len = read(rng, &ctx->scid, sizeof(ctx->scid));
     if (rand_len < 0)
     {
         perror("failed to create connection ID");
         exit(EXIT_FAILURE);
     }
 
-    struct conn_io *conn_io = malloc(sizeof(*conn_io));
-    if (conn_io == NULL)
+    ctx->conn_io = malloc(sizeof(*ctx->conn_io));
+    if (ctx->conn_io == NULL)
     {
         fprintf(stderr, "failed to allocate connection IO\n");
         exit(EXIT_FAILURE);
     }
 
-    conn_io->local_addr_len = sizeof(conn_io->local_addr);
-    if (getsockname(sock, (struct sockaddr *)&conn_io->local_addr,
-                    &conn_io->local_addr_len) != 0)
+    ctx->conn_io->local_addr_len = sizeof(ctx->conn_io->local_addr);
+    if (getsockname(sock, (struct sockaddr *)&ctx->conn_io->local_addr,
+                    &ctx->conn_io->local_addr_len) != 0)
     {
         perror("failed to get local address of socket");
         exit(EXIT_FAILURE);
     };
 
-    quiche_conn *conn = quiche_connect(host, (const uint8_t *)scid, sizeof(scid),
-                                       (struct sockaddr *)&conn_io->local_addr,
-                                       conn_io->local_addr_len,
-                                       peer->ai_addr, peer->ai_addrlen, config);
+    quiche_conn *conn = quiche_connect(ctx->host, (const uint8_t *)ctx->scid, sizeof(ctx->scid),
+                                       (struct sockaddr *)&ctx->conn_io->local_addr,
+                                       ctx->conn_io->local_addr_len,
+                                       ctx->peer->ai_addr, ctx->peer->ai_addrlen, ctx->config);
 
     if (conn == NULL)
     {
@@ -322,39 +350,36 @@ Client_CTX client_init(Config *conf)
         exit(EXIT_FAILURE);
     }
 
-    conn_io->sock = sock;
-    conn_io->conn = conn;
+    ctx->conn_io->sock = sock;
+    ctx->conn_io->conn = conn;
 
-    ev_io watcher;
+    ctx->loop = ev_default_loop(0);
 
-    struct ev_loop *loop = ev_default_loop(0);
+    ev_io_init(&ctx->watcher, recv_cb, ctx->conn_io->sock, EV_READ);
+    ev_io_start(ctx->loop, &ctx->watcher);
+    ctx->watcher.data = ctx->conn_io;
 
-    ev_io_init(&watcher, recv_cb, conn_io->sock, EV_READ);
-    ev_io_start(loop, &watcher);
-    watcher.data = conn_io;
+    ev_init(&ctx->conn_io->timer, timeout_cb);
+    ctx->conn_io->timer.data = ctx->conn_io;
 
-    ev_init(&conn_io->timer, timeout_cb);
-    conn_io->timer.data = conn_io;
+    // flush_egress(ctx->loop, ctx->conn_io);
 
-    flush_egress(loop, conn_io);
-
-    ev_loop(loop, 0);
-
-    freeaddrinfo(peer);
-
-    quiche_conn_free(conn);
-
-    quiche_config_free(config);
-
-    return (Client_CTX)conn_io;
+    // ev_loop(ctx->loop, 0);
 }
 
-void open_connection(Client_CTX ctx)
+void close_connection(Client_CTX client_ctx)
 {
-}
+    struct client_ctx *ctx = (struct client_ctx *)client_ctx;
 
-void close_connection(Client_CTX ctx)
-{
+    close(ctx->conn_io->sock);
+
+    freeaddrinfo(ctx->peer);
+
+    quiche_conn_free(ctx->conn_io->conn);
+
+    free(ctx->conn_io);
+
+    printf("Connection closed\n");
 }
 
 void open_stream(Client_CTX ctx)
@@ -365,14 +390,58 @@ void close_stream(Client_CTX ctx)
 {
 }
 
-void send_data(Client_CTX ctx, int *reqsize)
+void send_data(Client_CTX client_ctx, int *reqsize)
 {
+    struct client_ctx *ctx = (struct client_ctx *)client_ctx;
+    struct conn_io *conn_io = ctx->conn_io;
+
+    static uint8_t out[MAX_DATAGRAM_SIZE];
+
+    for (int i = 0; i < MAX_DATAGRAM_SIZE; i++)
+    {
+        printf("%02x ", out[i]);
+    }
+    printf("\n");
+
+    quiche_send_info send_info;
+
+    while (1)
+    {
+        ssize_t written = quiche_conn_send(conn_io->conn, out, sizeof(out),
+                                           &send_info);
+
+        if (written == QUICHE_ERR_DONE)
+        {
+            fprintf(stderr, "done writing\n");
+            break;
+        }
+
+        if (written < 0)
+        {
+            fprintf(stderr, "failed to create packet: %zd\n", written);
+            return;
+        }
+
+        ssize_t sent = sendto(conn_io->sock, out, written, 0,
+                              (struct sockaddr *)&send_info.to,
+                              send_info.to_len);
+
+        if (sent != written)
+        {
+            perror("failed to send");
+            return;
+        }
+
+        fprintf(stderr, "sent %zd bytes\n", sent);
+    }
 }
 
 void receive_data(Client_CTX ctx)
 {
 }
 
-void client_shutdown(Client_CTX ctx)
+void client_shutdown(Client_CTX client_ctx)
 {
+    struct client_ctx *ctx = (struct client_ctx *)client_ctx;
+    quiche_config_free(ctx->config);
 }

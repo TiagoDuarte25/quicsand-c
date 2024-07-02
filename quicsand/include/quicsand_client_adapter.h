@@ -10,13 +10,13 @@
 
 typedef void *Client_CTX;
 
-void open_connection(Client_CTX tx);
+void open_connection(Client_CTX ctx);
 void close_connection(Client_CTX ctx);
 void open_stream(Client_CTX ctx);
 void close_stream(Client_CTX ctx);
 void send_data(Client_CTX ctx, int *reqsize);
 void receive_data(Client_CTX ctx);
-Client_CTX client_init();
+void client_init(Config *config, Client_CTX *ctx);
 void client_shutdown(Client_CTX ctx);
 
 #endif // QUICSAND_CLIENT_ADAPTER_H

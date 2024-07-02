@@ -54,9 +54,14 @@ struct conn_io
     UT_hash_handle hh;
 };
 
-static quiche_config *config = NULL;
+struct server_ctx
+{
+    struct connections *conns;
+    struct quiche_config *config;
 
-static struct connections *conns = NULL;
+    struct ev_loop *loop;
+    ev_io watcher;
+};
 
 static void timeout_cb(EV_P_ ev_timer *w, int revents);
 
@@ -168,12 +173,18 @@ static uint8_t *gen_cid(uint8_t *cid, size_t cid_len)
     return cid;
 }
 
+struct timer_data
+{
+    struct server_ctx *ctx;
+    struct conn_io *conn_io;
+};
+
 static struct conn_io *create_conn(uint8_t *scid, size_t scid_len,
                                    uint8_t *odcid, size_t odcid_len,
                                    struct sockaddr *local_addr,
                                    socklen_t local_addr_len,
                                    struct sockaddr_storage *peer_addr,
-                                   socklen_t peer_addr_len)
+                                   socklen_t peer_addr_len, struct server_ctx *ctx)
 {
     struct conn_io *conn_io = calloc(1, sizeof(*conn_io));
     if (conn_io == NULL)
@@ -195,7 +206,7 @@ static struct conn_io *create_conn(uint8_t *scid, size_t scid_len,
                                       local_addr_len,
                                       (struct sockaddr *)peer_addr,
                                       peer_addr_len,
-                                      config);
+                                      ctx->config);
 
     if (conn == NULL)
     {
@@ -203,16 +214,24 @@ static struct conn_io *create_conn(uint8_t *scid, size_t scid_len,
         return NULL;
     }
 
-    conn_io->sock = conns->sock;
+    conn_io->sock = ctx->conns->sock;
     conn_io->conn = conn;
 
     memcpy(&conn_io->peer_addr, peer_addr, peer_addr_len);
     conn_io->peer_addr_len = peer_addr_len;
 
     ev_init(&conn_io->timer, timeout_cb);
-    conn_io->timer.data = conn_io;
+    struct timer_data *td = malloc(sizeof(struct timer_data));
+    if (td == NULL)
+    {
+        fprintf(stderr, "failed to allocate timer data\n");
+        return NULL;
+    }
+    td->ctx = ctx;
+    td->conn_io = conn_io;
+    conn_io->timer.data = td;
 
-    HASH_ADD(hh, conns->h, cid, LOCAL_CONN_ID_LEN, conn_io);
+    HASH_ADD(hh, ctx->conns->h, cid, LOCAL_CONN_ID_LEN, conn_io);
 
     fprintf(stderr, "new connection\n");
 
@@ -226,13 +245,16 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
     static uint8_t buf[65535];
     static uint8_t out[MAX_DATAGRAM_SIZE];
 
+    struct server_ctx *ctx = w->data;
+
     while (1)
     {
         struct sockaddr_storage peer_addr;
         socklen_t peer_addr_len = sizeof(peer_addr);
         memset(&peer_addr, 0, peer_addr_len);
 
-        ssize_t read = recvfrom(conns->sock, buf, sizeof(buf), 0,
+        struct server_ctx *ctx = w->data;
+        ssize_t read = recvfrom(ctx->conns->sock, buf, sizeof(buf), 0,
                                 (struct sockaddr *)&peer_addr,
                                 &peer_addr_len);
 
@@ -272,7 +294,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
             continue;
         }
 
-        HASH_FIND(hh, conns->h, dcid, dcid_len, conn_io);
+        HASH_FIND(hh, ctx->conns->h, dcid, dcid_len, conn_io);
 
         if (conn_io == NULL)
         {
@@ -291,7 +313,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
                     continue;
                 }
 
-                ssize_t sent = sendto(conns->sock, out, written, 0,
+                ssize_t sent = sendto(ctx->conns->sock, out, written, 0,
                                       (struct sockaddr *)&peer_addr,
                                       peer_addr_len);
                 if (sent != written)
@@ -331,7 +353,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
                     continue;
                 }
 
-                ssize_t sent = sendto(conns->sock, out, written, 0,
+                ssize_t sent = sendto(ctx->conns->sock, out, written, 0,
                                       (struct sockaddr *)&peer_addr,
                                       peer_addr_len);
                 if (sent != written)
@@ -352,8 +374,8 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
             }
 
             conn_io = create_conn(dcid, dcid_len, odcid, odcid_len,
-                                  conns->local_addr, conns->local_addr_len,
-                                  &peer_addr, peer_addr_len);
+                                  ctx->conns->local_addr, ctx->conns->local_addr_len,
+                                  &peer_addr, peer_addr_len, ctx);
 
             if (conn_io == NULL)
             {
@@ -365,8 +387,8 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
             (struct sockaddr *)&peer_addr,
             peer_addr_len,
 
-            conns->local_addr,
-            conns->local_addr_len,
+            ctx->conns->local_addr,
+            ctx->conns->local_addr_len,
         };
 
         ssize_t done = quiche_conn_recv(conn_io->conn, buf, read, &recv_info);
@@ -412,7 +434,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
         }
     }
 
-    HASH_ITER(hh, conns->h, conn_io, tmp)
+    HASH_ITER(hh, ctx->conns->h, conn_io, tmp)
     {
         flush_egress(loop, conn_io);
 
@@ -427,7 +449,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
             fprintf(stderr, "connection closed, recv=%zu sent=%zu lost=%zu rtt=%" PRIu64 "ns cwnd=%zu\n",
                     stats.recv, stats.sent, stats.lost, path_stats.rtt, path_stats.cwnd);
 
-            HASH_DELETE(hh, conns->h, conn_io);
+            HASH_DELETE(hh, ctx->conns->h, conn_io);
 
             ev_timer_stop(loop, &conn_io->timer);
             quiche_conn_free(conn_io->conn);
@@ -438,7 +460,18 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
 
 static void timeout_cb(EV_P_ ev_timer *w, int revents)
 {
-    struct conn_io *conn_io = w->data;
+    struct timer_data *timer_data = w->data;
+    struct conn_io *conn_io = timer_data->conn_io;
+    struct connections *conns = timer_data->ctx->conns;
+
+    if (conn_io == NULL)
+    {
+        fprintf(stderr, "failed to get connection from timer\n");
+        return;
+    }
+    printf("Timer data: %p\n", timer_data);
+    printf("Connection data: %p\n", conn_io);
+
     quiche_conn_on_timeout(conn_io->conn);
 
     fprintf(stderr, "timeout\n");
@@ -466,8 +499,17 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     }
 }
 
-Server_CTX server_init(Config *conf)
+void server_init(Config *conf, Server_CTX *ctx)
 {
+    *ctx = malloc(sizeof(struct server_ctx));
+    if (*ctx == NULL)
+    {
+        perror("failed to allocate server context");
+        exit(EXIT_FAILURE);
+    }
+
+    struct server_ctx *server_ctx = (struct server_ctx *)*ctx;
+
     const char *host = conf->target;
     const char *port = conf->port;
 
@@ -506,55 +548,55 @@ Server_CTX server_init(Config *conf)
     }
 
     printf("Starting quiche server\n");
-    config = quiche_config_new(QUICHE_PROTOCOL_VERSION);
-    if (config == NULL)
+    server_ctx->config = quiche_config_new(QUICHE_PROTOCOL_VERSION);
+    if (server_ctx->config == NULL)
     {
         fprintf(stderr, "failed to create config\n");
         exit(EXIT_FAILURE);
     }
 
-    quiche_config_load_cert_chain_from_pem_file(config, "./certs/quicsand-server.pem");
-    quiche_config_load_priv_key_from_pem_file(config, "./certs/key.pem");
+    quiche_config_load_cert_chain_from_pem_file(server_ctx->config, "./certs/quicsand-server.pem");
+    quiche_config_load_priv_key_from_pem_file(server_ctx->config, "./certs/key.pem");
 
-    quiche_config_set_application_protos(config,
+    quiche_config_set_application_protos(server_ctx->config,
                                          (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
 
-    quiche_config_set_max_idle_timeout(config, 5000);
-    quiche_config_set_max_recv_udp_payload_size(config, MAX_DATAGRAM_SIZE);
-    quiche_config_set_max_send_udp_payload_size(config, MAX_DATAGRAM_SIZE);
-    quiche_config_set_initial_max_data(config, 10000000);
-    quiche_config_set_initial_max_stream_data_bidi_local(config, 1000000);
-    quiche_config_set_initial_max_stream_data_bidi_remote(config, 1000000);
-    quiche_config_set_initial_max_streams_bidi(config, 100);
-    quiche_config_set_cc_algorithm(config, QUICHE_CC_RENO);
+    quiche_config_set_max_idle_timeout(server_ctx->config, 5000);
+    quiche_config_set_max_recv_udp_payload_size(server_ctx->config, MAX_DATAGRAM_SIZE);
+    quiche_config_set_max_send_udp_payload_size(server_ctx->config, MAX_DATAGRAM_SIZE);
+    quiche_config_set_initial_max_data(server_ctx->config, 10000000);
+    quiche_config_set_initial_max_stream_data_bidi_local(server_ctx->config, 1000000);
+    quiche_config_set_initial_max_stream_data_bidi_remote(server_ctx->config, 1000000);
+    quiche_config_set_initial_max_streams_bidi(server_ctx->config, 100);
+    quiche_config_set_cc_algorithm(server_ctx->config, QUICHE_CC_RENO);
 
-    struct connections c;
-    c.sock = sock;
-    c.h = NULL;
-    c.local_addr = local->ai_addr;
-    c.local_addr_len = local->ai_addrlen;
+    server_ctx->conns = malloc(sizeof(struct connections));
+    if (server_ctx->conns == NULL)
+    {
+        perror("failed to allocate connections");
+        exit(EXIT_FAILURE);
+    }
+    struct connections *c = server_ctx->conns;
+    c->sock = sock;
+    c->local_addr = local->ai_addr;
+    c->local_addr_len = local->ai_addrlen;
 
-    conns = &c;
+    server_ctx->loop = ev_default_loop(0);
 
-    ev_io watcher;
+    ev_io_init(&server_ctx->watcher, recv_cb, sock, EV_READ);
+    ev_io_start(server_ctx->loop, &server_ctx->watcher);
+    server_ctx->watcher.data = server_ctx;
 
-    struct ev_loop *loop = ev_default_loop(0);
-
-    ev_io_init(&watcher, recv_cb, sock, EV_READ);
-    ev_io_start(loop, &watcher);
-    watcher.data = &c;
-
-    ev_loop(loop, 0);
+    ev_loop(server_ctx->loop, 0);
 
     freeaddrinfo(local);
 
-    quiche_config_free(config);
-
-    return (Server_CTX)&c;
+    quiche_config_free(server_ctx->config);
 }
 
 void server_shutdown(Server_CTX ctx)
 {
-    close(conns->sock);
+    struct server_ctx *server_ctx = (struct server_ctx *)ctx;
+    close(server_ctx->conns->sock);
     printf("Shutting down server\n");
 }

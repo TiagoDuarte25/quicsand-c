@@ -59,7 +59,7 @@ ELSEIF(${IMPL} STREQUAL "msquic")
     INCLUDE_DIRECTORIES(implementations/msquic/include)
 
     # Set libraries
-    SET(LIBS msquic yaml)
+    SET(LIBS msquic yaml bpf)
 
 ELSEIF(${IMPL} STREQUAL "quiche")
 

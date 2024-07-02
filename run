@@ -48,7 +48,7 @@ docker images | awk '$1 == "quicsand_server" {print $3}' | xargs -I {} docker rm
 docker images | awk '$1 == "<none>" {print $3}' | xargs -I {} docker rmi {}
 
 # Pass flags to docker-compose and start the containers
-IMPLEMENTATION="$IMPLEMENTATION" docker-compose build
+IMPLEMENTATION="$IMPLEMENTATION" docker compose build
 
 # Check if the network is already created
 if ! docker network ls | grep -q quicsand_network; then

@@ -26,6 +26,7 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
-	Server_CTX ctx = server_init(config);
+	Server_CTX ctx;
+	server_init(config, &ctx);
 	server_shutdown(ctx);
 }

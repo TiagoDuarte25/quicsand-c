@@ -64,7 +64,7 @@ struct server_ctx
         pthread_mutex_t mutex;
         pthread_cond_t cond;
     } *recvBuffer;
-} ctx;
+};
 
 const uint32_t SendBufferLength = 100;
 
@@ -253,6 +253,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         _In_opt_ void *Context,
         _Inout_ QUIC_CONNECTION_EVENT *Event)
 {
+    printf("Connection callback\n");
     struct server_ctx *ctx = (struct server_ctx *)Context;
     switch (Event->Type)
     {
@@ -326,6 +327,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         _Inout_ QUIC_LISTENER_EVENT *Event)
 {
     UNREFERENCED_PARAMETER(Listener);
+    printf("Listener callback\n");
     struct server_ctx *ctx = (struct server_ctx *)Context;
     QUIC_STATUS Status = QUIC_STATUS_NOT_SUPPORTED;
     switch (Event->Type)
@@ -336,11 +338,20 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         // proceed, the server must provide a configuration for QUIC to use. The
         // app MUST set the callback handler before returning.
         //
-        ctx->MsQuic->SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void *)server_connection_callback, ctx);
-        Status = ctx->MsQuic->ConnectionSetConfiguration(Event->NEW_CONNECTION.Connection, ctx->Configuration);
         printf("[list][%p] New Connection\n", (void *)Listener);
+        ctx->MsQuic->SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void *)server_connection_callback, ctx);
+        printf("Setting configuration\n");
+        Status = ctx->MsQuic->ConnectionSetConfiguration(Event->NEW_CONNECTION.Connection, ctx->Configuration);
+        printf("Configuration set\n");
+        break;
+    case QUIC_LISTENER_EVENT_STOP_COMPLETE:
+        //
+        // The listener has been stopped and can now be safely cleaned up.
+        //
+        printf("[list][%p] Stop Complete\n", (void *)Listener);
         break;
     default:
+        printf("[list][%p] Unknown Event: %d\n", (void *)Listener, Event->Type);
         break;
     }
     return Status;
@@ -474,22 +485,28 @@ Error:
 //
 // Runs the server side of the protocol.
 //
-Server_CTX server_init(Config *conf)
+void server_init(Config *conf, Server_CTX *server_ctx)
 {
     printf("Starting server...\n");
     QUIC_STATUS Status;
     HQUIC Listener = NULL;
-    ctx = (struct server_ctx){0};
-    ctx.RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
-    ctx.Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
-    ctx.IdleTimeoutMs = 1000;
-    ctx.Host = conf->target;
-    ctx.Port = conf->port;
+    *server_ctx = malloc(sizeof(struct server_ctx));
+    if (server_ctx == NULL)
+    {
+        printf("Server context allocation failed!\n");
+        goto Error;
+    }
+    struct server_ctx *ctx = (struct server_ctx *)*server_ctx;
+    ctx->RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
+    ctx->Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
+    ctx->IdleTimeoutMs = 1000;
+    ctx->Host = conf->target;
+    ctx->Port = conf->port;
 
     //
     // Open a handle to the library and get the API function table.
     //
-    if (QUIC_FAILED(Status = MsQuicOpen2(&ctx.MsQuic)))
+    if (QUIC_FAILED(Status = MsQuicOpen2(&ctx->MsQuic)))
     {
         printf("MsQuicOpen2 failed, 0x%x!\n", Status);
         goto Error;
@@ -506,15 +523,16 @@ Server_CTX server_init(Config *conf)
     //
     // Load the server configuration based on the command line.
     //
-    if (!server_load_configuration(&ctx))
+    if (!server_load_configuration(ctx))
     {
-        return NULL;
+        printf("Failed to load server configuration!\n");
+        goto Error;
     }
     printf("Configuration loaded.\n");
     //
     // Create/allocate a new listener object.
     //
-    if (QUIC_FAILED(Status = ctx.MsQuic->ListenerOpen(ctx.Registration, server_listener_callback, &ctx, &Listener)))
+    if (QUIC_FAILED(Status = ctx->MsQuic->ListenerOpen(ctx->Registration, server_listener_callback, ctx, &Listener)))
     {
         printf("ListenerOpen failed, 0x%x!\n", Status);
         goto Error;
@@ -523,18 +541,22 @@ Server_CTX server_init(Config *conf)
     //
     // Starts listening for incoming connections.
     //
-    if (QUIC_FAILED(Status = ctx.MsQuic->ListenerStart(Listener, &ctx.Alpn, 1, &Address)))
+    if (QUIC_FAILED(Status = ctx->MsQuic->ListenerStart(Listener, &ctx->Alpn, 1, &Address)))
     {
         printf("ListenerStart failed, 0x%x!\n", Status);
         goto Error;
     }
 
-    return (Server_CTX)&ctx;
+    //
+    // Continue listening for connections until the Enter key is pressed.
+    //
+    printf("Press Enter to exit.\n\n");
+    getchar();
 Error:
 
     if (Listener != NULL)
     {
-        ctx.MsQuic->ListenerClose(Listener);
+        ctx->MsQuic->ListenerClose(Listener);
     }
     exit(0);
 }
@@ -542,13 +564,6 @@ Error:
 void server_shutdown(Server_CTX ctx)
 {
     struct server_ctx *server_ctx = (struct server_ctx *)ctx;
-
-    //
-    // Continue listening for connections until the Enter key is pressed.
-    //
-    printf("Press Enter to exit.\n\n");
-    getchar();
-
     server_ctx->MsQuic->ConfigurationClose(server_ctx->Configuration);
     server_ctx->MsQuic->RegistrationClose(server_ctx->Registration);
 }

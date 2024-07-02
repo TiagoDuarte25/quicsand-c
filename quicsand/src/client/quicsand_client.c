@@ -32,7 +32,8 @@ int main()
     exit(EXIT_FAILURE);
   }
 
-  Client_CTX ctx = client_init(config);
+  Client_CTX ctx;
+  client_init(config, &ctx);
 
   log_debug("Client configuration initialized");
 
@@ -57,13 +58,13 @@ int main()
 
     clock_t start_lat = clock();
 
-    log_debug("Sending data...");
     // send content to the server
+    log_debug("Sending data...");
     send_data(ctx, &config->reqsize);
     log_debug("Data sent");
 
-    log_debug("Receiving data...");
     // receive content from the server
+    log_debug("Receiving data...");
     receive_data(ctx);
     log_debug("Data received");
 

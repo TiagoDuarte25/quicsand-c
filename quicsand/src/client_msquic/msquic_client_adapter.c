@@ -38,7 +38,7 @@ struct client_ctx
         pthread_mutex_t mutex;
         pthread_cond_t cond;
     } *recvBuffer;
-} ctx;
+};
 
 uint8_t
 decode_hex_char(
@@ -358,10 +358,18 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 
 void open_connection(Client_CTX ctx)
 {
-    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
+    printf("open_connection called\n");
+
     QUIC_STATUS status;
 
-    if (QUIC_FAILED(status = client_ctx->MsQuic->ConnectionOpen(client_ctx->Registration, client_connection_callback, ctx, &client_ctx->Connection)))
+    if (ctx == NULL)
+    {
+        printf("Context is not initialized!\n");
+        return;
+    }
+
+    struct client_ctx *client_ctx = (struct client_ctx *)ctx;
+    if (QUIC_FAILED(status = client_ctx->MsQuic->ConnectionOpen(client_ctx->Registration, client_connection_callback, client_ctx, &client_ctx->Connection)))
     {
         printf("ConnectionOpen failed, 0x%x!\n", status);
         goto Error;
@@ -377,6 +385,8 @@ void open_connection(Client_CTX ctx)
         printf("ConnectionStart failed, 0x%x!\n", status);
         goto Error;
     }
+
+    printf("[conn][%p] Started\n", (void *)client_ctx->Connection);
 
     while (!connected)
     {
@@ -465,21 +475,36 @@ void client_shutdown(Client_CTX ctx)
 //
 // Runs the client side of the protocol.
 //
-Client_CTX client_init(Config *conf)
+void client_init(Config *conf, Client_CTX *client_ctx)
 {
     printf("Starting client...\n");
-
-    ctx.RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
-    ctx.Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
-    ctx.IdleTimeoutMs = 1000;
-    ctx.Host = conf->target;
-    ctx.Port = conf->port;
+    *client_ctx = malloc(sizeof(struct client_ctx));
+    if (*client_ctx == NULL)
+    {
+        printf("Client context allocation failed!\n");
+        // Handle memory allocation failure
+        return;
+    }
+    struct client_ctx *ctx = (struct client_ctx *)*client_ctx;
+    ctx->MsQuic = NULL;
+    ctx->Registration = NULL;
+    ctx->Configuration = NULL;
+    ctx->Connection = NULL;
+    ctx->Stream = NULL;
+    ctx->Host = NULL;
+    ctx->Port = NULL;
+    ctx->recvBuffer = NULL;
+    ctx->RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
+    ctx->Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
+    ctx->IdleTimeoutMs = 1000;
+    ctx->Host = conf->target;
+    ctx->Port = conf->port;
 
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
     //
     // Open a handle to the library and get the API function table.
     //
-    if (QUIC_FAILED(status = MsQuicOpen2(&ctx.MsQuic)))
+    if (QUIC_FAILED(status = MsQuicOpen2(&ctx->MsQuic)))
     {
         printf("MsQuicOpen2 failed, 0x%x!\n", status);
         goto Error;
@@ -488,64 +513,62 @@ Client_CTX client_init(Config *conf)
     //
     // Create a registration for the app's connections.
     //
-    if (QUIC_FAILED(status = ctx.MsQuic->RegistrationOpen(&ctx.RegConfig, &ctx.Registration)))
+    if (QUIC_FAILED(status = ctx->MsQuic->RegistrationOpen(&ctx->RegConfig, &ctx->Registration)))
     {
         printf("RegistrationOpen failed, 0x%x!\n", status);
         goto Error;
     }
-
+    printf("Registration value: %p\n", ctx->Registration);
     //
     // Load the client configuration based on the "unsecure" command line option.
     //
-    if (!client_load_configuration(&ctx, conf->unsecure))
+    if (!client_load_configuration(ctx, conf->unsecure))
     {
-        return NULL;
+        goto Error;
     }
     printf("Client initialized\n");
 
     // Ensure recvBuffer is initialized
-    ctx.recvBuffer = malloc(sizeof(*ctx.recvBuffer));
-    if (ctx.recvBuffer == NULL)
+    ctx->recvBuffer = malloc(sizeof(*ctx->recvBuffer));
+    if (ctx->recvBuffer == NULL)
     {
         printf("recvBuffer allocation failed!\n");
         // Handle memory allocation failure
-        return NULL;
+        goto Error;
     }
 
     // Allocate memory for the destination buffer
-    ctx.recvBuffer->QUICBuffer = NULL;
+    ctx->recvBuffer->QUICBuffer = NULL;
 
-    if ((ctx.recvBuffer->QUICBuffer = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER))) == NULL)
+    if ((ctx->recvBuffer->QUICBuffer = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER))) == NULL)
     {
         printf("recvBuffer->QUICBuffer allocation failed!\n");
         // Handle memory allocation failure
-        return NULL;
+        goto Error;
     }
-    ctx.recvBuffer->QUICBuffer->Length = 0;
-    pthread_mutex_init(&ctx.recvBuffer->mutex, NULL);
-    pthread_cond_init(&ctx.recvBuffer->cond, NULL);
+    ctx->recvBuffer->QUICBuffer->Length = 0;
+    pthread_mutex_init(&ctx->recvBuffer->mutex, NULL);
+    pthread_cond_init(&ctx->recvBuffer->cond, NULL);
 
     printf("recvBuffer allocated\n");
 
-    return (Client_CTX)&ctx;
-
+    return;
 Error:
 
-    if (ctx.MsQuic != NULL)
+    if (ctx->MsQuic != NULL)
     {
-        if (ctx.Configuration != NULL)
+        if (ctx->Configuration != NULL)
         {
-            ctx.MsQuic->ConfigurationClose(ctx.Configuration);
+            ctx->MsQuic->ConfigurationClose(ctx->Configuration);
         }
-        if (ctx.Registration != NULL)
+        if (ctx->Registration != NULL)
         {
             //
             // This will block until all outstanding child objects have been
             // closed.
             //
-            ctx.MsQuic->RegistrationClose(ctx.Registration);
+            ctx->MsQuic->RegistrationClose(ctx->Registration);
         }
-        MsQuicClose(ctx.MsQuic);
+        MsQuicClose(ctx->MsQuic);
     }
-    return NULL;
 }
