@@ -327,7 +327,6 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         _Inout_ QUIC_LISTENER_EVENT *Event)
 {
     UNREFERENCED_PARAMETER(Listener);
-    printf("Listener callback\n");
     struct server_ctx *ctx = (struct server_ctx *)Context;
     QUIC_STATUS Status = QUIC_STATUS_NOT_SUPPORTED;
     switch (Event->Type)
@@ -340,9 +339,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         //
         printf("[list][%p] New Connection\n", (void *)Listener);
         ctx->MsQuic->SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void *)server_connection_callback, ctx);
-        printf("Setting configuration\n");
         Status = ctx->MsQuic->ConnectionSetConfiguration(Event->NEW_CONNECTION.Connection, ctx->Configuration);
-        printf("Configuration set\n");
         break;
     case QUIC_LISTENER_EVENT_STOP_COMPLETE:
         //

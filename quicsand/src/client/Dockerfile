@@ -4,25 +4,30 @@ FROM ubuntu:latest
 ARG IMPLEMENTATION
 
 ENV DEBIAN_FRONTEND noninteractive
+ENV IMPLEMENTATION=$IMPLEMENTATION
 
-# Copy msquic implementation into the container
-COPY implementations/$IMPLEMENTATION /app/$IMPLEMENTATION
+COPY implementations /app/implementations
+COPY quicsand /app/quicsand
+COPY CMakeLists.txt /app/CMakeLists.txt
 
-# Create the directory structure
-RUN mkdir -p /app/quicsand/src/client
-RUN mkdir -p /app/quicsand/include
+# # Copy msquic implementation into the container
+# COPY implementations/$IMPLEMENTATION /app/$IMPLEMENTATION
 
-# Copy the sources into the container
-COPY quicsand/src/*.c /app/quicsand/src
-COPY quicsand/src/client /app/quicsand/src/client
-COPY quicsand/src/client_$IMPLEMENTATION/*.c /app/quicsand/src/client
-COPY quicsand/config.yaml /app/quicsand
-COPY quicsand/include /app/quicsand/include
+# # Create the directory structure
+# RUN mkdir -p /app/quicsand/src/client
+# RUN mkdir -p /app/quicsand/include
 
-# Copy the Makefile into the container
-COPY quicsand/src/client/Makefile /app/Makefile
+# # Copy the sources into the container
+# COPY quicsand/src/*.c /app/quicsand/src
+# COPY quicsand/src/client /app/quicsand/src/client
+# COPY quicsand/src/client_$IMPLEMENTATION/*.c /app/quicsand/src/client
+# COPY quicsand/config.yaml /app/quicsand
+# COPY quicsand/include /app/quicsand/include
 
-WORKDIR /app/quicsand
+# # Copy the Makefile into the container
+# COPY quicsand/src/client/Makefile /app/Makefile
+
+WORKDIR /app/build
 
 # Set the entrypoint
-ENTRYPOINT ["/app/quicsand/src/client/entrypoint.sh"]
+ENTRYPOINT /app/quicsand/src/client/entrypoint.sh $IMPLEMENTATION
