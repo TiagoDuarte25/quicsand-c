@@ -475,7 +475,7 @@ void client_shutdown(Client_CTX ctx)
 //
 // Runs the client side of the protocol.
 //
-void client_init(Config *conf, Client_CTX *client_ctx)
+void client_init(Config *conf, Client_CTX *client_ctx, char *target_ip)
 {
     printf("Starting client...\n");
     *client_ctx = malloc(sizeof(struct client_ctx));
@@ -491,14 +491,12 @@ void client_init(Config *conf, Client_CTX *client_ctx)
     ctx->Configuration = NULL;
     ctx->Connection = NULL;
     ctx->Stream = NULL;
-    ctx->Host = NULL;
-    ctx->Port = NULL;
+    ctx->Host = target_ip;
+    ctx->Port = conf->port;
     ctx->recvBuffer = NULL;
     ctx->RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
     ctx->Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
     ctx->IdleTimeoutMs = 1000;
-    ctx->Host = conf->target;
-    ctx->Port = conf->port;
 
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
     //

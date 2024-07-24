@@ -19,12 +19,21 @@
 #define CPU "CPU"
 #define NUM_REPETITIONS 100
 
-int main()
+int main(int argc, char *argv[])
 {
   FILE *fp = fopen("client.log", "w+");
   log_add_fp(fp, LOG_INFO);
 
-  Config *config = malloc(sizeof(Config));
+  if (argc != 2)
+  {
+    fprintf(stderr, "Usage: run <target_ip>\n");
+    exit(EXIT_FAILURE);
+  }
+
+  char *target_ip = argv[1];
+
+  Config
+      *config = malloc(sizeof(Config));
   config = read_config("config.yaml");
   if (!config)
   {
@@ -33,7 +42,7 @@ int main()
   }
 
   Client_CTX ctx;
-  client_init(config, &ctx);
+  client_init(config, &ctx, target_ip);
 
   log_debug("Client configuration initialized");
 

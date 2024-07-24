@@ -1,15 +1,19 @@
 services:
-  quicsand_client:
+  client:
     build:
       context: .
       dockerfile: quicsand/src/client/Dockerfile
       args:
         - IMPLEMENTATION=${IMPLEMENTATION}
     image: quicsand_client
-  quicsand_server:
+  server:
     build:
       context: .
       dockerfile: quicsand/src/server/Dockerfile
       args:
         - IMPLEMENTATION=${IMPLEMENTATION}
     image: quicsand_server
+
+networks:
+  quicsand_network:
+    driver: bridge

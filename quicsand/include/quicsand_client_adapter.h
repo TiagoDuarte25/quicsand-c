@@ -16,7 +16,7 @@ void open_stream(Client_CTX ctx);
 void close_stream(Client_CTX ctx);
 void send_data(Client_CTX ctx, int *reqsize);
 void receive_data(Client_CTX ctx);
-void client_init(Config *config, Client_CTX *ctx);
+void client_init(Config *config, Client_CTX *ctx, char *target_ip);
 void client_shutdown(Client_CTX ctx);
 
 #endif // QUICSAND_CLIENT_ADAPTER_H

@@ -60,10 +60,12 @@ fi
 # Check if the images exist
 if docker images | grep -q quicsand_client && docker images | grep -q quicsand_server; then
     # Launch first process in a new terminal
-    gnome-terminal -- bash -c "docker run -it --network=host --name quicsand_server_container quicsand_server bash; exec bash" &
+    gnome-terminal -- bash -c "docker run -it --network=quicsand_network --name server quicsand_server; exec bash" &
+
+    sleep 20
 
     # Launch second process in another new terminal
-    gnome-terminal -- bash -c "docker run -it --network=host --name quicsand_client_container quicsand_client; exec bash"
+    gnome-terminal -- bash -c "docker run -it --network=quicsand_network --name client quicsand_client; exec bash"
 else
     echo "Images quicsand_client and quicsand_server do not exist."
 fi

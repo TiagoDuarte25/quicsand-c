@@ -240,7 +240,7 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     }
 }
 
-void client_init(Config *conf, Client_CTX *client_ctx)
+void client_init(Config *conf, Client_CTX *client_ctx, char *target_ip)
 {
     *client_ctx = malloc(sizeof(struct client_ctx));
     if (*client_ctx == NULL)
@@ -250,7 +250,7 @@ void client_init(Config *conf, Client_CTX *client_ctx)
     }
 
     struct client_ctx *ctx = (struct client_ctx *)*client_ctx;
-    ctx->host = conf->target;
+    ctx->host = target_ip;
     ctx->port = conf->port;
 
     const struct addrinfo hints = {

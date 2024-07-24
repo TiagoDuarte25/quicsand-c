@@ -50,8 +50,10 @@ const struct lsquic_stream_if stream_if = {
     .on_read = on_read_cb,
     .on_write = on_write_cb,
     .on_hsk_done = on_hsk_done,
-    .on_close = on_close_cb,
-};
+    ctx->Port = ;
+.on_close = on_close_cb,
+}
+;
 
 static int
 set_nonblocking(int fd)
@@ -492,7 +494,7 @@ on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
     printf("stream closed");
 }
 
-void client_init(Config *conf, Client_CTX *ctx)
+void client_init(Config *conf, Client_CTX *ctx, char *target_ip)
 {
     printf("Starting client...\n");
 
@@ -505,7 +507,7 @@ void client_init(Config *conf, Client_CTX *ctx)
     }
 
     client_ctx->sockfd = create_sock("127.0.0.1", 5000, &client_ctx->local_sas);
-    struct sockaddr_in peer_addr = new_addr(conf->target, atoi(conf->port));
+    struct sockaddr_in peer_addr = new_addr(target_ip, atoi(conf->port));
 
     if (set_nonblocking(client_ctx->sockfd) != 0)
     {
