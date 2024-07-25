@@ -6,9 +6,13 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include <openssl/pem.h>
-#include <openssl/x509.h>
-#include <openssl/ssl.h>
+// #include <openssl/pem.h>
+// #include <openssl/x509.h>
+// #include <openssl/ssl.h>
+#include "../../../implementations/boringssl/include/openssl/pem.h"
+#include "../../../implementations/boringssl/include/openssl/x509.h"
+#include "../../../implementations/boringssl/include/openssl/ssl.h"
+#include <assert.h>
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -50,10 +54,8 @@ const struct lsquic_stream_if stream_if = {
     .on_read = on_read_cb,
     .on_write = on_write_cb,
     .on_hsk_done = on_hsk_done,
-    ctx->Port = ;
-.on_close = on_close_cb,
-}
-;
+    .on_close = on_close_cb,
+};
 
 static int
 set_nonblocking(int fd)
@@ -494,6 +496,46 @@ on_close_cb(struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
     printf("stream closed");
 }
 
+void get_docker_ip(const char *container_name, char *ip_address, size_t size)
+{
+    char command[100];
+    FILE *fp;
+
+    // Construct the command to get the IP address of the Docker container
+    snprintf(command, sizeof(command),
+             "getent hosts %s | awk '{print $1}'",
+             container_name);
+
+    // Open the command for reading
+    fp = popen(command, "r");
+    if (fp == NULL)
+    {
+        perror("popen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read the output a line at a time and copy it to the ip_address
+    if (fgets(ip_address, size, fp) == NULL)
+    {
+        perror("fgets failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Close the file pointer
+    if (pclose(fp) == -1)
+    {
+        perror("pclose failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Remove the trailing newline character, if any
+    size_t len = strlen(ip_address);
+    if (len > 0 && ip_address[len - 1] == '\n')
+    {
+        ip_address[len - 1] = '\0';
+    }
+}
+
 void client_init(Config *conf, Client_CTX *ctx, char *target_ip)
 {
     printf("Starting client...\n");
@@ -506,7 +548,13 @@ void client_init(Config *conf, Client_CTX *ctx, char *target_ip)
         exit(EXIT_FAILURE);
     }
 
-    client_ctx->sockfd = create_sock("127.0.0.1", 5000, &client_ctx->local_sas);
+    const char *container_name = "client";
+    char ip_address[17];
+
+    get_docker_ip(container_name, ip_address, sizeof(ip_address));
+
+    printf("Client socket '%s': %s\n", container_name, ip_address);
+    client_ctx->sockfd = create_sock(ip_address, 5000, &client_ctx->local_sas);
     struct sockaddr_in peer_addr = new_addr(target_ip, atoi(conf->port));
 
     if (set_nonblocking(client_ctx->sockfd) != 0)

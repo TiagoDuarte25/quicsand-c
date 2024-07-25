@@ -31,6 +31,7 @@ struct client_ctx
 
     char *Host;
     char *Port;
+    size_t reqsize;
 
     struct Buffer
     {
@@ -40,43 +41,32 @@ struct client_ctx
     } *recvBuffer;
 };
 
-uint8_t
-decode_hex_char(
-    _In_ char c)
+// Function to generate random hexadecimal string
+char *generate_hex_string(size_t size)
 {
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'A' && c <= 'F')
-        return 10 + c - 'A';
-    if (c >= 'a' && c <= 'f')
-        return 10 + c - 'a';
-    return 0;
-}
-
-//
-// Helper function to convert a string of hex characters to a byte buffer.
-//
-uint32_t
-decode_hex_buffer(
-    _In_z_ const char *HexBuffer,
-    _In_ uint32_t OutBufferLen,
-    _Out_writes_to_(OutBufferLen, return)
-        uint8_t *OutBuffer)
-{
-    uint32_t HexBufferLen = (uint32_t)strlen(HexBuffer) / 2;
-    if (HexBufferLen > OutBufferLen)
+    // Allocate memory for the output string
+    // Each byte will be represented by 2 hexadecimal characters + 1 for null terminator
+    char *hex_string = malloc(size * 2 + 1);
+    if (hex_string == NULL)
     {
-        return 0;
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(1);
     }
 
-    for (uint32_t i = 0; i < HexBufferLen; i++)
+    // Seed the random number generator
+    srand((unsigned int)time(NULL));
+
+    // Generate random bytes and convert them to hexadecimal format
+    for (size_t i = 0; i < size; ++i)
     {
-        OutBuffer[i] =
-            (decode_hex_char(HexBuffer[i * 2]) << 4) |
-            decode_hex_char(HexBuffer[i * 2 + 1]);
+        unsigned char byte = rand() % 256;         // Generate a random byte
+        sprintf(hex_string + i * 2, "%02x", byte); // Convert byte to hex and store in the string
     }
 
-    return HexBufferLen;
+    // Null-terminate the string
+    hex_string[size * 2] = '\0';
+
+    return hex_string;
 }
 
 void receive_data(Client_CTX ctx)
@@ -115,7 +105,7 @@ void send_data(Client_CTX ctx, int *reqsize)
     //
     // Allocates and builds the buffer to send over the stream.
     //
-    char *data = "Client Request!";
+    char *data = generate_hex_string(client_ctx->reqsize);
     SendBufferRaw = (uint8_t *)malloc(sizeof(QUIC_BUFFER) + sizeof(data));
     if (SendBufferRaw == NULL)
     {
@@ -124,7 +114,6 @@ void send_data(Client_CTX ctx, int *reqsize)
         goto Error;
     }
 
-    // uint16_t data_len = (uint16_t)decode_hex_char(data, sizeof(data), SendBufferRaw);
     size_t data_len = strlen(data);
     SendBuffer = (QUIC_BUFFER *)SendBufferRaw;
     SendBuffer->Buffer = data;
@@ -493,6 +482,7 @@ void client_init(Config *conf, Client_CTX *client_ctx, char *target_ip)
     ctx->Stream = NULL;
     ctx->Host = target_ip;
     ctx->Port = conf->port;
+    ctx->reqsize = (size_t)conf->reqsize;
     ctx->recvBuffer = NULL;
     ctx->RegConfig = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
     ctx->Alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};

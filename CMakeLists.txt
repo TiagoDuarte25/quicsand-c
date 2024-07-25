@@ -33,7 +33,7 @@ IF(${IMPL} STREQUAL "lsquic")
     INCLUDE_DIRECTORIES(implementations/boringssl/include)
     INCLUDE_DIRECTORIES(implementations/lsquic/include)
     INCLUDE_DIRECTORIES(implementations/lsquic/src/liblsquic)
-    INCLUDE_DIRECTORIES(implementation/libev)
+    INCLUDE_DIRECTORIES(implementations/libev)
     ADD_SUBDIRECTORY(implementations/lsquic/src/liblsquic)
 
     # Find the libev library

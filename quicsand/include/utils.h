@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <utils.h>
-#include <msquic.h>
 #include <unistd.h>
 #include <linux/limits.h>
 

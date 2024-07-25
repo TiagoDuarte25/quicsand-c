@@ -6,9 +6,17 @@
 #include <ev.h>
 #include <fcntl.h>
 
-#include <openssl/pem.h>
-#include <openssl/x509.h>
-#include <openssl/ssl.h>
+// #include <openssl/pem.h>
+// #include <openssl/x509.h>
+// #include <openssl/ssl.h>
+#include "../../../implementations/boringssl/include/openssl/pem.h"
+#include "../../../implementations/boringssl/include/openssl/x509.h"
+#include "../../../implementations/boringssl/include/openssl/ssl.h"
+
+#include <errno.h>
+#include <netinet/ip.h>
+
+#define BUFFER_SIZE 17
 
 static lsquic_conn_ctx_t *on_new_conn_cb(void *ea_stream_if_ctx, lsquic_conn_t *conn);
 
@@ -654,6 +662,46 @@ void process_conns(server_ctx_t *server_ctx)
     ev_timer_start(server_ctx->loop, &server_ctx->timer);
 }
 
+void get_docker_ip(const char *container_name, char *ip_address, size_t size)
+{
+    char command[100];
+    FILE *fp;
+
+    // Construct the command to get the IP address of the Docker container
+    snprintf(command, sizeof(command),
+             "getent hosts %s | awk '{print $1}'",
+             container_name);
+
+    // Open the command for reading
+    fp = popen(command, "r");
+    if (fp == NULL)
+    {
+        perror("popen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read the output a line at a time and copy it to the ip_address
+    if (fgets(ip_address, size, fp) == NULL)
+    {
+        perror("fgets failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Close the file pointer
+    if (pclose(fp) == -1)
+    {
+        perror("pclose failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Remove the trailing newline character, if any
+    size_t len = strlen(ip_address);
+    if (len > 0 && ip_address[len - 1] == '\n')
+    {
+        ip_address[len - 1] = '\0';
+    }
+}
+
 void server_init(Config *conf, Server_CTX *ctx)
 {
     printf("Server initialization...\n");
@@ -673,7 +721,14 @@ void server_init(Config *conf, Server_CTX *ctx)
     create_ssl_ctx(server_ctx);
     ssl_ctx = server_ctx->ssl_ctx;
 
-    server_ctx->sockfd = create_sock(conf->target, atoi(conf->port), &server_ctx->local_sas);
+    const char *container_name = "server";
+    char ip_address[BUFFER_SIZE];
+
+    get_docker_ip(container_name, ip_address, sizeof(ip_address));
+
+    printf("IP Address of container '%s': %s\n", container_name, ip_address);
+
+    server_ctx->sockfd = create_sock(ip_address, atoi(conf->port), &server_ctx->local_sas);
 
     if (0 != set_nonblocking(server_ctx->sockfd))
     {
