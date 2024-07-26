@@ -288,6 +288,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
         int rc = quiche_header_info(buf, read, LOCAL_CONN_ID_LEN, &version,
                                     &type, scid, &scid_len, dcid, &dcid_len,
                                     token, &token_len);
+
         if (rc < 0)
         {
             fprintf(stderr, "failed to parse header: %d\n", rc);
@@ -499,6 +500,46 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents)
     }
 }
 
+void get_docker_ip(const char *container_name, char *ip_address, size_t size)
+{
+    char command[100];
+    FILE *fp;
+
+    // Construct the command to get the IP address of the Docker container
+    snprintf(command, sizeof(command),
+             "getent hosts %s | awk '{print $1}'",
+             container_name);
+
+    // Open the command for reading
+    fp = popen(command, "r");
+    if (fp == NULL)
+    {
+        perror("popen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read the output a line at a time and copy it to the ip_address
+    if (fgets(ip_address, size, fp) == NULL)
+    {
+        perror("fgets failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Close the file pointer
+    if (pclose(fp) == -1)
+    {
+        perror("pclose failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Remove the trailing newline character, if any
+    size_t len = strlen(ip_address);
+    if (len > 0 && ip_address[len - 1] == '\n')
+    {
+        ip_address[len - 1] = '\0';
+    }
+}
+
 void server_init(Config *conf, Server_CTX *ctx)
 {
     *ctx = malloc(sizeof(struct server_ctx));
@@ -510,7 +551,12 @@ void server_init(Config *conf, Server_CTX *ctx)
 
     struct server_ctx *server_ctx = (struct server_ctx *)*ctx;
 
-    const char *host = conf->target;
+    const char *container_name = "localhost";
+    char ip_address[17];
+
+    get_docker_ip(container_name, ip_address, sizeof(ip_address));
+
+    printf("IP Address of container '%s': %s\n", container_name, ip_address);
     const char *port = conf->port;
 
     const struct addrinfo hints = {
@@ -521,13 +567,13 @@ void server_init(Config *conf, Server_CTX *ctx)
     quiche_enable_debug_logging(debug_log, NULL);
 
     struct addrinfo *local;
-    if (getaddrinfo(host, port, &hints, &local) != 0)
+    if (getaddrinfo(ip_address, port, &hints, &local) != 0)
     {
         perror("failed to resolve host");
         exit(EXIT_FAILURE);
     }
 
-    printf("Openning socket on %s:%s\n", host, port);
+    printf("Openning socket on %s:%s\n", ip_address, port);
     int sock = socket(local->ai_family, SOCK_DGRAM, 0);
     if (sock < 0)
     {

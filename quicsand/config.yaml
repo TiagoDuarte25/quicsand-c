@@ -5,7 +5,7 @@ repetitions: 10
 buffer_size: 1460
 
 # The request size in bytes
-request_size: 400000
+request_size: 20
 
 # Credential validation 
 #       0 -> secure

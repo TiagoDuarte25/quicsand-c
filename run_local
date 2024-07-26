@@ -56,5 +56,5 @@ gnome-terminal -- bash -c "cd bin; ./server; exec bash"
 
 sleep 2
 
-gnome-terminal -- bash -c "cd bin; ./client; exec bash"
+gnome-terminal -- bash -c "cd bin; ./client 127.0.0.1; exec bash"
 

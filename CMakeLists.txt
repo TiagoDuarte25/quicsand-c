@@ -78,6 +78,7 @@ ELSEIF(${IMPL} STREQUAL "quiche")
 
     # Add quiche
     INCLUDE_DIRECTORIES(implementations/quiche/quiche/include)
+    INCLUDE_DIRECTORIES(implementations/libev)
 
     # Find the quiche library
     FIND_LIBRARY(QUICHE_LIBRARY NAMES quiche PATHS implementations/quiche/target/release NO_DEFAULT_PATH)

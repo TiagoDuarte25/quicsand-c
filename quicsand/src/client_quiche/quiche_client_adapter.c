@@ -123,6 +123,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
             if ((errno == EWOULDBLOCK) || (errno == EAGAIN))
             {
                 fprintf(stderr, "recv would block\n");
+                fprintf(stdout, "flushing egress\n");
                 break;
             }
 
