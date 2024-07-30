@@ -1,5 +1,5 @@
 # The number of repetitions for the experiment
-repetitions: 10
+repetitions: 5
 
 # The number of seconds to run the experiment
 buffer_size: 1460

@@ -551,7 +551,7 @@ void server_init(Config *conf, Server_CTX *ctx)
 
     struct server_ctx *server_ctx = (struct server_ctx *)*ctx;
 
-    const char *container_name = "localhost";
+    const char *container_name = "server";
     char ip_address[17];
 
     get_docker_ip(container_name, ip_address, sizeof(ip_address));

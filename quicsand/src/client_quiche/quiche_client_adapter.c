@@ -216,6 +216,8 @@ static void recv_cb(EV_P_ ev_io *w, int revents)
 
         quiche_stream_iter_free(readable);
     }
+
+    flush_egress(loop, conn_io);
 }
 
 static void timeout_cb(EV_P_ ev_timer *w, int revents)
@@ -277,7 +279,6 @@ void client_init(Config *conf, Client_CTX *client_ctx, char *target_ip)
 
     quiche_config_set_application_protos(ctx->config,
                                          (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
-
     quiche_config_set_max_idle_timeout(ctx->config, 5000);
     quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
     quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
@@ -363,9 +364,9 @@ void open_connection(Client_CTX client_ctx)
     ev_init(&ctx->conn_io->timer, timeout_cb);
     ctx->conn_io->timer.data = ctx->conn_io;
 
-    // flush_egress(ctx->loop, ctx->conn_io);
+    flush_egress(ctx->loop, ctx->conn_io);
 
-    // ev_loop(ctx->loop, 0);
+    ev_loop(ctx->loop, 0);
 }
 
 void close_connection(Client_CTX client_ctx)
@@ -398,11 +399,11 @@ void send_data(Client_CTX client_ctx, int *reqsize)
 
     static uint8_t out[MAX_DATAGRAM_SIZE];
 
-    for (int i = 0; i < MAX_DATAGRAM_SIZE; i++)
-    {
-        printf("%02x ", out[i]);
-    }
-    printf("\n");
+    // for (int i = 0; i < MAX_DATAGRAM_SIZE; i++)
+    // {
+    //     printf("%02x ", out[i]);
+    // }
+    // printf("\n");
 
     quiche_send_info send_info;
 
@@ -435,6 +436,10 @@ void send_data(Client_CTX client_ctx, int *reqsize)
 
         fprintf(stderr, "sent %zd bytes\n", sent);
     }
+
+    double t = quiche_conn_timeout_as_nanos(conn_io->conn) / 1e9f;
+    conn_io->timer.repeat = t;
+    ev_timer_again(ctx->loop, &conn_io->timer);
 }
 
 void receive_data(Client_CTX ctx)

@@ -23,6 +23,7 @@ int main(int argc, char *argv[])
 {
   FILE *fp = fopen("client.log", "w+");
   log_add_fp(fp, LOG_INFO);
+  // log_set_level(LOG_INFO);
 
   if (argc != 2)
   {
