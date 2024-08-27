@@ -17,8 +17,8 @@ typedef struct config
     int unsecure;
     char *target;
     char *port;
-} Config;
+} config_t;
 
-Config *read_config(char *filename);
+config_t* read_config(char *filename);
 
 #endif // UTILS_H

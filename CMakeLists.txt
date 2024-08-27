@@ -19,14 +19,15 @@ add_definitions(-D_GNU_SOURCE)
 FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
 FILE(GLOB SERVER_SRC "quicsand/src/server/*.c")
 FILE(GLOB SRC "quicsand/src/*.c")
-FILE(GLOB IMPL_CLIENT_SRC "quicsand/src/client_${IMPL}/*.c")
-FILE(GLOB IMPL_SERVER_SRC "quicsand/src/server_${IMPL}/*.c")
+INCLUDE_DIRECTORIES(quicsand/include)
 
 # Create executables targets
-ADD_EXECUTABLE(client ${CLIENT_SRC} ${SRC} ${IMPL_CLIENT_SRC})
-ADD_EXECUTABLE(server ${SERVER_SRC} ${SRC} ${IMPL_SERVER_SRC})
+ADD_EXECUTABLE(client ${SRC} ${CLIENT_SRC})
+ADD_EXECUTABLE(server ${SRC} ${SERVER_SRC})
 
 IF(${IMPL} STREQUAL "lsquic")
+
+    add_definitions(-DLSQUIC)   
 
     # Add boringssl and lsquic
     ADD_SUBDIRECTORY(implementations/boringssl)
@@ -54,6 +55,8 @@ IF(${IMPL} STREQUAL "lsquic")
 
 ELSEIF(${IMPL} STREQUAL "msquic")
 
+    add_definitions(-DMSQUIC)
+
     # Add msquic
     ADD_SUBDIRECTORY(implementations/msquic)
     INCLUDE_DIRECTORIES(implementations/msquic/include)
@@ -62,6 +65,8 @@ ELSEIF(${IMPL} STREQUAL "msquic")
     SET(LIBS msquic yaml bpf)
 
 ELSEIF(${IMPL} STREQUAL "quiche")
+
+    add_definitions(-DQUICHE)
 
     # Add a custom command to build libquiche.so
     ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_SOURCE_DIR}/implementations/quiche/target/release/libquiche.so

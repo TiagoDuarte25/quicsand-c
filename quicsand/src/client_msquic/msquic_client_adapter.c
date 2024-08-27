@@ -17,7 +17,7 @@
 int connected = 0;
 int streamStarted = 0;
 
-struct client_ctx
+struct context
 {
     QUIC_API_TABLE *MsQuic;
 

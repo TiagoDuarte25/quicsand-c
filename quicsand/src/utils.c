@@ -2,7 +2,7 @@
 
 #include <utils.h>
 
-Config *read_config(char *filename)
+config_t *read_config(char *filename)
 {
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) == NULL)
@@ -17,7 +17,7 @@ Config *read_config(char *filename)
     FILE *fh = fopen(cwd, "r");
     yaml_parser_t parser;
     yaml_token_t token;
-    Config *config = malloc(sizeof(Config));
+    config_t *config = malloc(sizeof(config_t));
 
     /* Initialize parser */
     if (!yaml_parser_initialize(&parser))
