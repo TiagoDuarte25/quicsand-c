@@ -9,7 +9,13 @@ typedef void *context_t;
 typedef void *connection_t;
 typedef void *stream_t;
 
-context_t create_quic_context();
+enum mode_t
+{
+    QUIC_CLIENT,
+    QUIC_SERVER
+};
+
+context_t create_quic_context(mode_t mode);
 void bind_addr(context_t context, char* ip, int port);
 
 // client functions

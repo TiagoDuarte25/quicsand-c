@@ -24,7 +24,8 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
-	context_t ctx = create_quic_context();
+	context_t ctx = create_quic_context(QUIC_SERVER);
 	fprintf(stderr, "Created context\n");
 	bind_addr(ctx, config->target, atoi(config->port));
+	set_listen(ctx);
 }

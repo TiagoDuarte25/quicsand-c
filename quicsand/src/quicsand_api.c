@@ -53,6 +53,9 @@ struct context
 
 #include <msquic.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <limits.h>
+#include <arpa/inet.h>
 
 #ifndef UNREFERENCED_PARAMETER
 #define UNREFERENCED_PARAMETER(P) (void)(P)
@@ -70,13 +73,19 @@ struct context
     uint64_t idle_timeout_ms;
     HQUIC registration;
     HQUIC configuration;
-    HQUIC connection;
-    HQUIC stream;
-
-    char *host;
-    int port;
-    size_t request_size;
-
+    union {
+        struct client
+        {
+            HQUIC connection;
+            HQUIC stream;
+            size_t request_size;
+        } c;
+        struct server
+        {
+            HQUIC listener;
+            QUIC_ADDR local_address;
+        } s;
+    };
     struct Buffer
     {
         QUIC_BUFFER *quic_buffer;
@@ -130,8 +139,7 @@ struct context {
 
 #endif
 
-
-context_t create_quic_context() {
+context_t create_quic_context(mode_t mode) {
     #ifdef QUICHE
 
         printf("Using quiche\n");
@@ -199,7 +207,6 @@ context_t create_quic_context() {
 
     // Allocate memory for the destination buffer
     ctx->recv_buff->quic_buffer = NULL;
-
     if ((ctx->recv_buff->quic_buffer = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER))) == NULL)
     {
         printf("recv_buff allocation failed!\n");
@@ -210,6 +217,72 @@ context_t create_quic_context() {
     pthread_mutex_init(&ctx->recv_buff->mutex, NULL);
     pthread_cond_init(&ctx->recv_buff->cond, NULL);
     printf("recvBuffer allocated\n");
+
+    //
+    // Configures the idle timeout.
+    //
+    QUIC_SETTINGS settings = {0};
+    settings.IdleTimeoutMs = ctx->idle_timeout_ms;
+    settings.IsSet.IdleTimeoutMs = TRUE;
+
+    QUIC_CREDENTIAL_CONFIG cred_config;
+    memset(&cred_config, 0, sizeof(cred_config));
+
+    if (mode == QUIC_CLIENT) {
+        cred_config.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
+        cred_config.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+    }
+    else if (mode == QUIC_SERVER) {
+        settings.ServerResumptionLevel = QUIC_SERVER_RESUME_AND_ZERORTT;
+        settings.IsSet.ServerResumptionLevel = TRUE;
+        settings.PeerBidiStreamCount = 1;
+        settings.IsSet.PeerBidiStreamCount = TRUE;
+
+        cred_config.Flags = QUIC_CREDENTIAL_FLAG_NONE;
+        cred_config.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
+
+        QUIC_CERTIFICATE_FILE CertFile;
+        char cwd[PATH_MAX];
+        char cert_path[PATH_MAX];
+        char key_path[PATH_MAX];
+        if (getcwd(cwd, sizeof(cwd)) == NULL)
+        {
+            perror("getcwd() error");
+            exit(EXIT_FAILURE);
+        }
+        strcpy(cert_path, cwd);
+        strcpy(key_path, cwd);
+        strcat(cert_path, "/certs/quicsand-server.pem");
+        strcat(key_path, "/certs/key.pem");
+        CertFile.CertificateFile = cert_path;
+        CertFile.PrivateKeyFile = key_path;
+        fprintf(stderr, "cert_path: %s\n", cert_path);
+        fprintf(stderr, "key_path: %s\n", key_path);
+        cred_config.CertificateFile = &CertFile;
+    } 
+    else {
+        printf("Invalid mode\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Allocate/initialize the configuration object, with the configured ALPN
+    // and settings.
+    //
+    if (QUIC_FAILED(status = ctx->msquic->ConfigurationOpen(ctx->registration, &ctx->alpn, 1, &settings, sizeof(settings), NULL, &ctx->configuration)))
+    {
+        printf("ConfigurationOpen failed, 0x%x!\n", status);
+        exit(EXIT_FAILURE);
+    }
+
+    //
+    // Loads the TLS credential part of the configuration. This is required even
+    // on client side, to indicate if a certificate is required or not.
+    //
+    if (QUIC_FAILED(status = ctx->msquic->ConfigurationLoadCredential(ctx->configuration, &cred_config)))
+    {
+        printf("ConfigurationLoadCredential failed, 0x%x!\n", status);
+        exit(EXIT_FAILURE);
+    }
 
     #elif LSQUIC
     printf("Using lsquic\n");
@@ -234,45 +307,15 @@ void bind_addr(context_t context, char* ip, int port) {
         }
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
-    QUIC_SETTINGS settings = {0};
-    //
-    // Configures the client's idle timeout.
-    //
-    settings.IdleTimeoutMs = ctx->idle_timeout_ms;
-    settings.IsSet.IdleTimeoutMs = TRUE;
 
-    //
-    // Configures a default client configuration, optionally disabling
-    // server certificate validation.
-    //
-    QUIC_CREDENTIAL_CONFIG cred_config;
-    memset(&cred_config, 0, sizeof(cred_config));
-    cred_config.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
-    cred_config.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
-
-    //
-    // Allocate/initialize the configuration object, with the configured ALPN
-    // and settings.
-    //
-    QUIC_STATUS status = QUIC_STATUS_SUCCESS;
-    if (QUIC_FAILED(status = ctx->msquic->ConfigurationOpen(ctx->registration, &ctx->alpn, 1, &settings, sizeof(settings), NULL, &ctx->configuration)))
-    {
-        printf("ConfigurationOpen failed, 0x%x!\n", status);
+    QUIC_ADDR address = {0};
+    if (inet_pton(QUIC_ADDRESS_FAMILY_INET, ip, &address.Ipv4.sin_addr) <= 0) {
+        perror("inet_pton");
         exit(EXIT_FAILURE);
     }
-
-    //
-    // Loads the TLS credential part of the configuration. This is required even
-    // on client side, to indicate if a certificate is required or not.
-    //
-    if (QUIC_FAILED(status = ctx->msquic->ConfigurationLoadCredential(ctx->configuration, &cred_config)))
-    {
-        printf("ConfigurationLoadCredential failed, 0x%x!\n", status);
-        exit(EXIT_FAILURE);
-    }
-
-    ctx->host = ip;
-    ctx->port = port;
+    address.Ipv4.sin_family = QUIC_ADDRESS_FAMILY_INET;
+    address.Ipv4.sin_port = htons(port);
+    ctx->s.local_address = address;
 
     #elif LSQUIC
     #endif
@@ -342,25 +385,25 @@ connection_t open_connection(context_t context, char* ip, int port) {
     struct context *ctx = (struct context *)context;
     QUIC_STATUS status;
 
-    if (QUIC_FAILED(status = ctx->msquic->ConnectionOpen(ctx->registration, NULL, NULL, &ctx->connection)))
+    if (QUIC_FAILED(status = ctx->msquic->ConnectionOpen(ctx->registration, (QUIC_LISTENER_CALLBACK_HANDLER)NULL, NULL, &ctx->c.connection)))
     {
         printf("ConnectionOpen failed, 0x%x!\n", status);
         exit(EXIT_FAILURE);
     }
 
-    printf("[conn][%p] Connecting...\n", (void *)ctx->connection);
+    printf("[conn][%p] Connecting...\n", (void *)ctx->c.connection);
 
     //
     // Start the connection to the server.
     //
-    if (QUIC_FAILED(status = ctx->msquic->ConnectionStart(ctx->connection, ctx->configuration, QUIC_ADDRESS_FAMILY_INET, ip, (uint16_t)port)))
+    if (QUIC_FAILED(status = ctx->msquic->ConnectionStart(ctx->c.connection, ctx->configuration, QUIC_ADDRESS_FAMILY_INET, ip, (uint16_t)port)))
     {
         printf("ConnectionStart failed, 0x%x!\n", status);
         exit(EXIT_FAILURE);
     }
 
-    printf("[conn][%p] Started\n", (void *)ctx->connection);
-    return (connection_t) ctx->connection;
+    printf("[conn][%p] Started\n", (void *)ctx->c.connection);
+    return (connection_t) ctx->c.connection;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     #endif
@@ -387,8 +430,21 @@ char* recv_data(context_t context, connection_t connection,int buffer_size, time
     return NULL;
 }
 
-void listener(context_t context) {
-    
+void set_listen(context_t context) {
+    #ifdef QUICHE
+    struct context *ctx = (struct context *)context;
+    #elif MSQUIC
+    struct context *ctx = (struct context *)context;
+    QUIC_STATUS status = QUIC_STATUS_SUCCESS;
+    if (QUIC_FAILED(status = ctx->msquic->ListenerOpen(ctx->registration, (QUIC_LISTENER_CALLBACK_HANDLER)NULL, NULL, &ctx->s.listener)))
+    {
+        printf("ListenerOpen failed, 0x%x!\n", status);
+        exit(EXIT_FAILURE);
+    }
+    printf("Listener opened.\n");
+    #elif LSQUIC
+    struct context *ctx = (struct context *)context;
+    #endif
 }
 
 connection_t accept_connection(context_t context, time_t timeout) {

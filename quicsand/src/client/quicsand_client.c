@@ -40,10 +40,8 @@ int main(int argc, char *argv[])
     exit(EXIT_FAILURE);
   }
 
-  context_t ctx = create_quic_context();
+  context_t ctx = create_quic_context(QUIC_CLIENT);
   fprintf(stderr, "Created context\n");
-  bind_addr(ctx, target_ip, atoi(config->port));
-  fprintf(stderr, "Bound address: %s:%s\n", target_ip, config->port);
   open_connection(ctx, target_ip, atoi(config->port));
   fprintf(stderr, "Opened connection\n");
 }
