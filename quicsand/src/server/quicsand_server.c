@@ -26,6 +26,8 @@ int main()
 
 	context_t ctx = create_quic_context(QUIC_SERVER);
 	fprintf(stderr, "Created context\n");
-	bind_addr(ctx, config->target, atoi(config->port));
+	bind_addr(ctx, config->host, atoi(config->port));
 	set_listen(ctx);
+	connection_t connection = accept_connection(ctx, 0);
+	getchar();
 }

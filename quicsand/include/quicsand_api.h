@@ -23,7 +23,7 @@ connection_t open_connection(context_t context, char* ip, int port);
 void close_connection(context_t context, connection_t connection);
 stream_t open_stream(context_t context, connection_t connection);
 void close_stream(context_t context, connection_t connection, stream_t stream);
-void send_data(context_t context, connection_t connection, char* data, int len);
+void send_data(context_t context, connection_t connection, stream_t stream, char* data, int len);
 char* recv_data(context_t context, connection_t connection, int buffer_size, time_t timeout);
 
 // server functions

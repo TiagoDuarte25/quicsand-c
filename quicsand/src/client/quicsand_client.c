@@ -42,6 +42,11 @@ int main(int argc, char *argv[])
 
   context_t ctx = create_quic_context(QUIC_CLIENT);
   fprintf(stderr, "Created context\n");
-  open_connection(ctx, target_ip, atoi(config->port));
+  printf("Connecting to %s:%s\n", target_ip, config->port);
+  connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
   fprintf(stderr, "Opened connection\n");
+  // sleep(2);
+  stream_t stream = open_stream(ctx, connection);
+  fprintf(stderr, "Opened stream\n");
+  send_data(ctx, connection, stream, "GET / HTTP/1.1\r\nHost: www.example.org\r\n\r\n", 32);
 }

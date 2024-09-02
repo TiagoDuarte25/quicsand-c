@@ -15,7 +15,7 @@ typedef struct config
     int bufsize;
     int reqsize;
     int unsecure;
-    char *target;
+    char *host;
     char *port;
 } config_t;
 

@@ -60,9 +60,12 @@ ELSEIF(${IMPL} STREQUAL "msquic")
     # Add msquic
     ADD_SUBDIRECTORY(implementations/msquic)
     INCLUDE_DIRECTORIES(implementations/msquic/include)
+    INCLUDE_DIRECTORIES(implementations/libev)
+
+    FIND_LIBRARY(EVENT_LIBRARY NAMES ev PATHS implementations/libev/.libs NO_DEFAULT_PATH)
 
     # Set libraries
-    SET(LIBS msquic yaml bpf)
+    SET(LIBS msquic yaml bpf ${EVENT_LIBRARY})
 
 ELSEIF(${IMPL} STREQUAL "quiche")
 

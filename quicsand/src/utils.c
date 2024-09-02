@@ -58,9 +58,9 @@ config_t *read_config(char *filename)
                 {
                     config->unsecure = atoi((char *)token.data.scalar.value);
                 }
-                else if (strcmp(key, "target") == 0)
+                else if (strcmp(key, "host") == 0)
                 {
-                    config->target = strdup((char *)token.data.scalar.value);
+                    config->host = strdup((char *)token.data.scalar.value);
                 }
                 else if (strcmp(key, "port") == 0)
                 {
