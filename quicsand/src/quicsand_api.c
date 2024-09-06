@@ -63,8 +63,10 @@ struct context
 #define UNREFERENCED_PARAMETER(P) (void)(P)
 #endif
 
-int connected = 0;
-int streamStarted = 0;
+#ifndef NULL
+#define NULL (void *)0
+#endif
+
 
 #define MAX_STREAMS 50
 #define MAX_CONNECTIONS 50
@@ -72,13 +74,43 @@ int streamStarted = 0;
 typedef struct {
     HQUIC stream;
     uint64_t stream_id;
+    int established;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
 } stream_info_t;
+
+typedef struct stream_node{
+    stream_info_t *stream_info;
+    struct stream_node *prev;
+    struct stream_node *next;
+} stream_node_t;
 
 typedef struct {
     HQUIC connection;
-    stream_info_t streams[MAX_STREAMS];
+    stream_node_t *streams;
+    stream_node_t *new_stream;
     size_t stream_count;
+    int connected;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
 } connection_info_t;
+
+typedef struct connection_node { 
+    connection_info_t *connection_info;
+    struct connection_node *prev;
+    struct connection_node *next;
+} connection_node_t;
+
+typedef struct {
+    struct context *ctx;
+    connection_info_t *connection_info;
+} ctx_conn_t;
+
+typedef struct {
+    struct context *ctx;
+    connection_info_t *connection_info;
+    stream_info_t *stream_info;
+} ctx_strm_t;
 
 struct context
 {
@@ -92,28 +124,28 @@ struct context
     union {
         struct client
         {
-            int connected;
-            connection_info_t connections[MAX_CONNECTIONS];
-            size_t connection_count;
-            size_t request_size;
+            QUIC_ADDR local_address;
+            pthread_mutex_t lock;
+            pthread_cond_t cond;
         } c;
         struct server
         {
-            int listening;
             HQUIC listener;
             QUIC_ADDR local_address;
             pthread_mutex_t lock;
             pthread_cond_t cond;
-            connection_info_t new_connection;
-            stream_info_t new_stream;
         } s;
     };
     struct Buffer
     {
-        QUIC_BUFFER *quic_buffer;
-        pthread_mutex_t mutex;
+        QUIC_BUFFER *buffers;
+        pthread_mutex_t lock;
         pthread_cond_t cond;
-    } *recv_buff;
+    } recv_buff;
+
+    connection_node_t *connections;
+    size_t connection_count;
+    connection_node_t *new_connection;
     struct ev_loop *loop;
 };
 
@@ -169,34 +201,48 @@ struct context {
 #ifdef QUICHE
 #elif MSQUIC
 
-int find_stream(connection_info_t *connection_info, uint64_t stream_id) {
-    for (size_t i = 0; i < connection_info->stream_count; i++)
-    {
-        if (connection_info->streams[i].stream_id == stream_id)
-        {
-            return 1;
+stream_node_t* push_stream(stream_node_t *head, stream_info_t *stream_info) {
+    stream_node_t *current = head;
+    while (current->next != NULL) {
+        current = current->next;
+    }
+    current->next = (stream_node_t *)malloc(sizeof(stream_node_t));
+    current->next->stream_info = stream_info;
+    current->next->next = NULL;
+    return current->next;
+}
+
+connection_node_t* push_connection(connection_node_t *head, connection_info_t *connection_info) {
+    connection_node_t *current = head;
+    while (current->next != NULL) {
+        current = current->next;
+    }
+    current->next = (connection_node_t *)malloc(sizeof(connection_node_t));
+    current->next->connection_info = connection_info;
+    current->next->next = NULL;
+    return current->next;
+}
+
+connection_info_t* find_connection(connection_node_t *head, HQUIC connection) {
+    connection_node_t *current = head;
+    while (current != NULL) {
+        if (current->connection_info->connection == connection) {
+            return current->connection_info;
         }
+        current = current->next;
     }
-    return 0;
+    return (connection_info_t*)NULL;
 }
 
-// The callback function that will be called periodically
-void check_listening_cb(EV_P_ ev_timer *w, int revents) {
-    struct context *ctx = (struct context *)w->data;
-    if (ctx->s.listening == 0) {
-        printf("Variable is now free! Stopping the loop.\n");
-        ev_break(EV_A_ EVBREAK_ALL); // Stop the event loop
-    } else {
-        printf("Variable is still not free. Continuing...\n");
+stream_info_t* find_stream(stream_node_t **head, HQUIC stream) {
+    stream_node_t *current = *head;
+    while (current != NULL) {
+        if (current->stream_info->stream == stream) {
+            return current->stream_info;
+        }
+        current = current->next;
     }
-}
-
-void check_connected_cb(EV_P_ ev_timer *w, int revents) {
-    struct context *ctx = (struct context *)w->data;
-    if (ctx->c.connected == 1) {
-        printf("Variable is now free! Stopping the loop.\n");
-        ev_break(EV_A_ EVBREAK_ALL); // Stop the event loop
-    }
+    return (stream_info_t*)NULL;
 }
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -208,9 +254,23 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         _In_opt_ void *context,
         _Inout_ QUIC_STREAM_EVENT *event)
 {
-    struct context *ctx = (struct context *)context;
+    ctx_strm_t *ctx_strm = (ctx_strm_t *)context;
+    struct context *ctx = ctx_strm->ctx;
+    connection_info_t *connection_info = ctx_strm->connection_info;
+    stream_info_t *stream_info = ctx_strm->stream_info;
     switch (event->Type)
     {
+    case QUIC_STREAM_EVENT_START_COMPLETE:
+        //
+        // The start of the stream has completed. The app MUST set the callback
+        // handler before returning.
+        //
+        pthread_mutex_lock(&connection_info->lock);
+        stream_info->established = 1;
+        printf("[strm][%p] Start complete\n", (void *)stream);
+        pthread_cond_signal(&connection_info->cond);
+        pthread_mutex_unlock(&connection_info->lock);
+        break;
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
         //
         // A previous StreamSend call has completed, and the context is being
@@ -223,8 +283,12 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         // Data was received from the peer on the stream.
         //
+        pthread_mutex_lock(&ctx->recv_buff.lock);
         printf("[strm][%p] Data received\n", (void *)stream);
-        printf("Data: %s\n", event->RECEIVE.Buffers->Buffer);
+        printf("Data: %.*s\n", (int)event->RECEIVE.TotalBufferLength, event->RECEIVE.Buffers[0].Buffer);
+        *ctx->recv_buff.buffers = *event->RECEIVE.Buffers;
+        pthread_cond_signal(&ctx->recv_buff.cond);
+        pthread_mutex_unlock(&ctx->recv_buff.lock);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         //
@@ -262,15 +326,22 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         _In_opt_ void *context,
         _Inout_ QUIC_CONNECTION_EVENT *event)
 {
-    struct context *ctx = (struct context *)context;
+    ctx_conn_t *ctx_conn = (ctx_conn_t *)context;
+    struct context *ctx = ctx_conn->ctx;
+    connection_info_t *connection_info = ctx_conn->connection_info;
     switch (event->Type)
     {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         //
         // The handshake has completed for the connection.
         //
-        ctx->c.connected = 1;
+        pthread_mutex_lock(&connection_info->lock);
+        connection_info->connected = 1;
+        connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
+        ctx->new_connection = connection_node;
         printf("[conn][%p] Connected\n", (void *)connection);
+        pthread_cond_signal(&connection_info->cond);
+        pthread_mutex_unlock(&connection_info->lock);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
         //
@@ -322,7 +393,14 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // callback handler before returning.
         //
         printf("[strm][%p] Peer started\n", (void *)event->PEER_STREAM_STARTED.Stream);
-        ctx->msquic->SetCallbackHandler(event->PEER_STREAM_STARTED.Stream, (void *)stream_callback, ctx);
+        stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
+        stream_info->stream = event->PEER_STREAM_STARTED.Stream;
+        stream_info->established = 0;
+        ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
+        ctx_strm->ctx = ctx;
+        ctx_strm->connection_info = connection_info;
+        ctx_strm->stream_info = stream_info;
+        ctx->msquic->SetCallbackHandler(event->PEER_STREAM_STARTED.Stream, (void *)stream_callback, ctx_strm);
         break;
     default:
         break;
@@ -356,17 +434,29 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         //
 
         pthread_mutex_lock(&ctx->s.lock);
-
-        ctx->s.new_connection.connection = event->NEW_CONNECTION.Connection;
-        ctx->s.new_connection.stream_count = 0;
     
         pthread_cond_signal(&ctx->s.cond);
+
+        ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
+        connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
+        ctx->new_connection = (connection_node_t *)malloc(sizeof(connection_node_t));
+        connection_info->connection = event->NEW_CONNECTION.Connection;
+        connection_info->connected = 1;
+        connection_info->streams = (stream_node_t *)malloc(sizeof(stream_node_t));
+        connection_info->streams->stream_info = NULL;
+        connection_info->streams->prev = NULL;
+        connection_info->streams->next = NULL;
+        connection_info->stream_count = 0;
+        ctx->new_connection->connection_info = connection_info;
+        ctx_conn->connection_info = connection_info;
+        ctx_conn->ctx = ctx;
+
 
         printf("[list][%p] New Connection\n", (void *)listener);
 
         pthread_mutex_unlock(&ctx->s.lock);
 
-        ctx->msquic->SetCallbackHandler(event->NEW_CONNECTION.Connection, (void *)connection_callback, ctx);
+        ctx->msquic->SetCallbackHandler(event->NEW_CONNECTION.Connection, (void *)connection_callback, ctx_conn);
         status = ctx->msquic->ConnectionSetConfiguration(event->NEW_CONNECTION.Connection, ctx->configuration);
         break;
     case QUIC_LISTENER_EVENT_STOP_COMPLETE:
@@ -444,27 +534,10 @@ context_t create_quic_context(mode_t mode) {
         exit(EXIT_FAILURE);
     }
 
-    // Ensure recvBuffer is initialized
-    ctx->recv_buff = malloc(sizeof(*ctx->recv_buff));
-    if (ctx->recv_buff == NULL)
-    {
-        printf("recv_buff allocation failed!\n");
-        // Handle memory allocation failure
-        exit(EXIT_FAILURE);
-    }
-
     // Allocate memory for the destination buffer
-    ctx->recv_buff->quic_buffer = NULL;
-    if ((ctx->recv_buff->quic_buffer = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER))) == NULL)
-    {
-        printf("recv_buff allocation failed!\n");
-        // Handle memory allocation failure
-        exit(EXIT_FAILURE);
-    }
-    ctx->recv_buff->quic_buffer->Length = 0;
-    pthread_mutex_init(&ctx->recv_buff->mutex, NULL);
-    pthread_cond_init(&ctx->recv_buff->cond, NULL);
-    printf("recvBuffer allocated\n");
+    ctx->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
+    ctx->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    ctx->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
     //
     // Configures the idle timeout.
@@ -479,8 +552,6 @@ context_t create_quic_context(mode_t mode) {
     if (mode == QUIC_CLIENT) {
         cred_config.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
         cred_config.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
-        ctx->c.connected = 0;
-        ctx->c.connection_count = 0;
     }
     else if (mode == QUIC_SERVER) {
         settings.ServerResumptionLevel = QUIC_SERVER_RESUME_AND_ZERORTT;
@@ -509,14 +580,17 @@ context_t create_quic_context(mode_t mode) {
         fprintf(stderr, "cert_path: %s\n", cert_path);
         fprintf(stderr, "key_path: %s\n", key_path);
         cred_config.CertificateFile = &CertFile;
-
-        ctx->s.listening = 0;
-        ctx->s.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-        ctx->s.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;  
     } else {
         printf("Invalid mode\n");
         exit(EXIT_FAILURE);
     }
+
+    ctx->connections = (connection_node_t *)malloc(sizeof(connection_node_t));
+    ctx->connections->connection_info = NULL;
+    ctx->connections->prev = NULL;
+    ctx->connections->next = NULL;
+    ctx->connection_count = 0;
+    ctx->new_connection = NULL;
 
     // Allocate/initialize the configuration object, with the configured ALPN
     // and settings.
@@ -637,8 +711,16 @@ connection_t open_connection(context_t context, char* ip, int port) {
     struct context *ctx = (struct context *)context;
     QUIC_STATUS status;
 
-    connection_info_t *connection_info = &ctx->c.connections[ctx->c.connection_count++];
-    if (QUIC_FAILED(status = ctx->msquic->ConnectionOpen(ctx->registration, connection_callback, ctx, &connection_info->connection)))
+    connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
+    connection_info->connected = 0;
+    connection_info->streams = (stream_node_t *)malloc(sizeof(stream_node_t));
+    connection_info->stream_count = 0;
+    connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+    ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
+    ctx_conn->ctx = ctx;
+    ctx_conn->connection_info = connection_info;
+    if (QUIC_FAILED(status = ctx->msquic->ConnectionOpen(ctx->registration, connection_callback, ctx_conn, &connection_info->connection)))
     {
         printf("ConnectionOpen failed, 0x%x!\n", status);
         exit(EXIT_FAILURE);
@@ -655,20 +737,15 @@ connection_t open_connection(context_t context, char* ip, int port) {
     }
     printf("[conn][%p] Started\n", (void *)&connection_info->connection);
     
-    // ev_timer timer_watcher;
-    // ctx->c.connected = 1;
-    // timer_watcher.data = ctx;
-    // ev_timer_init(&timer_watcher, check_connected_cb, 0., 1.);
-    // ev_timer_start(ctx->loop, &timer_watcher);
-
-    // ev_run(ctx->loop, 0);
-
-    while (!ctx->c.connected)
+    pthread_mutex_lock(&connection_info->lock);
+    if (connection_info->connected == 0)
     {
-        // Wait for connection to be established
+        printf("Waiting for connection\n");
+        pthread_cond_wait(&connection_info->cond, &connection_info->lock);
     }
-
-    connection_info->stream_count = 0;
+    pthread_mutex_unlock(&connection_info->lock);
+    push_connection(ctx->connections, connection_info);
+    printf("Connection established\n");
     return (connection_t) connection_info;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
@@ -686,12 +763,18 @@ stream_t open_stream(context_t context, connection_t connection) {
     struct context *ctx = (struct context *)context;
     HQUIC stream;
     connection_info_t *connection_info = (connection_info_t *)connection;
+    stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
+    stream_info->established = 0;
+    ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
+    ctx_strm->ctx = ctx;
+    ctx_strm->connection_info = connection_info;
+    ctx_strm->stream_info = stream_info;
     //
     // Create/allocate a new bidirectional stream. The stream is just allocated
     // and no QUIC stream identifier is assigned until it's started.
     //
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
-    if (QUIC_FAILED(status = ctx->msquic->StreamOpen(connection_info->connection, QUIC_STREAM_OPEN_FLAG_NONE, stream_callback, ctx, &stream)))
+    if (QUIC_FAILED(status = ctx->msquic->StreamOpen(connection_info->connection, QUIC_STREAM_OPEN_FLAG_NONE, stream_callback, ctx_strm, &stream)))
     {
         printf("StreamOpen failed, 0x%x!\n", status);
         exit(EXIT_FAILURE);
@@ -706,6 +789,13 @@ stream_t open_stream(context_t context, connection_t connection) {
         ctx->msquic->StreamClose(stream);
         exit(EXIT_FAILURE);
     }
+    pthread_mutex_lock(&connection_info->lock);
+    if (stream_info->established == 0)
+    {
+        printf("Waiting for stream\n");
+        pthread_cond_wait(&connection_info->cond, &connection_info->lock);
+    }
+    pthread_mutex_unlock(&connection_info->lock);
     uint64_t stream_id;
     uint32_t buffer_len = sizeof(stream_id);
     if (QUIC_FAILED(status = ctx->msquic->GetParam(stream, QUIC_PARAM_STREAM_ID, &buffer_len, &stream_id)))
@@ -714,13 +804,14 @@ stream_t open_stream(context_t context, connection_t connection) {
         exit(EXIT_FAILURE);
     }
     printf("[strm][%p] Starting... Stream ID: %llu\n", (void *)stream, (unsigned long long)stream_id);
-    stream_info_t *stream_info = &connection_info->streams[connection_info->stream_count++];
     stream_info->stream = stream;
     stream_info->stream_id = stream_id;
+    stream_node_t *stream_node = push_stream(connection_info->streams, stream_info);
+    connection_info->new_stream = stream_node;
+    return (stream_t) stream_info;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     #endif
-    return (stream_t) stream_info;
 }
 
 void close_stream(context_t context, connection_t connection, stream_t stream) {
@@ -735,12 +826,6 @@ void send_data(context_t context, connection_t connection, stream_t stream, char
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
     stream_info_t *stream_info = (stream_info_t *)stream;
     connection_info_t *connection_info = (connection_info_t *)connection;
-
-    if (find_stream(connection_info, stream_info->stream_id) == 0)
-    {
-        printf("Stream not found\n");
-        exit(EXIT_FAILURE);
-    }
 
     uint8_t *send_buffer_raw;
     QUIC_BUFFER *send_buffer;
@@ -779,7 +864,30 @@ void send_data(context_t context, connection_t connection, stream_t stream, char
 }
 
 char* recv_data(context_t context, connection_t connection, int buffer_size, time_t timeout) {
-    return NULL;
+    #ifdef QUICHE
+    struct context *ctx = (struct context *)context;
+    #elif MSQUIC
+    printf("Receiving data\n");
+    struct context *ctx = (struct context *)context;
+    pthread_mutex_lock(&ctx->recv_buff.lock);
+    if (timeout == 0)
+    {
+        pthread_cond_wait(&ctx->recv_buff.cond, &ctx->recv_buff.lock);
+    }
+    else
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += timeout;
+        pthread_cond_timedwait(&ctx->recv_buff.cond, &ctx->recv_buff.lock, &ts);
+        printf("Timed out\n");
+    }
+    printf("recv_data: %s\n", ctx->recv_buff.buffers->Buffer);
+    pthread_mutex_unlock(&ctx->recv_buff.lock);
+    return (char *)ctx->recv_buff.buffers->Buffer;
+    #elif LSQUIC
+    struct context *ctx = (struct context *)context;
+    #endif
 }
 
 void set_listen(context_t context) {
@@ -800,7 +908,6 @@ void set_listen(context_t context) {
         exit(EXIT_FAILURE);
     }
     printf("Listener started.\n");
-    ctx->s.listening = 1;
 
     // ev_timer timer_watcher;
     // timer_watcher.data = ctx;
@@ -839,12 +946,37 @@ connection_t accept_connection(context_t context, time_t timeout) {
 
     // Unlock the mutex
     pthread_mutex_unlock(&ctx->s.lock);
-    return (connection_t)&ctx->s.new_connection;
+    return (connection_t)&ctx->new_connection->connection_info;
     #elif LSQUIC
     #endif
 }
 
 stream_t accept_stream(context_t context, connection_t connection, time_t timeout) {
-    // TODO
-    return (stream_t)NULL;
+    #ifdef QUICHE
+    #elif MSQUIC
+    struct context *ctx = (struct context *)context;
+    connection_info_t *connection_info = (connection_info_t *)connection;
+
+    // Lock the mutex to wait for a connection
+    pthread_mutex_lock(&connection_info->lock);
+
+    // Wait for the listener_callback to signal a new connection
+    if (timeout == 0) {
+        // Wait indefinitely
+        printf("Waiting for stream\n");
+        pthread_cond_wait(&connection_info->cond, &connection_info->lock);
+    } else {
+        // Wait with a timeout (convert time_t to timespec)
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += timeout;
+        pthread_cond_timedwait(&connection_info->cond, &connection_info->lock, &ts);
+    }
+
+    printf("New stream accepted\n");
+
+    // Unlock the mutex
+    pthread_mutex_unlock(&connection_info->lock);
+    return (stream_t)connection_info->new_stream->stream_info;
+    #endif
 }

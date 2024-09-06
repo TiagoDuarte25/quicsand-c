@@ -27,7 +27,13 @@ int main()
 	context_t ctx = create_quic_context(QUIC_SERVER);
 	fprintf(stderr, "Created context\n");
 	bind_addr(ctx, config->host, atoi(config->port));
+	fprintf(stderr, "Bound address\n");
 	set_listen(ctx);
+	fprintf(stderr, "Listening\n");
 	connection_t connection = accept_connection(ctx, 0);
+	fprintf(stderr, "Accepted connection\n");
+	//stream_t stream = accept_stream(ctx, connection, 0);
+	//fprintf(stderr, "Accepted stream\n");
+	// char *data = recv_data(ctx, connection, 1024, 0);
 	getchar();
 }
