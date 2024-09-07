@@ -32,8 +32,9 @@ int main()
 	fprintf(stderr, "Listening\n");
 	connection_t connection = accept_connection(ctx, 0);
 	fprintf(stderr, "Accepted connection\n");
-	//stream_t stream = accept_stream(ctx, connection, 0);
-	//fprintf(stderr, "Accepted stream\n");
-	// char *data = recv_data(ctx, connection, 1024, 0);
+	stream_t stream = accept_stream(ctx, connection, 0);
+	fprintf(stderr, "Accepted stream\n");
+	char *data = recv_data(ctx, connection, 1024, 0);
+	fprintf(stderr, "Received data: %s\n", data);
 	getchar();
 }
