@@ -19,6 +19,36 @@
 #define CPU "CPU"
 #define NUM_REPETITIONS 100
 
+char *random_data(int len)
+{
+    char *data = (char *)malloc(len);
+    for (int i = 0; i < len; i++)
+    {
+        data[i] = 'A' + (rand() % 26);
+    }
+    return data;
+}
+
+void network_experiment(config_t *config, char *target_ip) {
+    struct timespec start, end;
+    double ttfb = 0;
+    double handshake = 0;
+    double cpu = 0;
+    context_t ctx = create_quic_context(QUIC_CLIENT);
+    connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
+    stream_t stream = open_stream(ctx, connection);
+    for (int i = 0; i < NUM_REPETITIONS; i++) {
+      clock_gettime(CLOCK_MONOTONIC, &start);
+      send_data(ctx, connection, stream, random_data(200), 200);
+      clock_gettime(CLOCK_MONOTONIC, &end);
+      ttfb += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    }
+    ttfb /= NUM_REPETITIONS;
+    close_stream(ctx, connection, stream);
+    close_connection(ctx, connection);
+    log_info(LOGS_FORMAT, TTFB, ttfb);
+}
+
 int main(int argc, char *argv[])
 {
   FILE *fp = fopen("client.log", "w+");
@@ -40,13 +70,13 @@ int main(int argc, char *argv[])
     exit(EXIT_FAILURE);
   }
 
-  context_t ctx = create_quic_context(QUIC_CLIENT);
-  fprintf(stderr, "Created context\n");
-  printf("Connecting to %s:%s\n", target_ip, config->port);
-  connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
-  fprintf(stderr, "Opened connection\n");
-  stream_t stream = open_stream(ctx, connection);
-  fprintf(stderr, "Opened stream\n");
-  send_data(ctx, connection, stream, "GET / HTTP/1.1\r\nHost: www.example.org\r\n\r\n", 32);
+  // context_t ctx = create_quic_context(QUIC_CLIENT);
+  // fprintf(stderr, "Created context\n");
+  // printf("Connecting to %s:%s\n", target_ip, config->port);
+  // connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
+  // fprintf(stderr, "Opened connection\n");
+  // stream_t stream = open_stream(ctx, connection);
+  // fprintf(stderr, "Opened stream\n");
+  network_experiment(config, target_ip);
   getchar();
 }
