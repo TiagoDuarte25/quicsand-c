@@ -67,7 +67,6 @@ struct context
 #define NULL (void *)0
 #endif
 
-
 #define MAX_STREAMS 50
 #define MAX_CONNECTIONS 50
 
@@ -93,6 +92,13 @@ typedef struct {
     int connected;
     pthread_mutex_t lock;
     pthread_cond_t cond;
+    struct Buffer
+    {
+        QUIC_BUFFER *buffers;
+        uint64_t total_buffer_length;
+        pthread_mutex_t lock;
+        pthread_cond_t cond;
+    } recv_buff;
 } connection_info_t;
 
 typedef struct connection_node { 
@@ -132,12 +138,6 @@ struct context
             QUIC_ADDR local_address;
         } s;
     };
-    struct Buffer
-    {
-        QUIC_BUFFER *buffers;
-        pthread_mutex_t lock;
-        pthread_cond_t cond;
-    } recv_buff;
 
     connection_node_t *connections;
     size_t connection_count;
@@ -278,12 +278,18 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         // Data was received from the peer on the stream.
         //
-        pthread_mutex_lock(&ctx->recv_buff.lock);
-        printf("[strm][%p] Data received\n", (void *)stream);
-        printf("Data: %.*s\n", (int)event->RECEIVE.TotalBufferLength, event->RECEIVE.Buffers[0].Buffer);
-        *ctx->recv_buff.buffers = *event->RECEIVE.Buffers;
-        pthread_cond_signal(&ctx->recv_buff.cond);
-        pthread_mutex_unlock(&ctx->recv_buff.lock);
+        pthread_mutex_lock(&connection_info->recv_buff.lock);
+        // printf("[strm][%p] Data received\n", (void *)stream);
+        // printf("received:\n");
+        // printf("absolute offset: %llu\n", event->RECEIVE.AbsoluteOffset);
+        // printf("total buffer length: %llu\n", event->RECEIVE.TotalBufferLength);
+        // printf("buffer length: %u\n", event->RECEIVE.Buffers[0].Length);
+        // printf("buffer count: %u\n", event->RECEIVE.BufferCount);
+        // printf("Data: %.*s\n", (int)event->RECEIVE.TotalBufferLength, event->RECEIVE.Buffers[0].Buffer);
+        *connection_info->recv_buff.buffers = *event->RECEIVE.Buffers;
+        connection_info->recv_buff.total_buffer_length = event->RECEIVE.TotalBufferLength;
+        pthread_cond_signal(&connection_info->recv_buff.cond);
+        pthread_mutex_unlock(&connection_info->recv_buff.lock);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         //
@@ -446,6 +452,10 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
+        connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
+        connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+        connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+
         // set the callback handler
         connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
         ctx->new_connection = connection_node;
@@ -473,7 +483,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
 #elif LSQUIC
 #endif
 
-context_t create_quic_context(mode_t mode) {
+context_t create_quic_context(char *cert_path, char *key_path) {
     #ifdef QUICHE
 
         printf("Using quiche\n");
@@ -530,11 +540,6 @@ context_t create_quic_context(mode_t mode) {
         exit(EXIT_FAILURE);
     }
 
-    // Allocate memory for the destination buffer
-    ctx->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
-    ctx->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    ctx->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-
     //
     // Configures the idle timeout.
     //
@@ -545,11 +550,11 @@ context_t create_quic_context(mode_t mode) {
     QUIC_CREDENTIAL_CONFIG cred_config;
     memset(&cred_config, 0, sizeof(cred_config));
 
-    if (mode == QUIC_CLIENT) {
+    if (!cert_path || !key_path) {
         cred_config.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
         cred_config.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
     }
-    else if (mode == QUIC_SERVER) {
+    else {
         settings.ServerResumptionLevel = QUIC_SERVER_RESUME_AND_ZERORTT;
         settings.IsSet.ServerResumptionLevel = TRUE;
         settings.PeerBidiStreamCount = MAX_STREAMS;
@@ -559,26 +564,11 @@ context_t create_quic_context(mode_t mode) {
         cred_config.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
 
         QUIC_CERTIFICATE_FILE CertFile;
-        char cwd[PATH_MAX];
-        char cert_path[PATH_MAX];
-        char key_path[PATH_MAX];
-        if (getcwd(cwd, sizeof(cwd)) == NULL)
-        {
-            perror("getcwd() error");
-            exit(EXIT_FAILURE);
-        }
-        strcpy(cert_path, cwd);
-        strcpy(key_path, cwd);
-        strcat(cert_path, "/certs/quicsand-server.pem");
-        strcat(key_path, "/certs/key.pem");
         CertFile.CertificateFile = cert_path;
         CertFile.PrivateKeyFile = key_path;
         fprintf(stderr, "cert_path: %s\n", cert_path);
         fprintf(stderr, "key_path: %s\n", key_path);
         cred_config.CertificateFile = &CertFile;
-    } else {
-        printf("Invalid mode\n");
-        exit(EXIT_FAILURE);
     }
 
     ctx->connections = (connection_node_t *)malloc(sizeof(connection_node_t));
@@ -715,6 +705,12 @@ connection_t open_connection(context_t context, char* ip, int port) {
     connection_info->stream_count = 0;
     connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+
+    // Allocate memory for the destination buffer
+    connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
+    connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+
     connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
     ctx->new_connection = connection_node;
     ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
@@ -833,7 +829,7 @@ void close_stream(context_t context, connection_t connection, stream_t stream) {
     stream_info_t *stream_info = stream_node->stream_info;
     connection_node_t *connection_node = (connection_node_t *)connection;
     connection_info_t *connection_info = connection_node->connection_info;
-    ctx->msquic->StreamShutdown(stream_info->stream, QUIC_STREAM_SHUTDOWN_FLAG_NONE, 0);
+    ctx->msquic->StreamShutdown(stream_info->stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     #endif
@@ -894,25 +890,24 @@ char* recv_data(context_t context, connection_t connection, int buffer_size, tim
     struct context *ctx = (struct context *)context;
     connection_node_t *connection_node = (connection_node_t *)connection;
     connection_info_t *connection_info = connection_node->connection_info;
-    pthread_mutex_lock(&ctx->recv_buff.lock);
-    if (ctx->recv_buff.buffers == NULL)
+    pthread_mutex_lock(&connection_info->recv_buff.lock);
+    if (connection_info->recv_buff.buffers == NULL)
     {
         if (timeout == 0)
         {
-            pthread_cond_wait(&ctx->recv_buff.cond, &ctx->recv_buff.lock);
+            pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
         }
         else
         {
             struct timespec ts;
             clock_gettime(CLOCK_REALTIME, &ts);
             ts.tv_sec += timeout;
-            pthread_cond_timedwait(&ctx->recv_buff.cond, &ctx->recv_buff.lock, &ts);
+            pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
             printf("Timed out\n");
         }
     }
-    printf("recv_data: %s\n", ctx->recv_buff.buffers->Buffer);
-    pthread_mutex_unlock(&ctx->recv_buff.lock);
-    return (char *)ctx->recv_buff.buffers->Buffer;
+    pthread_mutex_unlock(&connection_info->recv_buff.lock);
+    return (char *)connection_info->recv_buff.buffers->Buffer;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     #endif

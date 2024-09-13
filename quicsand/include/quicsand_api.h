@@ -15,7 +15,7 @@ enum mode_t
     QUIC_SERVER
 };
 
-context_t create_quic_context(mode_t mode);
+context_t create_quic_context(char *cert_path, char *key_path);
 void bind_addr(context_t context, char* ip, int port);
 
 // client functions

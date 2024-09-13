@@ -61,11 +61,13 @@ ELSEIF(${IMPL} STREQUAL "msquic")
     ADD_SUBDIRECTORY(implementations/msquic)
     INCLUDE_DIRECTORIES(implementations/msquic/include)
     INCLUDE_DIRECTORIES(implementations/libev)
+    INCLUDE_DIRECTORIES(implementations/C-Thread-Pool)
 
     FIND_LIBRARY(EVENT_LIBRARY NAMES ev PATHS implementations/libev/.libs NO_DEFAULT_PATH)
+    FIND_LIBRARY(THREAD_POOL_LIBRARY NAMES thpool PATHS implementations/C-Thread-Pool NO_DEFAULT_PATH)
 
     # Set libraries
-    SET(LIBS msquic yaml bpf ${EVENT_LIBRARY})
+    SET(LIBS msquic yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 
 ELSEIF(${IMPL} STREQUAL "quiche")
 

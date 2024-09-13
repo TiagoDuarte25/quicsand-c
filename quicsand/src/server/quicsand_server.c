@@ -11,8 +11,32 @@
 #include "quicsand_api.h"
 #include "utils.h"
 
-int main()
+int main(int argc, char *argv[])
 {
+	char *cert_path = NULL;
+    char *key_path = NULL;
+    int opt;
+
+    // Parse command-line arguments
+    while ((opt = getopt(argc, argv, "c:k:")) != -1) {
+        switch (opt) {
+            case 'c':
+                cert_path = strdup(optarg);
+                break;
+            case 'k':
+                key_path = strdup(optarg);
+                break;
+            default:
+                fprintf(stderr, "Usage: %s -c <cert_path> -k <key_path>\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    if (!cert_path || !key_path) {
+        fprintf(stderr, "Usage: %s -c <cert_path> -k <key_path>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
 	FILE *fp;
 	fp = fopen("server.log", "w+");
 	log_add_fp(fp, LOG_INFO);
@@ -24,7 +48,7 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
-	context_t ctx = create_quic_context(QUIC_SERVER);
+	context_t *ctx = create_quic_context(cert_path, key_path);
 	fprintf(stderr, "Created context\n");
 	bind_addr(ctx, config->host, atoi(config->port));
 	fprintf(stderr, "Bound address\n");
@@ -34,7 +58,11 @@ int main()
 	fprintf(stderr, "Accepted connection\n");
 	stream_t stream = accept_stream(ctx, connection, 0);
 	fprintf(stderr, "Accepted stream\n");
-	char *data = recv_data(ctx, connection, 1024, 0);
-	fprintf(stderr, "Received data: %s\n", data);
+	while (1)
+	{
+		char *data = recv_data(ctx, connection, 1024, 0);
+		fprintf(stderr, "Received data: %s\n", data);
+	}
+	// fprintf(stderr, "Received data: %s\n", data);
 	getchar();
 }
