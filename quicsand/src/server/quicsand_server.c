@@ -48,7 +48,7 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	context_t *ctx = create_quic_context(cert_path, key_path);
+	context_t ctx = create_quic_context(cert_path, key_path);
 	fprintf(stderr, "Created context\n");
 	bind_addr(ctx, config->host, atoi(config->port));
 	fprintf(stderr, "Bound address\n");
@@ -58,11 +58,22 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "Accepted connection\n");
 	stream_t stream = accept_stream(ctx, connection, 0);
 	fprintf(stderr, "Accepted stream\n");
-	while (1)
-	{
-		char *data = recv_data(ctx, connection, 1024, 0);
-		fprintf(stderr, "Received data: %s\n", data);
+	while(1) {
+		char data[1024];
+		ssize_t len = recv_data(ctx, connection, data, 0);
+		if (len > 0) {
+			// Ensure the data is null-terminated
+			if (len < sizeof(data)) {
+				data[len] = '\0';
+			} else {
+				data[sizeof(data) - 1] = '\0';
+			}
+			fprintf(stderr, "Received data: %.*s\n", (int)len, data);
+		} else {
+			fprintf(stderr, "No data received or error occurred\n");
+		}
+		char *response = "Hello, client!";
+		send_data(ctx, connection, stream, response, strlen(response));
 	}
-	// fprintf(stderr, "Received data: %s\n", data);
 	getchar();
 }

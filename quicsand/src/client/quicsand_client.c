@@ -22,22 +22,80 @@
 
 char *random_data(int len)
 {
-    char *data = (char *)malloc(len);
-    for (int i = 0; i < len - 1; i++)
-    {
-        data[i] = 'A' + (rand() % 26);
-    }
-    data[len - 1] = '\0';
-    return data;
+  char *data = (char *)malloc(len);
+  for (int i = 0; i < len - 1; i++)
+  {
+      data[i] = 'A' + (rand() % 26);
+  }
+  data[len - 1] = '\0';
+  return data;
 }
 
 typedef struct
 {
-    context_t ctx;
-    char *ip;
-    int port;
-    connection_t connection;
+  context_t ctx;
+  char *ip;
+  int port;
+  connection_t connection;
 } task_open_connection_t;
+
+typedef struct qs_stream_node
+{
+  stream_t stream;
+  struct qs_stream_node *next;
+} qs_stream_node_t;
+
+typedef struct qs_connection_node {
+  connection_t connection;
+  struct qs_stream_node *streams;
+  struct qs_connection_node *next;
+} qs_connection_node_t;
+
+typedef struct qs_context {
+  context_t ctx;
+  qs_connection_node_t *connections;
+} qs_context_t;
+
+qs_connection_node_t* qs_push_connection(qs_connection_node_t *head, connection_t connection) {
+  qs_connection_node_t *current = head;
+  while (current->next != NULL) {
+      current = current->next;
+  }
+  current->next = (qs_connection_node_t *)malloc(sizeof(qs_connection_node_t));
+  current->connection = connection;
+  current->streams = NULL;
+  current->next->next = NULL;
+  return current->next;
+}
+
+qs_stream_node_t* qs_push_stream(qs_stream_node_t *head, stream_t stream) {
+  qs_stream_node_t *current = head;
+  while (current->next != NULL) {
+      current = current->next;
+  }
+  current->next = (qs_stream_node_t *)malloc(sizeof(qs_stream_node_t));
+  current->next->stream = stream;
+  current->next->next = NULL;
+  return current->next;
+}
+
+void qs_remove_connection(qs_connection_node_t *head, qs_connection_node_t *node) {
+  qs_connection_node_t *current = head;
+  while (current->next != node) {
+      current = current->next;
+  }
+  current->next = node->next;
+  free(node);
+}
+
+void qs_remove_stream(qs_stream_node_t *head, qs_stream_node_t *node) {
+  qs_stream_node_t *current = head;
+  while (current->next != node) {
+      current = current->next;
+  }
+  current->next = node->next;
+  free(node);
+}
 
 void open_connection_task(void *arg)
 {
@@ -46,30 +104,41 @@ void open_connection_task(void *arg)
 }
 
 void network_experiment(config_t *config, char *target_ip) {
-    struct timespec start, end;
-    double ttfb = 0;
-    double handshake = 0;
-    double cpu = 0;
-    // threadpool thpool = thpool_init(50);
-    context_t *ctx = create_quic_context(NULL, NULL);
-    // task_open_connection_t *task = (task_open_connection_t *)malloc(sizeof(task_open_connection_t));
-    // task->ctx = ctx;
-    // task->ip = target_ip;
-    // task->port = atoi(config->port);
-    // thpool_add_work(thpool, open_connection_task, (void *)task);
-    connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
-    stream_t stream = open_stream(ctx, connection);
+  struct timespec start, end;
+  double ttfb = 0;
+  double handshake = 0;
+  double cpu = 0;
+  qs_context_t *qs = (qs_context_t *)malloc(sizeof(qs_context_t));
+  qs->ctx = create_quic_context(NULL, NULL);
+  qs->connections = (qs_connection_node_t *)malloc(sizeof(qs_connection_node_t));
+  qs->connections->next = NULL;
+  // threadpool thpool = thpool_init(50);
+  // task_open_connection_t *task = (task_open_connection_t *)malloc(sizeof(task_open_connection_t));
+  // task->ctx = ctx;
+  // task->ip = target_ip;
+  // task->port = atoi(config->port);
+  // thpool_add_work(thpool, open_connection_task, (void *)task);
+  for (int i = 0; i < 2; i++) {
+    connection_t connection = open_connection(qs->ctx, target_ip, atoi(config->port));
+    qs_push_connection(qs->connections, connection);
+  }
+  qs_connection_node_t *current = qs->connections;
+  while (current->next != NULL) {
+    connection_t connection = current->connection;
+    stream_t stream = open_stream(qs->ctx, connection);
     for (int i = 0; i < NUM_REPETITIONS; i++) {
       clock_gettime(CLOCK_MONOTONIC, &start);
       char *data = random_data(200);
-      send_data(ctx, connection, stream, data, strlen(data));
+      send_data(qs->ctx, connection, stream, data, strlen(data));
       clock_gettime(CLOCK_MONOTONIC, &end);
       ttfb += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
     }
-    ttfb /= NUM_REPETITIONS;
-    close_stream(ctx, connection, stream);
-    close_connection(ctx, connection);
-    log_info(LOGS_FORMAT, TTFB, ttfb);
+    close_stream(qs->ctx, connection, stream);
+    close_connection(qs->ctx, connection);
+    current = current->next;
+  }
+  ttfb /= NUM_REPETITIONS;
+  log_info(LOGS_FORMAT, TTFB, ttfb);
 }
 
 int main(int argc, char *argv[])
@@ -93,16 +162,38 @@ int main(int argc, char *argv[])
     exit(EXIT_FAILURE);
   }
 
-  // context_t ctx = create_quic_context(QUIC_CLIENT);
-  // fprintf(stderr, "Created context\n");
-  // printf("Connecting to %s:%s\n", target_ip, config->port);
-  // connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
-  // fprintf(stderr, "Opened connection\n");
-  // stream_t stream = open_stream(ctx, connection);
-  // fprintf(stderr, "Opened stream\n");
-  // sleep(3);
-  // close_stream(ctx, connection, stream);
-  // fprintf(stderr, "Closed stream\n");
-  network_experiment(config, target_ip);
+  struct timespec start, end;
+  double rtt = 0;
+  context_t ctx = create_quic_context(NULL, NULL);
+  fprintf(stderr, "Created context\n");
+  printf("Connecting to %s:%s\n", target_ip, config->port);
+  connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
+  fprintf(stderr, "Opened connection\n");
+  stream_t stream = open_stream(ctx, connection);
+  fprintf(stderr, "Opened stream\n");
+  sleep(1);
+  for (int i = 0; i < NUM_REPETITIONS; i++)
+	{
+		char *data = "Hello, server!";
+    clock_gettime(CLOCK_MONOTONIC, &start);
+		send_data(ctx, connection, stream, data, strlen(data));
+    char response[1024];
+    ssize_t len = recv_data(ctx, connection, response, 0);
+    if (len > 0) {
+      // Ensure the data is null-terminated
+      if (len < sizeof(response)) {
+        response[len] = '\0';
+      } else {
+        response[sizeof(response) - 1] = '\0';
+      }
+      fprintf(stderr, "Received data: %s\n", response);
+    } else {
+      fprintf(stderr, "No data received or error occurred\n");
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    rtt += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+	}
+  printf("RTT: %f\n", rtt / NUM_REPETITIONS);
+  //network_experiment(config, target_ip);
   getchar();
 }
