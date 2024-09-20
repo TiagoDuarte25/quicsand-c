@@ -14,7 +14,7 @@
 #include "utils.h"
 #include "log.h"
 
-#define LOGS_FORMAT "[%s] %f"
+#define LOGS_FORMAT "[%s] %f %s"
 #define TTFB "TTFB"
 #define HANDSHAKE "HDSK"
 #define CPU "CPU"
@@ -191,9 +191,9 @@ int main(int argc, char *argv[])
       fprintf(fp, "No data received or error occurred\n");
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
-    rtt += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
 	}
-  log_info(LOGS_FORMAT, "RTT", rtt/NUM_REPETITIONS);
+  log_info(LOGS_FORMAT, "RTT", rtt / NUM_REPETITIONS, "ms");
   //network_experiment(config, target_ip);
   getchar();
 }
