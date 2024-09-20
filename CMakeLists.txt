@@ -1,6 +1,18 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.22.1)
 PROJECT(quicsand)
 
+if(EXISTS "/etc/lsb-release")
+    file(STRINGS "/etc/lsb-release" LSB_RELEASE_CONTENT)
+    string(REGEX MATCH "DISTRIB_ID=([a-zA-Z]+)" DISTRO_NAME ${LSB_RELEASE_CONTENT})
+    message(STATUS "Distro Name from lsb-release: ${DISTRO_NAME}")
+elseif(EXISTS "/etc/os-release")
+    file(STRINGS "/etc/os-release" OS_RELEASE_CONTENT)
+    string(REGEX MATCH "PRETTY_NAME=\"([^\"]+)\"" DISTRO_NAME ${OS_RELEASE_CONTENT})
+    message(STATUS "Distro Name from os-release: ${DISTRO_NAME}")
+else()
+    message(FATAL_ERROR "No recognizable OS version file found.")
+endif()
+
 IF(CMAKE_BUILD_TYPE STREQUAL "")
     SET(CMAKE_BUILD_TYPE Debug)
 ENDIF()

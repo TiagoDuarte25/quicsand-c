@@ -49,7 +49,7 @@ make
 cp -r ../quicsand/config.yaml bin/
 cp -r ../quicsand/certs bin/
 
-gnome-terminal -- bash -c "cd bin; ./server -c "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem" -k "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem"; exec bash"
+gnome-terminal -- bash -c "cd bin; ./server -c "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem" -k "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem" -i "0.0.0.0" -p 4567; exec bash"
 
 sleep 2
 

@@ -996,3 +996,4 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
     return (stream_t)connection_info->new_stream;
     #endif
 }
+

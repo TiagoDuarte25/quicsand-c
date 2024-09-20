@@ -19,6 +19,8 @@ int main(int argc, char *argv[])
 	int port = 0;
     int opt;
 
+	FILE *fp = fopen("server.log", "w+");
+
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1) {
         switch (opt) {
@@ -35,44 +37,42 @@ int main(int argc, char *argv[])
 				port = atoi(optarg);
 				break;
 			default:
-				fprintf(stderr, "Usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>\n", argv[0]);
+				fprintf(fp, "Usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>\n", argv[0]);
 				exit(EXIT_FAILURE);
         }
     }
 
     // Print the parsed options for debugging
-	printf("Certificate Path: %s\n", cert_path);
-	printf("Key Path: %s\n", key_path);
-	printf("IP Address: %s\n", ip_address);
-	printf("Port: %d\n", port);
+	fprintf(fp, "Certificate Path: %s\n", cert_path);
+	fprintf(fp, "Key Path: %s\n", key_path);
+	fprintf(fp, "IP Address: %s\n", ip_address);
+	fprintf(fp, "Port: %d\n", port);
 
 	// Ensure required options are provided
 	if (!cert_path || !key_path || !ip_address || port == 0) {
-		fprintf(stderr, "Usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>\n", argv[0]);
+		fprintf(fp, "Usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>\n", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 
-	FILE *fp;
-	fp = fopen("server.log", "w+");
 	log_add_fp(fp, LOG_INFO);
 
 	config_t *config = read_config("config.yaml");
 	if (!config)
 	{
-		fprintf(stderr, "Error: Failed to read configuration file\n");
+		fprintf(fp, "Error: Failed to read configuration file\n");
 		exit(EXIT_FAILURE);
 	}
 
 	context_t ctx = create_quic_context(cert_path, key_path);
-	fprintf(stderr, "Created context\n");
+	fprintf(fp, "Created context\n");
 	bind_addr(ctx, ip_address, port);
-	fprintf(stderr, "Bound address\n");
+	fprintf(fp, "Bound address\n");
 	set_listen(ctx);
-	fprintf(stderr, "Listening\n");
+	fprintf(fp, "Listening\n");
 	connection_t connection = accept_connection(ctx, 0);
-	fprintf(stderr, "Accepted connection\n");
+	fprintf(fp, "Accepted connection\n");
 	stream_t stream = accept_stream(ctx, connection, 0);
-	fprintf(stderr, "Accepted stream\n");
+	fprintf(fp, "Accepted stream\n");
 	while(1) {
 		char data[1024];
 		ssize_t len = recv_data(ctx, connection, data, 0);
@@ -83,9 +83,9 @@ int main(int argc, char *argv[])
 			} else {
 				data[sizeof(data) - 1] = '\0';
 			}
-			fprintf(stderr, "Received data: %.*s\n", (int)len, data);
+			fprintf(fp, "Received data: %.*s\n", (int)len, data);
 		} else {
-			fprintf(stderr, "No data received or error occurred\n");
+			fprintf(fp, "No data received or error occurred\n");
 		}
 		char *response = "Hello, client!";
 		send_data(ctx, connection, stream, response, strlen(response));

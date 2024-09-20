@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
 
   if (argc != 2)
   {
-    fprintf(stderr, "Usage: run <target_ip>\n");
+    fprintf(fp, "Usage: run <target_ip>\n");
     exit(EXIT_FAILURE);
   }
 
@@ -158,19 +158,19 @@ int main(int argc, char *argv[])
   config_t *config = read_config("config.yaml");
   if (!config)
   {
-    fprintf(stderr, "Error: Failed to read configuration file\n");
+    fprintf(fp, "Error: Failed to read configuration file\n");
     exit(EXIT_FAILURE);
   }
 
   struct timespec start, end;
   double rtt = 0;
   context_t ctx = create_quic_context(NULL, NULL);
-  fprintf(stderr, "Created context\n");
+  fprintf(fp, "Created context\n");
   printf("Connecting to %s:%s\n", target_ip, config->port);
   connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
-  fprintf(stderr, "Opened connection\n");
+  fprintf(fp, "Opened connection\n");
   stream_t stream = open_stream(ctx, connection);
-  fprintf(stderr, "Opened stream\n");
+  fprintf(fp, "Opened stream\n");
   sleep(1);
   for (int i = 0; i < NUM_REPETITIONS; i++)
 	{
@@ -186,14 +186,14 @@ int main(int argc, char *argv[])
       } else {
         response[sizeof(response) - 1] = '\0';
       }
-      fprintf(stderr, "Received data: %s\n", response);
+      fprintf(fp, "Received data: %s\n", response);
     } else {
-      fprintf(stderr, "No data received or error occurred\n");
+      fprintf(fp, "No data received or error occurred\n");
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     rtt += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
 	}
-  printf("RTT: %f\n", rtt / NUM_REPETITIONS);
+  log_info(LOGS_FORMAT, "RTT", rtt/NUM_REPETITIONS);
   //network_experiment(config, target_ip);
   getchar();
 }

@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 [-i <implementation>]" 1>&2
+    echo "Options:" 1>&2
+    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
+    exit 1
+}
+
+# Parse command-line arguments
+while [[ "$#" -le 1 ]]; do
+    usage
+done
+
+# Parse command-line arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -i|--implementation)
+            IMPLEMENTATION="$2"
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Error: Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Check if the implementation is valid
+if [ ! -d "implementations/$IMPLEMENTATION" ]; then
+    echo "Error: Invalid implementation specified."
+    usage
+fi
+
+cp quicsand/src/client_"$IMPLEMENTATION"/"$IMPLEMENTATION"_build.sh quicsand/src/client/build.sh
+cp quicsand/src/server_"$IMPLEMENTATION"/"$IMPLEMENTATION"_build.sh quicsand/src/server/build.sh
+
+# Remove all existing containers
+docker rm -f $(docker ps -qa)
+
+docker images | awk '$1 == "quicsand_client" {print $3}' | xargs -I {} docker rmi {}
+docker images | awk '$1 == "quicsand_server" {print $3}' | xargs -I {} docker rmi {}
+docker images | awk '$1 == "<none>" {print $3}' | xargs -I {} docker rmi {}
+
+# Remove the experiment
+docker stack rm kollaps_example
+
+# Pass flags to docker-compose and start the containers
+IMPLEMENTATION="$IMPLEMENTATION" docker compose build
+
+rm -f experiment.yaml
+# build topology
+./KollapsDeploymentGenerator topology.xml -s experiment.yaml
+
+# Replace the experiment.yaml without prompt
+# mv -f experiment.yaml .
+
+# Check if the node is already part of a swarm
+if ! docker info | grep -q "Swarm: active"; then
+    echo "Initializing Docker Swarm..."
+    docker swarm init
+else
+    echo "Node is already part of a swarm."
+fi
+
+# Check if the kollaps_network already exists
+if ! docker network ls | grep -q "kollaps_network"; then
+    echo "Creating kollaps_network..."
+    docker network create --driver=overlay --subnet=10.1.0.0/24 kollaps_network
+else
+    echo "kollaps_network already exists."
+fi
+
+docker stack deploy -c experiment.yaml kollaps_example
