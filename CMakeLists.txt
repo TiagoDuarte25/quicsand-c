@@ -69,7 +69,6 @@ ELSEIF(${IMPL} STREQUAL "msquic")
 
     add_definitions(-DMSQUIC)
 
-    # Add msquic
     ADD_SUBDIRECTORY(implementations/msquic)
     INCLUDE_DIRECTORIES(implementations/msquic/include)
     INCLUDE_DIRECTORIES(implementations/libev)

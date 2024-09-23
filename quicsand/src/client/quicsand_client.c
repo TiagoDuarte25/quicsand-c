@@ -103,9 +103,10 @@ void open_connection_task(void *arg)
     task->connection = open_connection(task->ctx, task->ip, task->port);
 }
 
-void network_experiment(config_t *config, char *target_ip) {
+void test_multiple_sends(FILE *fp, config_t *config, char *ip_address, int port) {
+  fprintf(fp, "Testing multiple sends\n");
   struct timespec start, end;
-  double ttfb = 0;
+  double rtt = 0;
   double handshake = 0;
   double cpu = 0;
   qs_context_t *qs = (qs_context_t *)malloc(sizeof(qs_context_t));
@@ -119,7 +120,7 @@ void network_experiment(config_t *config, char *target_ip) {
   // task->port = atoi(config->port);
   // thpool_add_work(thpool, open_connection_task, (void *)task);
   for (int i = 0; i < 2; i++) {
-    connection_t connection = open_connection(qs->ctx, target_ip, atoi(config->port));
+    connection_t connection = open_connection(qs->ctx, ip_address, port);
     qs_push_connection(qs->connections, connection);
   }
   qs_connection_node_t *current = qs->connections;
@@ -131,14 +132,46 @@ void network_experiment(config_t *config, char *target_ip) {
       char *data = random_data(200);
       send_data(qs->ctx, connection, stream, data, strlen(data));
       clock_gettime(CLOCK_MONOTONIC, &end);
-      ttfb += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+      rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
     }
     close_stream(qs->ctx, connection, stream);
     close_connection(qs->ctx, connection);
     current = current->next;
   }
-  ttfb /= NUM_REPETITIONS;
-  log_info(LOGS_FORMAT, TTFB, ttfb);
+  rtt /= NUM_REPETITIONS;
+  log_info(LOGS_FORMAT, "RTT", rtt, "ms");
+  fprintf(fp, "End of test\n");
+}
+
+void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int port) {
+  fprintf(fp, "Testing normal send/receive communication\n");
+  struct timespec start, end;
+  double rtt = 0;
+  context_t ctx = create_quic_context(NULL, NULL);
+  fprintf(fp, "Created context\n");
+  printf("Connecting to %s:%d\n", ip_address, port);
+  connection_t connection = open_connection(ctx, ip_address, port);
+  fprintf(fp, "Opened connection\n");
+  stream_t stream = open_stream(ctx, connection);
+  fprintf(fp, "Opened stream\n");
+  for (int i = 0; i < NUM_REPETITIONS; i++)
+	{
+		char *data = "Hello, server!";
+    clock_gettime(CLOCK_MONOTONIC, &start);
+		send_data(ctx, connection, stream, data, strlen(data));
+    char response[1024];
+    ssize_t len;
+    while (len = recv_data(ctx, connection, response, 0) > 0)
+    {
+      printf("Received data: %s\n", response);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
+	}
+  close_stream(ctx, connection, stream);
+  close_connection(ctx, connection);
+  log_info(LOGS_FORMAT, "RTT", rtt / NUM_REPETITIONS, "ms");
+  fprintf(fp, "End of test\n");
 }
 
 int main(int argc, char *argv[])
@@ -147,13 +180,28 @@ int main(int argc, char *argv[])
   log_add_fp(fp, LOG_INFO);
   // log_set_level(LOG_INFO);
 
-  if (argc != 2)
-  {
-    fprintf(fp, "Usage: run <target_ip>\n");
-    exit(EXIT_FAILURE);
+  char *ip_address = NULL;
+  int port = 0;
+  int opt;
+
+  // Parse command-line arguments
+  while ((opt = getopt(argc, argv, "i:p:")) != -1) {
+      switch (opt) {
+          case 'i':
+            ip_address = strdup(optarg);
+            break;
+          case 'p':
+            port = atoi(optarg);
+            break;
+          default:
+            fprintf(fp, "Usage: %s -i <ip_address> -p <port>\n", argv[0]);
+            exit(EXIT_FAILURE);
+      }
   }
 
-  char *target_ip = argv[1];
+  fprintf(fp, "Starting client\n");
+  fprintf(fp, "ip_address: %s\n", ip_address);
+  fprintf(fp, "port: %d\n", port);
 
   config_t *config = read_config("config.yaml");
   if (!config)
@@ -161,39 +209,7 @@ int main(int argc, char *argv[])
     fprintf(fp, "Error: Failed to read configuration file\n");
     exit(EXIT_FAILURE);
   }
-
-  struct timespec start, end;
-  double rtt = 0;
-  context_t ctx = create_quic_context(NULL, NULL);
-  fprintf(fp, "Created context\n");
-  printf("Connecting to %s:%s\n", target_ip, config->port);
-  connection_t connection = open_connection(ctx, target_ip, atoi(config->port));
-  fprintf(fp, "Opened connection\n");
-  stream_t stream = open_stream(ctx, connection);
-  fprintf(fp, "Opened stream\n");
-  sleep(1);
-  for (int i = 0; i < NUM_REPETITIONS; i++)
-	{
-		char *data = "Hello, server!";
-    clock_gettime(CLOCK_MONOTONIC, &start);
-		send_data(ctx, connection, stream, data, strlen(data));
-    char response[1024];
-    ssize_t len = recv_data(ctx, connection, response, 0);
-    if (len > 0) {
-      // Ensure the data is null-terminated
-      if (len < sizeof(response)) {
-        response[len] = '\0';
-      } else {
-        response[sizeof(response) - 1] = '\0';
-      }
-      fprintf(fp, "Received data: %s\n", response);
-    } else {
-      fprintf(fp, "No data received or error occurred\n");
-    }
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
-	}
-  log_info(LOGS_FORMAT, "RTT", rtt / NUM_REPETITIONS, "ms");
-  //network_experiment(config, target_ip);
+  test_normal_send_receive(fp, config, ip_address, port);
+  //test_multiple_sends(fp, config, ip_address, port);
   getchar();
 }

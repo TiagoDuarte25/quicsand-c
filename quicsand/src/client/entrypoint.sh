@@ -30,4 +30,4 @@ server_ip_k=$(host "$service" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u
 echo SERVER_IP $server_ip_k >> /tmp/log
 
 # Start a shell to keep the container running
-./bin/client $server_ip_k
+./bin/client -i $server_ip_k -p 4567

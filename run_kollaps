@@ -77,3 +77,35 @@ else
 fi
 
 docker stack deploy -c experiment.yaml kollaps_example
+
+# # Check if the experiment is running
+# while ! docker stack ps kollaps_example | grep -q "kollaps_example_dashboard"; do
+#     echo "Waiting for the experiment to start..."
+#     sleep 5
+# done
+
+sleep 20
+
+#start experiment
+curl http://127.0.0.1:8088/start
+
+# check how many clients and servers are running
+clients_num=$(docker ps | grep "kollaps_example_client" | wc -l)
+servers_num=$(docker ps | grep "kollaps_example_server" | wc -l)
+
+echo "Number of clients: $clients_num"
+echo "Number of servers: $servers_num"
+
+# open all clients and servers in different terminals
+for i in $(seq 1 $clients_num); do
+    echo "Opening client $i"
+    # get the container id
+    container_id=$(docker ps | grep "kollaps_example_client$i" | awk '{print $1}')
+    gnome-terminal -- bash -c "docker exec -it $container_id /bin/bash; exec bash"
+done
+
+for i in $(seq 1 $servers_num); do
+    # get the container id
+    container_id=$(docker ps | grep "kollaps_example_server" | awk '{print $1}' | sed -n "$i"p)
+    gnome-terminal -- bash -c "docker exec -it $container_id /bin/bash; exec bash"
+done

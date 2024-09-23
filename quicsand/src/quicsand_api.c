@@ -200,6 +200,22 @@ struct context {
 #ifdef QUICHE
 #elif MSQUIC
 
+//print every connections and streams in the context
+void print_context(struct context *ctx) {
+    connection_node_t *current_conn = ctx->connections;
+    while (current_conn->next != NULL) {
+        connection_info_t *connection_info = current_conn->connection_info;
+        printf("Connection: %p\n", (void *)connection_info->connection);
+        stream_node_t *current_strm = connection_info->streams;
+        while (current_strm->next != NULL) {
+            stream_info_t *stream_info = current_strm->stream_info;
+            printf("Stream: %p\n", (void *)stream_info->stream);
+            current_strm = current_strm->next;
+        }
+        current_conn = current_conn->next;
+    }
+}
+
 stream_node_t* push_stream(stream_node_t *head, stream_info_t *stream_info) {
     stream_node_t *current = head;
     while (current->next != NULL) {
@@ -452,6 +468,9 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
         connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
+        connection_info->recv_buff.absolute_offset = 0;
+        connection_info->recv_buff.buffer_count = 0;
+        connection_info->recv_buff.total_buffer_length = 0;
         connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -710,6 +729,9 @@ connection_t open_connection(context_t context, char* ip, int port) {
 
     // Allocate memory for the destination buffer
     connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
+    connection_info->recv_buff.absolute_offset = 0;
+    connection_info->recv_buff.buffer_count = 0;
+    connection_info->recv_buff.total_buffer_length = 0;
     connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -889,25 +911,29 @@ ssize_t recv_data(context_t context, connection_t connection, char* buf, time_t 
     #ifdef QUICHE
     struct context *ctx = (struct context *)context;
     #elif MSQUIC
-    printf("recv_data init\n");
     struct context *ctx = (struct context *)context;
     connection_node_t *connection_node = (connection_node_t *)connection;
     connection_info_t *connection_info = connection_node->connection_info;
     pthread_mutex_lock(&connection_info->recv_buff.lock);
-    if (timeout == 0)
+    if (connection_info->recv_buff.total_buffer_length == 0)
     {
-        pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
-    }
-    else
-    {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout;
-        pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
-        printf("Timed out\n");
+        if (timeout == 0)
+        {
+            pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
+        }
+        else
+        {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += timeout;
+            pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
+            printf("Timed out\n");
+        }
     }
     pthread_mutex_unlock(&connection_info->recv_buff.lock);
     memcpy(buf, connection_info->recv_buff.buffers->Buffer, connection_info->recv_buff.total_buffer_length);
+    connection_info->recv_buff.total_buffer_length = 0;
+    connection_info->recv_buff.buffer_count = 0;
     return (ssize_t) connection_info->recv_buff.total_buffer_length;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
@@ -945,21 +971,20 @@ connection_t accept_connection(context_t context, time_t timeout) {
 
     // Lock the mutex to wait for a connection
     pthread_mutex_lock(&ctx->lock);
-
-    // Wait for the listener_callback to signal a new connection
-    if (timeout == 0) {
+    if (timeout == 0)
+    {
         // Wait indefinitely
         pthread_cond_wait(&ctx->cond, &ctx->lock);
-    } else {
+    }
+    else
+    {
         // Wait with a timeout (convert time_t to timespec)
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += timeout;
         pthread_cond_timedwait(&ctx->cond, &ctx->lock, &ts);
     }
-
     printf("New connection accepted\n");
-
     // Unlock the mutex
     pthread_mutex_unlock(&ctx->lock);
     return (connection_t)ctx->new_connection;
