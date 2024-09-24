@@ -11,6 +11,17 @@
 #include "quicsand_api.h"
 #include "utils.h"
 
+char *random_data(int len)
+{
+  char *data = (char *)malloc(len);
+  for (int i = 0; i < len - 1; i++)
+  {
+      data[i] = 'A' + (rand() % 26);
+  }
+  data[len - 1] = '\0';
+  return data;
+}
+
 int main(int argc, char *argv[])
 {
 	char *cert_path = NULL;
@@ -75,20 +86,31 @@ int main(int argc, char *argv[])
 	fprintf(fp, "Accepted stream\n");
 	while(1) {
 		char data[1024];
-		ssize_t len = recv_data(ctx, connection, data, 0);
-		if (len > 0) {
-			// Ensure the data is null-terminated
-			if (len < sizeof(data)) {
-				data[len] = '\0';
+		ssize_t len;
+		ssize_t total_len = 0;
+		while (1) {
+			len = recv_data(ctx, connection, data + total_len, sizeof(data) - total_len, 0);
+			if (len > 0) {
+				total_len += len;
+				// Ensure termination
+				if (total_len < 1024) {
+					data[total_len] = '\0';
+				} else {
+					data[1024 - 1] = '\0';
+				}
+
+				// Check if the entire message has been received
+				if (data[total_len] == '\0') {
+				fprintf(fp, "Received data: %s\n", data);
+				break;
+				}
 			} else {
-				data[sizeof(data) - 1] = '\0';
+				// Handle error or end of data
+				break;
 			}
-			fprintf(fp, "Received data: %.*s\n", (int)len, data);
-		} else {
-			fprintf(fp, "No data received or error occurred\n");
-		}
-		char *response = "Hello, client!";
-		send_data(ctx, connection, stream, response, strlen(response));
+    }
+		// send_data(ctx, connection, stream, random_data(200), 200);
+		send_data(ctx, connection, stream, "Hello, client!", 14);
 	}
 	getchar();
 }

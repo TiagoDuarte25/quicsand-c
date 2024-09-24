@@ -127,6 +127,7 @@ void test_multiple_sends(FILE *fp, config_t *config, char *ip_address, int port)
   while (current->next != NULL) {
     connection_t connection = current->connection;
     stream_t stream = open_stream(qs->ctx, connection);
+    sleep(1);
     for (int i = 0; i < NUM_REPETITIONS; i++) {
       clock_gettime(CLOCK_MONOTONIC, &start);
       char *data = random_data(200);
@@ -154,6 +155,7 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
   fprintf(fp, "Opened connection\n");
   stream_t stream = open_stream(ctx, connection);
   fprintf(fp, "Opened stream\n");
+  sleep(1);
   for (int i = 0; i < NUM_REPETITIONS; i++)
 	{
 		char *data = "Hello, server!";
@@ -161,9 +163,27 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
 		send_data(ctx, connection, stream, data, strlen(data));
     char response[1024];
     ssize_t len;
-    while (len = recv_data(ctx, connection, response, 0) > 0)
-    {
-      printf("Received data: %s\n", response);
+    ssize_t total_len = 0;
+    while (1) {
+        len = recv_data(ctx, connection, response + total_len, 1024 - total_len, 0);
+        if (len > 0) {
+            total_len += len;
+            // Ensure termination
+            if (total_len < 1024) {
+                response[total_len] = '\0';
+            } else {
+                response[1024 - 1] = '\0';
+            }
+
+            // Check if the entire message has been received
+            if (response[total_len] == '\0') {
+              fprintf(fp, "Received data: %s\n", response);
+              break;
+            }
+        } else {
+            // Handle error or end of data
+            break;
+        }
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;

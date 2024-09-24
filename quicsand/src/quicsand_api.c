@@ -297,10 +297,11 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // Data was received from the peer on the stream.
         //
         pthread_mutex_lock(&connection_info->recv_buff.lock);
-        *connection_info->recv_buff.buffers = *event->RECEIVE.Buffers;
+        memcpy(connection_info->recv_buff.buffers, event->RECEIVE.Buffers, event->RECEIVE.BufferCount * sizeof(QUIC_BUFFER));
         connection_info->recv_buff.total_buffer_length = event->RECEIVE.TotalBufferLength;
         connection_info->recv_buff.buffer_count = event->RECEIVE.BufferCount;
         connection_info->recv_buff.absolute_offset = event->RECEIVE.AbsoluteOffset;
+
         pthread_cond_signal(&connection_info->recv_buff.cond);
         pthread_mutex_unlock(&connection_info->recv_buff.lock);
         printf("[strm][%p] Data received\n", (void *)stream);
@@ -467,10 +468,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
-        connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
-        connection_info->recv_buff.absolute_offset = 0;
-        connection_info->recv_buff.buffer_count = 0;
-        connection_info->recv_buff.total_buffer_length = 0;
+        connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER)* 100);
         connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -728,10 +726,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
     // Allocate memory for the destination buffer
-    connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
-    connection_info->recv_buff.absolute_offset = 0;
-    connection_info->recv_buff.buffer_count = 0;
-    connection_info->recv_buff.total_buffer_length = 0;
+    connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER)* 100);
     connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -860,7 +855,7 @@ void close_stream(context_t context, connection_t connection, stream_t stream) {
     #endif
 }
 
-void send_data(context_t context, connection_t connection, stream_t stream, char* data, int len) {
+void send_data(context_t context, connection_t connection, stream_t stream, void* data, int len) {
     #ifdef QUICHE
     struct context *ctx = (struct context *)context;
     #elif MSQUIC
@@ -907,7 +902,7 @@ void send_data(context_t context, connection_t connection, stream_t stream, char
     
 }
 
-ssize_t recv_data(context_t context, connection_t connection, char* buf, time_t timeout) {
+ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t n_bytes, time_t timeout) {
     #ifdef QUICHE
     struct context *ctx = (struct context *)context;
     #elif MSQUIC
@@ -915,26 +910,38 @@ ssize_t recv_data(context_t context, connection_t connection, char* buf, time_t 
     connection_node_t *connection_node = (connection_node_t *)connection;
     connection_info_t *connection_info = connection_node->connection_info;
     pthread_mutex_lock(&connection_info->recv_buff.lock);
-    if (connection_info->recv_buff.total_buffer_length == 0)
-    {
-        if (timeout == 0)
-        {
-            pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
-        }
-        else
-        {
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += timeout;
-            pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
+    // Wait for data to be available
+    if (timeout == 0) {
+        pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
+    } else {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += timeout;
+        int ret = pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
+        if (ret == ETIMEDOUT) {
             printf("Timed out\n");
+            pthread_mutex_unlock(&connection_info->recv_buff.lock);
+            return -1; // Indicate timeout
         }
     }
+    // Calculate the amount of data to read
+    ssize_t to_read = connection_info->recv_buff.total_buffer_length;
+    if (to_read > n_bytes) {
+        to_read = n_bytes;
+    }
+    // Copy data to the buffer
+    memcpy(buf, connection_info->recv_buff.buffers->Buffer, to_read);
+
+    // Update the buffer state
+    if (to_read < connection_info->recv_buff.total_buffer_length) {
+        // There is still data left in the buffer
+        memmove(connection_info->recv_buff.buffers->Buffer,
+                connection_info->recv_buff.buffers->Buffer + to_read,
+                connection_info->recv_buff.total_buffer_length - to_read);
+        connection_info->recv_buff.total_buffer_length -= to_read;
+    }
     pthread_mutex_unlock(&connection_info->recv_buff.lock);
-    memcpy(buf, connection_info->recv_buff.buffers->Buffer, connection_info->recv_buff.total_buffer_length);
-    connection_info->recv_buff.total_buffer_length = 0;
-    connection_info->recv_buff.buffer_count = 0;
-    return (ssize_t) connection_info->recv_buff.total_buffer_length;
+    return to_read;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     #endif
