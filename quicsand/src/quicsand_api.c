@@ -87,6 +87,7 @@ typedef struct stream_node{
 typedef struct {
     HQUIC connection;
     stream_node_t *streams;
+    stream_node_t *last_new_stream;
     stream_node_t *new_stream;
     size_t stream_count;
     int connected;
@@ -101,6 +102,8 @@ typedef struct {
         pthread_mutex_t lock;
         pthread_cond_t cond;
     } recv_buff;
+    int last_receive_count;
+    int receive_count;
 } connection_info_t;
 
 typedef struct connection_node { 
@@ -143,6 +146,7 @@ struct context
 
     connection_node_t *connections;
     size_t connection_count;
+    connection_node_t * last_new_connection;
     connection_node_t *new_connection;
     pthread_mutex_t lock;
     pthread_cond_t cond;
@@ -201,7 +205,8 @@ struct context {
 #elif MSQUIC
 
 //print every connections and streams in the context
-void print_context(struct context *ctx) {
+void print_context(context_t context) {
+    struct context *ctx = (struct context *)context;
     connection_node_t *current_conn = ctx->connections;
     while (current_conn->next != NULL) {
         connection_info_t *connection_info = current_conn->connection_info;
@@ -301,6 +306,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         connection_info->recv_buff.total_buffer_length = event->RECEIVE.TotalBufferLength;
         connection_info->recv_buff.buffer_count = event->RECEIVE.BufferCount;
         connection_info->recv_buff.absolute_offset = event->RECEIVE.AbsoluteOffset;
+        connection_info->receive_count++;
 
         pthread_cond_signal(&connection_info->recv_buff.cond);
         pthread_mutex_unlock(&connection_info->recv_buff.lock);
@@ -356,7 +362,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         pthread_mutex_lock(&ctx->lock);
         connection_info->connection = connection;
-        connection_info->connected = 1;
+        ctx->new_connection = connection_node;
         printf("[conn][%p] Connected\n", (void *)connection);
         pthread_cond_signal(&ctx->cond);
         pthread_mutex_unlock(&ctx->lock);
@@ -474,7 +480,6 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
 
         // set the callback handler
         connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
-        ctx->new_connection = connection_node;
         ctx_conn->connection_node = connection_node;
         ctx_conn->ctx = ctx;
         ctx->msquic->SetCallbackHandler(event->NEW_CONNECTION.Connection, (void *)connection_callback, ctx_conn);
@@ -593,6 +598,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     ctx->connections->next = NULL;
     ctx->connection_count = 0;
     ctx->new_connection = NULL;
+    ctx->last_new_connection = NULL;
     ctx->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     ctx->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -722,6 +728,10 @@ connection_t open_connection(context_t context, char* ip, int port) {
     connection_info->streams->prev = NULL;
     connection_info->streams->next = NULL;
     connection_info->stream_count = 0;
+    connection_info->last_new_stream = NULL;
+    connection_info->new_stream = NULL;
+    connection_info->last_receive_count = 0;
+    connection_info->receive_count = 0;
     connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -731,35 +741,42 @@ connection_t open_connection(context_t context, char* ip, int port) {
     connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
     connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
-    ctx->new_connection = connection_node;
     ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
     ctx_conn->ctx = ctx;
     ctx_conn->connection_node = connection_node;
+    FILE *fp = fopen("client.log", "w+");
     if (QUIC_FAILED(status = ctx->msquic->ConnectionOpen(ctx->registration, connection_callback, ctx_conn, &connection_info->connection)))
     {
-        printf("ConnectionOpen failed, 0x%x!\n", status);
+        fprintf(fp, "ConnectionOpen failed, 0x%x!\n", status);
+        fflush(fp);
         exit(EXIT_FAILURE);
     }
-    printf("[conn][%p] Connecting...\n", (void *)&connection_info->connection);
-
+    fprintf(fp, "[conn][%p] Connecting...\n", (void *)&connection_info->connection);
+    fflush(fp);
     //
     // Start the connection to the server.
     //
     if (QUIC_FAILED(status = ctx->msquic->ConnectionStart(connection_info->connection, ctx->configuration, QUIC_ADDRESS_FAMILY_INET, ip, (uint16_t)port)))
     {
-        printf("ConnectionStart failed, 0x%x!\n", status);
+        fprintf(fp, "ConnectionStart failed, 0x%x!\n", status);
+        fflush(fp);
         exit(EXIT_FAILURE);
     }
-    printf("[conn][%p] Started\n", (void *)&connection_info->connection);
+    fprintf(fp, "[conn][%p] Started\n", (void *)&connection_info->connection);
+    fflush(fp);
     
     pthread_mutex_lock(&ctx->lock);
-    if (connection_info->connected == 0)
+    if (ctx->last_new_connection == ctx->new_connection)
     {
-        printf("Waiting for connection\n");
+        fprintf(fp, "Waiting for connection\n");
+        fflush(fp);
         pthread_cond_wait(&ctx->cond, &ctx->lock);
     }
+    fprintf(fp, "Connection established\n");
+    fflush(fp);
+
+    ctx->last_new_connection = ctx->new_connection;
     pthread_mutex_unlock(&ctx->lock);
-    printf("Connection established\n");
     return (connection_t) ctx->new_connection;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
@@ -834,6 +851,12 @@ stream_t open_stream(context_t context, connection_t connection) {
     printf("[strm][%p] Starting... Stream ID: %llu\n", (void *)stream, (unsigned long long)stream_id);
     stream_info->stream = stream;
     stream_info->stream_id = stream_id;
+    char data[1];
+    ssize_t len = recv_data(context, connection, data, 1, 0);
+    if (strcmp(data, "1") == 0) {
+        printf("stream started on server side\n");
+    }
+    connection_info->last_new_stream = connection_info->new_stream;
     return (stream_t) stream_node;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
@@ -910,18 +933,20 @@ ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t
     connection_node_t *connection_node = (connection_node_t *)connection;
     connection_info_t *connection_info = connection_node->connection_info;
     pthread_mutex_lock(&connection_info->recv_buff.lock);
-    // Wait for data to be available
-    if (timeout == 0) {
-        pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
-    } else {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout;
-        int ret = pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
-        if (ret == ETIMEDOUT) {
-            printf("Timed out\n");
-            pthread_mutex_unlock(&connection_info->recv_buff.lock);
-            return -1; // Indicate timeout
+    if (connection_info->last_receive_count == connection_info->receive_count) {
+        // Wait for data to be available
+        if (timeout == 0) {
+            pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
+        } else {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += timeout;
+            int ret = pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
+            if (ret == ETIMEDOUT) {
+                printf("Timed out\n");
+                pthread_mutex_unlock(&connection_info->recv_buff.lock);
+                return -1; // Indicate timeout
+            }
         }
     }
     // Calculate the amount of data to read
@@ -940,6 +965,7 @@ ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t
                 connection_info->recv_buff.total_buffer_length - to_read);
         connection_info->recv_buff.total_buffer_length -= to_read;
     }
+    connection_info->last_receive_count = connection_info->receive_count;
     pthread_mutex_unlock(&connection_info->recv_buff.lock);
     return to_read;
     #elif LSQUIC
@@ -978,20 +1004,24 @@ connection_t accept_connection(context_t context, time_t timeout) {
 
     // Lock the mutex to wait for a connection
     pthread_mutex_lock(&ctx->lock);
-    if (timeout == 0)
+    if (ctx->new_connection == ctx->last_new_connection)
     {
-        // Wait indefinitely
-        pthread_cond_wait(&ctx->cond, &ctx->lock);
-    }
-    else
-    {
-        // Wait with a timeout (convert time_t to timespec)
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout;
-        pthread_cond_timedwait(&ctx->cond, &ctx->lock, &ts);
+        if (timeout == 0)
+        {
+            // Wait indefinitely
+            pthread_cond_wait(&ctx->cond, &ctx->lock);
+        }
+        else
+        {
+            // Wait with a timeout (convert time_t to timespec)
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += timeout;
+            pthread_cond_timedwait(&ctx->cond, &ctx->lock, &ts);
+        }
     }
     printf("New connection accepted\n");
+    ctx->last_new_connection = ctx->new_connection;
     // Unlock the mutex
     pthread_mutex_unlock(&ctx->lock);
     return (connection_t)ctx->new_connection;
@@ -1007,22 +1037,25 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
     connection_info_t *connection_info = connection_node->connection_info;
     // Lock the mutex to wait for a connection
     pthread_mutex_lock(&connection_info->lock);
-
-    // Wait for the listener_callback to signal a new connection
-    if (timeout == 0) {
-        // Wait indefinitely
-        printf("Waiting for stream\n");
-        pthread_cond_wait(&connection_info->cond, &connection_info->lock);
-    } else {
-        // Wait with a timeout (convert time_t to timespec)
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout;
-        pthread_cond_timedwait(&connection_info->cond, &connection_info->lock, &ts);
+    if (connection_info->new_stream == connection_info->last_new_stream)
+    {
+        if (timeout == 0)
+        {
+            // Wait indefinitely
+            pthread_cond_wait(&connection_info->cond, &connection_info->lock);
+        }
+        else
+        {
+            // Wait with a timeout (convert time_t to timespec)
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += timeout;
+            pthread_cond_timedwait(&connection_info->cond, &connection_info->lock, &ts);
+        }
     }
-
+    send_data(context, (connection_t)connection, (stream_t)connection_info->new_stream, "1", 1);
     printf("New stream accepted\n");
-
+    connection_info->last_new_stream = connection_info->new_stream;
     // Unlock the mutex
     pthread_mutex_unlock(&connection_info->lock);
     return (stream_t)connection_info->new_stream;

@@ -150,22 +150,26 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
   double rtt = 0;
   context_t ctx = create_quic_context(NULL, NULL);
   fprintf(fp, "Created context\n");
-  printf("Connecting to %s:%d\n", ip_address, port);
+  fprintf(fp, "Connecting to %s:%d\n", ip_address, port);
+  fflush(fp);
   connection_t connection = open_connection(ctx, ip_address, port);
   fprintf(fp, "Opened connection\n");
+  fflush(fp);
   stream_t stream = open_stream(ctx, connection);
   fprintf(fp, "Opened stream\n");
-  sleep(1);
+  fflush(fp);
   for (int i = 0; i < NUM_REPETITIONS; i++)
 	{
 		char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
 		send_data(ctx, connection, stream, data, strlen(data));
+    log_info(LOGS_FORMAT, "SEND_TIME", start.tv_nsec / 1e6, "ms");
     char response[1024];
     ssize_t len;
     ssize_t total_len = 0;
     while (1) {
         len = recv_data(ctx, connection, response + total_len, 1024 - total_len, 0);
+        log_info(LOGS_FORMAT, "RECV_TIME", start.tv_nsec / 1e6, "ms");
         if (len > 0) {
             total_len += len;
             // Ensure termination
@@ -177,7 +181,8 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
 
             // Check if the entire message has been received
             if (response[total_len] == '\0') {
-              fprintf(fp, "Received data: %s\n", response);
+              fprintf(stderr, "Received data: %s\n", response);
+              fflush(fp);
               break;
             }
         } else {
@@ -187,11 +192,13 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
+    fflush(fp);
 	}
-  close_stream(ctx, connection, stream);
-  close_connection(ctx, connection);
   log_info(LOGS_FORMAT, "RTT", rtt / NUM_REPETITIONS, "ms");
   fprintf(fp, "End of test\n");
+  fflush(fp);
+  // close_stream(ctx, connection, stream);
+  // close_connection(ctx, connection);
 }
 
 int main(int argc, char *argv[])
@@ -222,6 +229,7 @@ int main(int argc, char *argv[])
   fprintf(fp, "Starting client\n");
   fprintf(fp, "ip_address: %s\n", ip_address);
   fprintf(fp, "port: %d\n", port);
+  fflush(fp);
 
   config_t *config = read_config("config.yaml");
   if (!config)

@@ -11,8 +11,8 @@
 		     In this example we are passsing "server" which will be used to discover the IPs
                      of the servers at run time -->
 		<service name="client1" image="quicsand_client" command="['server','1']"/>
-		<service name="client2" image="quicsand_client" command="['server','2']"/>
-		<service name="client3" image="quicsand_client" command="['server','3']"/>
+		<service name="client2" image="quicsand_client" command="['server','1']"/>
+		<service name="client3" image="quicsand_client" command="['server','1']"/>
 		<!-- iperf server, declared once, but three instances will be started, see below -->
 		<service name="server" image="quicsand_server" share="false"/>
 	</services>
@@ -24,8 +24,8 @@
     <links>
 		<!-- definition of the links, the "network" should match the name of an existing container network -->
 		<link origin="client1" dest="s1" latency="50" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
-		<link origin="client2" dest="s1" latency="5" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
-		<link origin="client3" dest="s1" latency="5" upload="10Mbps" download="10Mbps" network="kollaps_network"/>
+		<link origin="client2" dest="s1" latency="50" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
+		<link origin="client3" dest="s1" latency="50" upload="10Mbps" download="10Mbps" network="kollaps_network"/>
 		<link origin="s1" dest="s2" latency="10" upload="50Mbps" download="50Mbps" network="kollaps_network"/>
 		<link origin="s2" dest="server" latency="5" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
 	</links>
@@ -36,11 +36,11 @@
 		<schedule name="client2" time="0.0" action="join"/>
 		<schedule name="client3" time="0.0" action="join"/>
 		<!-- were we start three instances of the "server" service --> 
-		<schedule name="server"  time="0.0" action="join" amount="3"/>
+		<schedule name="server"  time="0.0" action="join"/>
 		
 		<schedule name="client1" time="120.0" action="crash"/>
 		<schedule name="client2" time="120.0" action="crash"/>
 		<schedule name="client3" time="120.0" action="crash"/>
-		<schedule name="server"  time="120.0" action="leave" amount="3"/>
+		<schedule name="server"  time="120.0" action="leave"/>
 	</dynamic>
 </experiment>
