@@ -15,6 +15,10 @@ enum mode_t
     QUIC_SERVER
 };
 
+#define CONTROL_UPLOAD "UPLOAD"
+#define CONTROL_DOWNLOAD "DOWNLOAD"
+#define CONTROL_SINGLE "SINGLE"
+
 context_t create_quic_context(char *cert_path, char *key_path);
 void bind_addr(context_t context, char* ip, int port);
 

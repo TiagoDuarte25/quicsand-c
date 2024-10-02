@@ -33,7 +33,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-rm -rf build
+# rm -rf build
 
 if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ] || [ "$IMPLEMENTATION" == "quiche" ]; then
     cmake -S . -B build -DIMPL=$IMPLEMENTATION
@@ -53,5 +53,5 @@ gnome-terminal -- bash -c "cd bin; ./server -c "/home/tiagoduarte25/Desktop/thes
 
 sleep 2
 
-gnome-terminal -- bash -c "cd bin; ./client -i 127.0.0.1 -p 4567; exec bash"
+gnome-terminal -- bash -c "cd bin; ./client -i 127.0.0.1 -p 4567 -f /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt; exec bash"
 

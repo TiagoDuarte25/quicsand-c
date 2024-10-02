@@ -9,6 +9,7 @@ ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/app/build/implementations/msquic/build/bin
 COPY implementations /app/implementations
 COPY quicsand /app/quicsand
 COPY CMakeLists.txt /app/CMakeLists.txt
+COPY resources/testing_files/small_file.txt /app/resources/testing_files/small_file.txt
 
 RUN apt update
 

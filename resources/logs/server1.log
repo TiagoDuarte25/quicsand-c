@@ -1,0 +1,17 @@
+Certificate Path: /app/quicsand/certs/quicsand-server.pem
+Key Path: /app/quicsand/certs/key.pem
+IP Address: 0.0.0.0
+Port: 4567
+Created context
+Bound address
+Listening
+Waiting for connection
+Accepted connection
+Created thread that handle connections
+Waiting for connection
+Handling connection
+Accepted stream
+Received control message: UPLOAD
+Handling file upload
+Received data: Ãèéi“øë-¬™Å$»¨KVÍdòå–‹
+len: 1000

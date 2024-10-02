@@ -2,12 +2,36 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [-i <implementation>]" 1>&2
+    echo "Usage: $0 [-i <implementation>] [-t <topology>]" 1>&2
     echo "Options:" 1>&2
     echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
     echo "  -t, --topology <topology>               Specify the topology file" 1>&2
     exit 1
 }
+
+# # Define the completion function
+# _custom_completions() {
+#     local cur=${COMP_WORDS[COMP_CWORD]}
+#     local prev=${COMP_WORDS[COMP_CWORD-1]}
+
+#     # Provide options for the -i (implementation) flag
+#     if [[ "$prev" == "-i" || "$prev" == "--implementation" ]]; then
+#         COMPREPLY=( $(compgen -W "lsquic msquic quiche chromium" -- "$cur") )
+#         return
+#     fi
+
+#     # Provide options for the -t (topology) flag (assuming you want to autocomplete files in the current directory)
+#     if [[ "$prev" == "-t" || "$prev" == "--topology" ]]; then
+#         COMPREPLY=( $(compgen -f -- "$cur") )
+#         return
+#     fi
+
+#     # Default completion for other words
+#     COMPREPLY=( $(compgen -W "-i --implementation -t --topology -h --help" -- "$cur") )
+# }
+
+# # Register the completion function for the script
+# complete -F _custom_completions run_kollaps
 
 # Parse command-line arguments
 while [[ "$#" -le 2 ]]; do
@@ -89,7 +113,7 @@ docker stack deploy -c experiment.yaml kollaps_example
 #     sleep 5
 # done
 
-sleep 20
+sleep 15
 
 #start experiment
 curl http://127.0.0.1:8088/start
@@ -101,7 +125,7 @@ servers_num=$(docker ps | grep "kollaps_example_server" | wc -l)
 echo "Number of clients: $clients_num"
 echo "Number of servers: $servers_num"
 
-# open all clients and servers in different terminals
+# # open all clients and servers in different terminals
 for i in $(seq 1 $clients_num); do
     echo "Opening client $i"
     # get the container id
@@ -113,4 +137,19 @@ for i in $(seq 1 $servers_num); do
     # get the container id
     container_id=$(docker ps | grep "kollaps_example_server" | awk '{print $1}' | sed -n "$i"p)
     gnome-terminal -- bash -c "docker exec -it $container_id /bin/bash; exec bash"
+done
+
+sleep 15
+
+# get files from every container
+for i in $(seq 1 $clients_num); do
+    # get the container id
+    container_id=$(docker ps | grep "kollaps_example_client$i" | awk '{print $1}')
+    docker cp $container_id:/app/build/client.log resources/logs/client$i.log
+done
+
+for i in $(seq 1 $servers_num); do
+    # get the container id
+    container_id=$(docker ps | grep "kollaps_example_server" | awk '{print $1}' | sed -n "$i"p)
+    docker cp $container_id:/app/build/server.log resources/logs/server$i.log
 done

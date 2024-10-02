@@ -19,6 +19,7 @@
 #define HANDSHAKE "HDSK"
 #define CPU "CPU"
 #define NUM_REPETITIONS 100
+#define CHUNK_SIZE 1024
 
 char *random_data(int len)
 {
@@ -144,6 +145,43 @@ void test_multiple_sends(FILE *fp, config_t *config, char *ip_address, int port)
   fprintf(fp, "End of test\n");
 }
 
+void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, const char *file_path) {
+    fprintf(fp, "Testing file download\n");
+    struct timespec start, end;
+    double total_time = 0;
+    context_t ctx = create_quic_context(NULL, NULL);
+    fprintf(fp, "Created context\n");
+    fprintf(fp, "Connecting to %s:%d\n", ip_address, port);
+    fflush(fp);
+    connection_t connection = open_connection(ctx, ip_address, port);
+    fprintf(fp, "Opened connection\n");
+    fflush(fp);
+    stream_t stream = open_stream(ctx, connection);
+    fprintf(fp, "Opened stream\n");
+    fflush(fp);
+
+    // Send control message
+    const char *control_message = CONTROL_DOWNLOAD;
+    send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+    fprintf(fp, "Sent control message: %s\n", control_message);
+    fflush(fp);
+    char ack[256];
+    ssize_t len = recv_data(ctx, connection, ack, sizeof(ack), 0);
+    fprintf(fp, "Received ack: %s\n", ack);
+
+    char buffer[CHUNK_SIZE];
+    FILE *file = fopen(file_path, "w");
+    while (len = recv_data(ctx, connection, buffer, CHUNK_SIZE, 0) > 0) {
+        fprintf(fp, "Bytes read: %ld\n", len);
+        fflush(fp);
+        fwrite(buffer, sizeof(char), len, file);
+    }
+    fclose(fp);
+    fprintf(fp, "File download completed\n");
+    fprintf(fp, "End of test\n");
+    fflush(fp);
+}
+
 void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int port) {
   fprintf(fp, "Testing normal send/receive communication\n");
   struct timespec start, end;
@@ -158,6 +196,16 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
   stream_t stream = open_stream(ctx, connection);
   fprintf(fp, "Opened stream\n");
   fflush(fp);
+
+  // Send control message
+  const char *control_message = CONTROL_SINGLE;
+  send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+  fprintf(fp, "Sent control message: %s\n", control_message);
+  fflush(fp);
+  char ack[256];
+  ssize_t len = recv_data(ctx, connection, ack, sizeof(ack), 0);
+  fprintf(fp, "Received ack: %s\n", ack);
+
   for (int i = 0; i < NUM_REPETITIONS; i++)
 	{
 		char *data = "Hello, server!";
@@ -181,7 +229,7 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
 
             // Check if the entire message has been received
             if (response[total_len] == '\0') {
-              fprintf(stderr, "Received data: %s\n", response);
+              fprintf(fp, "Received data: %s\n", response);
               fflush(fp);
               break;
             }
@@ -195,10 +243,64 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
     fflush(fp);
 	}
   log_info(LOGS_FORMAT, "RTT", rtt / NUM_REPETITIONS, "ms");
+  fprintf(fp, "Normal send/receive completed\n");
   fprintf(fp, "End of test\n");
   fflush(fp);
   // close_stream(ctx, connection, stream);
   // close_connection(ctx, connection);
+}
+
+void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, const char *file_path) {
+    fprintf(fp, "Uploading large file: %s\n", file_path);
+    struct timespec start, end;
+    double total_time = 0;
+    context_t ctx = create_quic_context(NULL, NULL);
+    fprintf(fp, "Created context\n");
+    fprintf(fp, "Connecting to %s:%d\n", ip_address, port);
+    fflush(fp);
+    connection_t connection = open_connection(ctx, ip_address, port);
+    fprintf(fp, "Opened connection\n");
+    fflush(fp);
+    stream_t stream = open_stream(ctx, connection);
+    fprintf(fp, "Opened stream\n");
+    fflush(fp);
+
+    // Send control message
+    const char *control_message = CONTROL_UPLOAD;
+    send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+    fprintf(fp, "Sent control message: %s\n", control_message);
+    fflush(fp);
+    char ack[256];
+    ssize_t len = recv_data(ctx, connection, ack, sizeof(ack), 0);
+    fprintf(fp, "Received ack: %s\n", ack);
+
+
+    FILE *file = fopen(file_path, "r");
+    if (!file) {
+        fprintf(fp, "Error: Failed to open file %s\n", file_path);
+        return;
+    }
+
+    char buffer[CHUNK_SIZE];
+    size_t bytes_read;
+    while ((bytes_read = fread(buffer, sizeof(char), CHUNK_SIZE, file)) > 0) {
+        printf("Bytes read: %ld\n", bytes_read);
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        send_data(ctx, connection, stream, buffer, bytes_read);
+        printf("Buffer content: %.*s\n", (int)bytes_read, buffer);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        total_time += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
+        sleep(2);
+    }
+
+    fclose(file);
+    // close_stream(ctx, connection, stream);
+    // close_connection(ctx, connection);
+
+    fprintf(fp, "File upload completed\n");
+    log_info(LOGS_FORMAT, "Total Upload Time", total_time, "ms");
+    fprintf(fp, "End of test\n");
+    fflush(fp);
 }
 
 int main(int argc, char *argv[])
@@ -208,11 +310,12 @@ int main(int argc, char *argv[])
   // log_set_level(LOG_INFO);
 
   char *ip_address = NULL;
+  char *file_path = NULL;
   int port = 0;
   int opt;
 
   // Parse command-line arguments
-  while ((opt = getopt(argc, argv, "i:p:")) != -1) {
+  while ((opt = getopt(argc, argv, "i:p:f:")) != -1) {
       switch (opt) {
           case 'i':
             ip_address = strdup(optarg);
@@ -220,24 +323,49 @@ int main(int argc, char *argv[])
           case 'p':
             port = atoi(optarg);
             break;
+          case 'f':
+            file_path = strdup(optarg);
+            break;
           default:
-            fprintf(fp, "Usage: %s -i <ip_address> -p <port>\n", argv[0]);
+            fprintf(fp, "Usage: %s -i <ip_address> -p <port> [-f <file_path>]\n", argv[0]);
+            fflush(fp);
+            fclose(fp);
             exit(EXIT_FAILURE);
       }
   }
 
+  // Check if required arguments are provided
+  if (ip_address == NULL || port == 0) {
+      fprintf(fp, "Usage: %s -i <ip_address> -p <port> [-f <file_path>]\n", argv[0]);
+      fclose(fp);
+      return EXIT_FAILURE;
+  }
+
   fprintf(fp, "Starting client\n");
+  fflush(fp);
   fprintf(fp, "ip_address: %s\n", ip_address);
+  fflush(fp);
   fprintf(fp, "port: %d\n", port);
+  fflush(fp);
+  if (file_path != NULL) {
+      fprintf(fp, "file_path: %s\n", file_path);
+  } else {
+      fprintf(fp, "file_path: (none)\n");
+  }
   fflush(fp);
 
   config_t *config = read_config("config.yaml");
-  if (!config)
-  {
-    fprintf(fp, "Error: Failed to read configuration file\n");
-    exit(EXIT_FAILURE);
+  if (!config) {
+      fprintf(fp, "Error: Failed to read configuration file\n");
+      fclose(fp);
+      return EXIT_FAILURE;
   }
-  test_normal_send_receive(fp, config, ip_address, port);
+
+  // test_normal_send_receive(fp, config, ip_address, port);
   //test_multiple_sends(fp, config, ip_address, port);
-  getchar();
+  test_upload_file(fp, config, ip_address, port, file_path);
+  //test_download_file(fp, config, ip_address, port, "downloaded_file.txt");
+  free(ip_address);
+  free(file_path);
+  fclose(fp);
 }
