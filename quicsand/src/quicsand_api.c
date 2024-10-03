@@ -301,31 +301,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         // Data was received from the peer on the stream.
         //
-
-        printf("receive attr\n");
-        printf("buffer: %.*s\n", event->RECEIVE.TotalBufferLength, event->RECEIVE.Buffers->Buffer);
-        printf("buffer length: %d\n", event->RECEIVE.Buffers->Length);
-        printf("buffer count: %d\n", event->RECEIVE.BufferCount);
-        printf("total buffer length: %d\n", event->RECEIVE.TotalBufferLength);
-        printf("absolute offset: %d\n", event->RECEIVE.AbsoluteOffset);
-
         pthread_mutex_lock(&connection_info->recv_buff.lock);
-
-        // // Allocate memory for the actual data
-        // connection_info->recv_buff.buffers->Buffer = (uint8_t *)malloc(event->RECEIVE.TotalBufferLength);
-        // if (connection_info->recv_buff.buffers->Buffer == NULL) {
-        //     // Handle memory allocation failure
-        //     fprintf(stderr, "Memory allocation failed\n");
-        //     free(connection_info->recv_buff.buffers);
-        //     exit(1);
-        // }
-
-        // memcpy(connection_info->recv_buff.buffers->Buffer, event->RECEIVE.Buffers->Buffer, event->RECEIVE.TotalBufferLength);
-
-        // connection_info->recv_buff.total_buffer_length = event->RECEIVE.TotalBufferLength;
-        // connection_info->recv_buff.buffer_count = event->RECEIVE.BufferCount;
-        // connection_info->recv_buff.absolute_offset = event->RECEIVE.AbsoluteOffset;
-        // connection_info->receive_count++;
 
         // Reallocate memory for the recv_buff.buffers array to accommodate the new buffer
         connection_info->recv_buff.buffers = (QUIC_BUFFER *)realloc(

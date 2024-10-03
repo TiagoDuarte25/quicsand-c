@@ -92,6 +92,7 @@ void *handle_connection(void *arg)
     connection_t connection = data->connection;
     FILE *fp = data->fp;
     fprintf(fp, "Handling connection\n");
+    fflush(fp);
 
     stream_t stream = accept_stream(ctx, connection, 0);
     fprintf(fp, "Accepted stream\n");
@@ -143,20 +144,37 @@ void *handle_connection(void *arg)
     } else if (strcmp(control_message, CONTROL_DOWNLOAD) == 0) {
         fprintf(fp, "Handling file download\n");
         fflush(fp);
-        FILE *fp = fopen("downloaded_file.txt", "r");
-        if (!fp) {
-            fprintf(fp, "Error: Failed to open file for writing\n");
+
+        size_t len;
+        char file_path[256];
+        len = (size_t)recv_data(ctx, connection, (void *)file_path, sizeof(file_path), 0);
+        if (len <= 0) {
+            fprintf(fp, "Error: Failed to receive file path\n");
             close_stream(ctx, connection, stream);
             close_connection(ctx, connection);
             return NULL;
         }
+        fprintf(fp, "Received file path: %s\n", file_path);
+        fflush(fp);
+
+        // file_path as more size then needed, so we need to remove the extra bytes to fopen the file correctly
+        file_path[len] = '\0';
+
+        FILE *file = fopen("/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt", "r");
+        if (!file) {
+            fprintf(fp, "Error: Failed to open file for writing\n");
+            fflush(fp);
+            close_stream(ctx, connection, stream);
+            close_connection(ctx, connection);
+            return NULL;
+        }
+
         char buffer[CHUNK_SIZE];
-        size_t len;
-        while (len = fread(buffer, sizeof(char), CHUNK_SIZE, fp) > 0) {
-            send_data(ctx, connection, stream, buffer, CHUNK_SIZE);
+        while ((len = fread(buffer, sizeof(char), CHUNK_SIZE, file)) > 0) {
+            send_data(ctx, connection, stream,(void *)buffer, len);
             sleep(1);
         }
-        fclose(fp);
+        fclose(file);
         fprintf(fp, "File download completed\n");
         fflush(fp);
     } else if (strcmp(control_message, CONTROL_SINGLE) == 0) {

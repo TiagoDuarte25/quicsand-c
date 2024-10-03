@@ -169,14 +169,21 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     ssize_t len = recv_data(ctx, connection, ack, sizeof(ack), 0);
     fprintf(fp, "Received ack: %s\n", ack);
 
+    // send another message with a file path request
+    send_data(ctx, connection, stream, (void *)file_path, strlen(file_path) + 1);
+    fprintf(fp, "Sent file path: %s\n", file_path);
+    fflush(fp);
+
     char buffer[CHUNK_SIZE];
-    FILE *file = fopen(file_path, "w");
-    while (len = recv_data(ctx, connection, buffer, CHUNK_SIZE, 0) > 0) {
-        fprintf(fp, "Bytes read: %ld\n", len);
+    FILE *file = fopen("downloaded_file.txt", "w");
+    while ((len = recv_data(ctx, connection, buffer, CHUNK_SIZE, 0)) > 0) {
+        printf("Bytes read: %ld\n", len);
+        printf("Buffer content: %.*s\n", (int)len, buffer);
         fflush(fp);
         fwrite(buffer, sizeof(char), len, file);
+        fflush(file);
     }
-    fclose(fp);
+    fclose(file);
     fprintf(fp, "File download completed\n");
     fprintf(fp, "End of test\n");
     fflush(fp);
@@ -290,7 +297,7 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
         printf("Buffer content: %.*s\n", (int)bytes_read, buffer);
         clock_gettime(CLOCK_MONOTONIC, &end);
         total_time += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
-        sleep(2);
+        sleep(1);
     }
 
     fclose(file);
@@ -363,8 +370,8 @@ int main(int argc, char *argv[])
 
   // test_normal_send_receive(fp, config, ip_address, port);
   //test_multiple_sends(fp, config, ip_address, port);
-  test_upload_file(fp, config, ip_address, port, file_path);
-  //test_download_file(fp, config, ip_address, port, "downloaded_file.txt");
+  // test_upload_file(fp, config, ip_address, port, file_path);
+  test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
   fclose(fp);
