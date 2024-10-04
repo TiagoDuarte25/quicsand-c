@@ -36,4 +36,4 @@ echo SERVER_IP $server_ip_k >> /tmp/log
 sleep 2
 
 # Start a shell to keep the container running
-./bin/client -i "$server_ip_k" -p 4567 -f "/app/resources/testing_files/small_file.txt"
+./bin/client -i "$server_ip_k" -p 4567 -f "/app/resources/testing_files/file.txt"

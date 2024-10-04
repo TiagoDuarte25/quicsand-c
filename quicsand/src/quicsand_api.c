@@ -988,6 +988,7 @@ ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t
     if (to_read > n_bytes) {
         to_read = n_bytes;
     } else if (to_read == 0) {
+        printf("No data available\n");
         pthread_mutex_unlock(&connection_info->recv_buff.lock);
         connection_info->last_receive_count = connection_info->receive_count;
         return 0; // No data available
@@ -1114,4 +1115,3 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
     return (stream_t)connection_info->new_stream;
     #endif
 }
-

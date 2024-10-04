@@ -15,6 +15,24 @@ enum mode_t
     QUIC_SERVER
 };
 
+// Define error codes
+typedef enum {
+    QUIC_SUCCESS,
+    QUIC_ERROR_INVALID_ARGUMENT,
+    QUIC_ERROR_CONNECTION_FAILED,
+    QUIC_ERROR_STREAM_FAILED,
+    QUIC_ERROR_SEND_FAILED,
+    QUIC_ERROR_RECV_FAILED,
+    QUIC_ERROR_TIMEOUT,
+    QUIC_ERROR_UNKNOWN
+} quic_error_code_t;
+
+// Define error structure
+typedef struct {
+    quic_error_code_t code;
+    const char *message;
+} quic_error_t;
+
 #define CONTROL_UPLOAD "UPLOAD"
 #define CONTROL_DOWNLOAD "DOWNLOAD"
 #define CONTROL_SINGLE "SINGLE"

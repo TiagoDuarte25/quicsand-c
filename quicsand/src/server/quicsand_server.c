@@ -160,7 +160,7 @@ void *handle_connection(void *arg)
         // file_path as more size then needed, so we need to remove the extra bytes to fopen the file correctly
         file_path[len] = '\0';
 
-        FILE *file = fopen("/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt", "r");
+        FILE *file = fopen(file_path, "r");
         if (!file) {
             fprintf(fp, "Error: Failed to open file for writing\n");
             fflush(fp);

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <arpa/inet.h> // inet_addr()
 #include <sys/times.h>
+#include <sys/resource.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -174,19 +175,63 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     fprintf(fp, "Sent file path: %s\n", file_path);
     fflush(fp);
 
+    struct rusage usage_start, usage_end;
+    double bandwidth, cpu_time, memory_usage;
+    size_t total_bytes = 0;
+    size_t num_chunks = 0;
+
+    // Start time and resource usage
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    getrusage(RUSAGE_SELF, &usage_start);
+
     char buffer[CHUNK_SIZE];
     FILE *file = fopen("downloaded_file.txt", "w");
+    if (!file) {
+        perror("Error opening file");
+        exit(EXIT_FAILURE);
+    }
+
     while ((len = recv_data(ctx, connection, buffer, CHUNK_SIZE, 0)) > 0) {
-        printf("Bytes read: %ld\n", len);
-        printf("Buffer content: %.*s\n", (int)len, buffer);
         fflush(fp);
         fwrite(buffer, sizeof(char), len, file);
         fflush(file);
+        total_bytes += len;
+        num_chunks++;
+        if (len < CHUNK_SIZE) {
+            break;
+        }
     }
     fclose(file);
-    fprintf(fp, "File download completed\n");
-    fprintf(fp, "End of test\n");
+
+    // End time and resource usage
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    getrusage(RUSAGE_SELF, &usage_end);
+
+    // Calculate total time in milliseconds
+    total_time = ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
+
+    // Calculate bandwidth in bytes per second
+    bandwidth = (total_bytes / total_time) * 1e3;
+
+    // Calculate CPU time in seconds
+    cpu_time = (usage_end.ru_utime.tv_sec - usage_start.ru_utime.tv_sec) +
+               (usage_end.ru_utime.tv_usec - usage_start.ru_utime.tv_usec) / 1e6;
+
+    // Calculate memory usage in kilobytes
+    memory_usage = usage_end.ru_maxrss - usage_start.ru_maxrss;
+
+    // Log metrics
+    log_info("DOWNLOAD_TIME: %.2f ms", total_time);
+    log_info("BANDWIDTH: %.2f bytes/sec", bandwidth);
+    log_info("CPU_TIME: %.2f sec", cpu_time);
+    log_info("MEMORY_USAGE: %.2f KB", memory_usage);
+    log_info("TOTAL_BYTES: %zu bytes", total_bytes);
+    log_info("NUM_CHUNKS: %zu", num_chunks);
+    log_info("AVERAGE_CHUNK_SIZE: %.2f bytes", (double)total_bytes / num_chunks);
+    log_info("File download completed");
+    log_info("End of test");
     fflush(fp);
+    fclose(fp);
 }
 
 void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int port) {
@@ -218,13 +263,11 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
 		char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
 		send_data(ctx, connection, stream, data, strlen(data));
-    log_info(LOGS_FORMAT, "SEND_TIME", start.tv_nsec / 1e6, "ms");
     char response[1024];
     ssize_t len;
     ssize_t total_len = 0;
     while (1) {
         len = recv_data(ctx, connection, response + total_len, 1024 - total_len, 0);
-        log_info(LOGS_FORMAT, "RECV_TIME", start.tv_nsec / 1e6, "ms");
         if (len > 0) {
             total_len += len;
             // Ensure termination
@@ -260,7 +303,16 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
 void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, const char *file_path) {
     fprintf(fp, "Uploading large file: %s\n", file_path);
     struct timespec start, end;
+    struct rusage usage_start, usage_end;
     double total_time = 0;
+    double bandwidth, cpu_time, memory_usage;
+    size_t total_bytes = 0;
+    size_t num_chunks = 0;
+
+    // Start time and resource usage
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    getrusage(RUSAGE_SELF, &usage_start);
+
     context_t ctx = create_quic_context(NULL, NULL);
     fprintf(fp, "Created context\n");
     fprintf(fp, "Connecting to %s:%d\n", ip_address, port);
@@ -304,8 +356,32 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
     // close_stream(ctx, connection, stream);
     // close_connection(ctx, connection);
 
+    // End time and resource usage
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    getrusage(RUSAGE_SELF, &usage_end);
+
+    // Calculate total time in milliseconds
+    total_time = ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
+
+    // Calculate bandwidth in bytes per second
+    bandwidth = (total_bytes / total_time) * 1e3;
+
+    // Calculate CPU time in seconds
+    cpu_time = (usage_end.ru_utime.tv_sec - usage_start.ru_utime.tv_sec) +
+               (usage_end.ru_utime.tv_usec - usage_start.ru_utime.tv_usec) / 1e6;
+
+    // Calculate memory usage in kilobytes
+    memory_usage = usage_end.ru_maxrss - usage_start.ru_maxrss;
+
+    // Log metrics
+    log_info("UPLOAD_TIME: %.2f ms", total_time);
+    log_info("BANDWIDTH: %.2f bytes/sec", bandwidth);
+    log_info("CPU_TIME: %.2f sec", cpu_time);
+    log_info("MEMORY_USAGE: %.2f KB", memory_usage);
+    log_info("TOTAL_BYTES: %zu bytes", total_bytes);
+    log_info("NUM_CHUNKS: %zu", num_chunks);
+    log_info("AVERAGE_CHUNK_SIZE: %.2f bytes", (double)total_bytes / num_chunks);
     fprintf(fp, "File upload completed\n");
-    log_info(LOGS_FORMAT, "Total Upload Time", total_time, "ms");
     fprintf(fp, "End of test\n");
     fflush(fp);
 }
@@ -370,8 +446,8 @@ int main(int argc, char *argv[])
 
   // test_normal_send_receive(fp, config, ip_address, port);
   //test_multiple_sends(fp, config, ip_address, port);
-  // test_upload_file(fp, config, ip_address, port, file_path);
-  test_download_file(fp, config, ip_address, port, file_path);
+  test_upload_file(fp, config, ip_address, port, file_path);
+  // test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
   fclose(fp);
