@@ -1,10 +1,21 @@
 Starting client
-ip_address: 10.1.0.25
+ip_address: 10.1.0.247
 port: 4567
 file_path: /app/resources/testing_files/file.txt
-Uploading large file: /app/resources/testing_files/file.txt
+Testing file download
 Created context
-Connecting to 10.1.0.25:4567
+Connecting to 10.1.0.247:4567
 Opened connection
 Opened stream
-Sent control message: UPLOAD
+Sent control message: DOWNLOAD
+Received ack: DOWNLOAD
+Sent file path: /app/resources/testing_files/file.txt
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:224: DOWNLOAD_TIME: 13044.08 ms
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:225: BANDWIDTH: 1035.87 bytes/sec
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:226: CPU_TIME: 0.00 sec
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:227: MEMORY_USAGE: 0.00 KB
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:228: TOTAL_BYTES: 13512 bytes
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:229: NUM_CHUNKS: 14
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:230: AVERAGE_CHUNK_SIZE: 965.14 bytes
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:231: File download completed
+2024-10-04 17:26:47 INFO  /app/quicsand/src/client/quicsand_client.c:232: End of test
