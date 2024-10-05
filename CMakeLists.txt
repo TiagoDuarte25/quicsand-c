@@ -41,22 +41,110 @@ IF(${IMPL} STREQUAL "lsquic")
 
     add_definitions(-DLSQUIC)   
 
-    # Add boringssl and lsquic
-    ADD_SUBDIRECTORY(implementations/boringssl)
-    INCLUDE_DIRECTORIES(implementations/boringssl/include)
-    INCLUDE_DIRECTORIES(implementations/lsquic/include)
-    INCLUDE_DIRECTORIES(implementations/lsquic/src/liblsquic)
-    INCLUDE_DIRECTORIES(implementations/libev)
-    ADD_SUBDIRECTORY(implementations/lsquic/src/liblsquic)
+    message(STATUS "Building LSQUIC with BoringSSL")
+
+    # Define directories
+    set(BORINGSSL_DIR ${CMAKE_BINARY_DIR}/boringssl)
+    set(LSQUIC_DIR ${CMAKE_BINARY_DIR}/lsquic)
+    set(THREAD_POOL_DIR ${CMAKE_BINARY_DIR}/C-Thread-Pool)
+    set(LIBEV_DIR ${CMAKE_BINARY_DIR}/libev)
+
+    # Clone and build BoringSSL
+    if(NOT EXISTS ${BORINGSSL_DIR})
+        execute_process(
+            COMMAND git clone https://boringssl.googlesource.com/boringssl ${BORINGSSL_DIR}
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND git checkout 9fc1c33e9c21439ce5f87855a6591a9324e569fd
+            WORKING_DIRECTORY ${BORINGSSL_DIR}
+        )
+        # Enable dynamic libraries
+        execute_process(
+            COMMAND cmake -DBUILD_SHARED_LIBS=1 -DCMAKE_C_FLAGS="-Wno-error" -DCMAKE_CXX_FLAGS="-Wno-error" .
+            WORKING_DIRECTORY ${BORINGSSL_DIR}
+        )
+        execute_process(
+            COMMAND make ssl crypto
+            WORKING_DIRECTORY ${BORINGSSL_DIR}
+        )
+    endif()
+
+    # Clone and build LSQUIC
+    if(NOT EXISTS ${LSQUIC_DIR})
+        execute_process(
+            COMMAND git clone https://github.com/litespeedtech/lsquic.git ${LSQUIC_DIR}
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND git submodule update --init
+            WORKING_DIRECTORY ${LSQUIC_DIR}
+        )
+        execute_process(
+        COMMAND cmake -DBORINGSSL_DIR=${BORINGSSL_DIR} -DLSQUIC_SHARED_LIB=1 .
+        WORKING_DIRECTORY ${LSQUIC_DIR}
+        )
+        execute_process(
+            COMMAND make lsquic
+            WORKING_DIRECTORY ${LSQUIC_DIR}
+        )
+    endif()
+
+    # Clone and build C-Thread-Pool
+    if(NOT EXISTS ${THREAD_POOL_DIR})
+        execute_process(
+            COMMAND git clone https://github.com/Pithikos/C-Thread-Pool.git ${THREAD_POOL_DIR}
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        # Compile the source files into a shared library
+        execute_process(
+            COMMAND gcc -fPIC -shared thpool.c -o libthpool.so -pthread
+            WORKING_DIRECTORY ${THREAD_POOL_DIR}
+        )
+    endif()
+
+    # Clone and build libev
+    if(NOT EXISTS ${LIBEV_DIR})
+        execute_process(
+            COMMAND git clone https://github.com/enki/libev.git ${LIBEV_DIR}
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND ./autoreconf -vfi
+            WORKING_DIRECTORY ${LIBEV_DIR}
+        )
+        execute_process(
+            COMMAND ./configure --prefix=/usr --enable-shared
+            WORKING_DIRECTORY ${LIBEV_DIR}
+        )
+        execute_process(
+            COMMAND make
+            WORKING_DIRECTORY ${LIBEV_DIR}
+        )
+    endif()
+
+    # Add BoringSSL subdirectory
+    # add_subdirectory(${BORINGSSL_DIR})
+
+    # Add LSQUIC library directories and BoringSSL include directories
+    include_directories(${BORINGSSL_DIR}/include)
+    include_directories(${LSQUIC_DIR}/include)
+    include_directories(${LSQUIC_DIR}/src/liblsquic)
+    include_directories(${LIBEV_DIR})
+    include_directories(${THREAD_POOL_DIR})
+
+    # Add LSQUIC subdirectory
+    # add_subdirectory(${LSQUIC_DIR}/src/liblsquic)
 
     # Find the libev library
-    FIND_LIBRARY(EVENT_LIBRARY NAMES libev.so PATHS implementations/libev/.libs NO_DEFAULT_PATH)
-    
-    # Set libraries
-    SET(LIBS ${EVENT_LIBRARY} lsquic crypto ssl m yaml z)
+    find_library(EVENT_LIBRARY NAMES libev.so PATHS ${LIBEV_DIR}/.libs NO_DEFAULT_PATH)
+    find_library(THREAD_POOL_LIBRARY NAMES thpool PATHS ${THREAD_POOL_DIR} NO_DEFAULT_PATH)
+
+    # Manually set the libraries
+    set(LIBS ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} ${BORINGSSL_DIR}/ssl/libssl.so ${BORINGSSL_DIR}/crypto/libcrypto.so ${LSQUIC_DIR}/src/liblsquic/liblsquic.so m yaml z)
 
     IF(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        # If using older glibc, need to link with -lrt.  See clock_getres(2).
+        # If using older glibc, need to link with -lrt. See clock_getres(2).
         EXECUTE_PROCESS(
             COMMAND ${PROJECT_SOURCE_DIR}/print-glibc-version.sh ${CMAKE_C_COMPILER}
             OUTPUT_VARIABLE GLIBC_VERSION)
@@ -64,21 +152,6 @@ IF(${IMPL} STREQUAL "lsquic")
             SET(LIBS ${LIBS} rt)
         ENDIF()
     ENDIF()
-
-ELSEIF(${IMPL} STREQUAL "msquic")
-
-    add_definitions(-DMSQUIC)
-
-    ADD_SUBDIRECTORY(implementations/msquic)
-    INCLUDE_DIRECTORIES(implementations/msquic/include)
-    INCLUDE_DIRECTORIES(implementations/libev)
-    INCLUDE_DIRECTORIES(implementations/C-Thread-Pool)
-
-    FIND_LIBRARY(EVENT_LIBRARY NAMES ev PATHS implementations/libev/.libs NO_DEFAULT_PATH)
-    FIND_LIBRARY(THREAD_POOL_LIBRARY NAMES thpool PATHS implementations/C-Thread-Pool NO_DEFAULT_PATH)
-
-    # Set libraries
-    SET(LIBS msquic yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 
 ELSEIF(${IMPL} STREQUAL "quiche")
 

@@ -1,6 +1,6 @@
 #include "quicsand_api.h"
 
-#define MSQUIC 1
+#define LSQUIC 1
 
 #ifdef QUICHE
 
@@ -194,6 +194,8 @@ struct context {
 };
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+
 
 #endif
 
@@ -654,11 +656,10 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         printf("ConfigurationLoadCredential failed, 0x%x!\n", status);
         exit(EXIT_FAILURE);
     }
-
+    return (context_t) ctx;
     #elif LSQUIC
     printf("Using lsquic\n");
     #endif
-    return (context_t) ctx;
 }
 
 void bind_addr(context_t context, char* ip, int port) {
