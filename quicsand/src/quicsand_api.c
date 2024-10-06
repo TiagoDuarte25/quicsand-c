@@ -165,6 +165,7 @@ struct context
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/ssl.h>
+#include <fcntl.h>
 
 #include <ev.h>
 #include <lsquic.h>
@@ -191,9 +192,80 @@ struct context {
             char                buf[0x100]; /* Read up to this many bytes */
         }   c;
     };   
+    struct sockaddr_in addr; 
+    SSL_CTX *ssl_ctx;
 };
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+static int load_cert(struct context *ctx, char * cert_path, const char * key_path) {
+
+    int rv = -1;
+
+    ctx->ssl_ctx = SSL_CTX_new(TLS_method());
+    if (!ctx->ssl_ctx)
+    {
+        printf("SSL_CTX_new failed\n");
+        goto end;
+    }
+    SSL_CTX_set_min_proto_version(ctx->ssl_ctx, TLS1_3_VERSION);
+    SSL_CTX_set_max_proto_version(ctx->ssl_ctx, TLS1_3_VERSION);
+    SSL_CTX_set_default_verify_paths(ctx->ssl_ctx);
+    if (1 != SSL_CTX_use_certificate_chain_file(ctx->ssl_ctx, cert_path))
+    {
+        printf("SSL_CTX_use_certificate_chain_file failed\n");
+        goto end;
+    }
+    if (1 != SSL_CTX_use_PrivateKey_file(ctx->ssl_ctx, key_path,
+                                                            SSL_FILETYPE_PEM))
+    {
+        printf("SSL_CTX_use_PrivateKey_file failed\n");
+        goto end;
+    }
+    rv = 0;
+
+end:
+    if (rv != 0)
+    {
+        if (ctx->ssl_ctx)
+            SSL_CTX_free(ctx->ssl_ctx);
+        ctx->ssl_ctx = NULL;
+    }
+    return rv;
+}
+
+static int
+set_nonblocking (int fd)
+{
+    int flags;
+
+    flags = fcntl(fd, F_GETFL);
+    if (-1 == flags)
+        return -1;
+    flags |= O_NONBLOCK;
+    if (0 != fcntl(fd, F_SETFL, flags))
+        return -1;
+
+    return 0;
+}
+
+
+/* ToS is used to get ECN value */
+static int
+set_ecn (int fd, const struct sockaddr_in *sa)
+{
+    int on, s;
+
+    on = 1;
+    if (AF_INET == sa->sin_family)
+        s = setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
+    else
+        s = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
+    if (s != 0)
+        perror("setsockopt(ecn)");
+
+    return s;
+}
 
 
 
@@ -659,6 +731,51 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     return (context_t) ctx;
     #elif LSQUIC
     printf("Using lsquic\n");
+    struct context *ctx = (struct context *)malloc(sizeof(struct context));
+    struct lsquic_engine_api eapi;
+    const char *val;
+    int opt, is_server, version_cleared = 0;
+    int packets_out_version = 0;
+    socklen_t socklen;
+    struct lsquic_engine_settings settings;
+    const char *key_log_dir = NULL;
+    char errbuf[0x100];
+    if (ctx == NULL) {
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(1);
+    }
+    if (cert_path == NULL && key_path == NULL) {
+        is_server = 0;
+    }
+    else {
+        is_server = 1;
+    }
+    lsquic_engine_init_settings(&settings, is_server ? LSENG_SERVER : 0);
+    settings.es_versions = LSQUIC_DF_VERSIONS;
+
+    if (is_server) {
+        load_cert(ctx, cert_path, key_path);
+    }
+    printf("cert_path: %s\n", cert_path);
+    printf("key_path: %s\n", key_path);
+
+    /* At the time of this writing, using the loss bits extension causes
+     * decryption failures in Wireshark.  For the purposes of the demo, we
+     * override the default.
+     */
+    settings.es_ql_bits = 0;
+    ctx->flags = is_server ? 1 << 0 : 0;
+
+    /* Check settings */
+    if (0 != lsquic_engine_check_settings(&settings,
+                            ctx->flags & is_server ? LSENG_SERVER : 0,
+                            errbuf, sizeof(errbuf)))
+    {
+        printf("invalid settings: %s\n", errbuf);
+        exit(EXIT_FAILURE);
+    }
+    return (context_t) ctx;
+
     #endif
 }
 
@@ -689,6 +806,31 @@ void bind_addr(context_t context, char* ip, int port) {
     ctx->s.local_address.Ipv4.sin_port = htons(port);
 
     #elif LSQUIC
+    struct context *ctx = (struct context *)context;
+    
+    /* Parse IP address and port number */
+    if (inet_pton(AF_INET, ip, &ctx->addr.sin_addr))
+    {
+        ctx->addr.sin_family = AF_INET;
+        ctx->addr.sin_port   = htons(port);
+    }
+    ctx->sock_fd = socket(ctx->addr.sin_family, SOCK_DGRAM, 0);
+    if (ctx->sock_fd < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+    if (0 != set_nonblocking(ctx->sock_fd))
+    {
+        perror("fcntl");
+        exit(EXIT_FAILURE);
+    }
+    if (0 != set_ecn(ctx->sock_fd, &ctx->addr))
+        exit(EXIT_FAILURE);
+    if (ctx->flags == 1) {
+        
+    }
+    printf("Socket created\n");
+
     #endif
 }
 
