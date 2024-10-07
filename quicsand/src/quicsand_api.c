@@ -1,7 +1,5 @@
 #include "quicsand_api.h"
 
-#define LSQUIC 1
-
 #ifdef QUICHE
 
 #include <inttypes.h>

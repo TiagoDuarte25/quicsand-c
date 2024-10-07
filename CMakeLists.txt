@@ -37,6 +37,52 @@ INCLUDE_DIRECTORIES(quicsand/include)
 ADD_EXECUTABLE(client ${SRC} ${CLIENT_SRC})
 ADD_EXECUTABLE(server ${SRC} ${SERVER_SRC})
 
+set(THREAD_POOL_DIR ${CMAKE_BINARY_DIR}/C-Thread-Pool)
+set(LIBEV_DIR ${CMAKE_BINARY_DIR}/libev)
+
+# Clone and build C-Thread-Pool
+if(NOT EXISTS ${THREAD_POOL_DIR})
+execute_process(
+    COMMAND git clone https://github.com/Pithikos/C-Thread-Pool.git ${THREAD_POOL_DIR}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+# Compile the source files into a shared library
+execute_process(
+    COMMAND gcc -fPIC -shared thpool.c -o libthpool.so -pthread
+    WORKING_DIRECTORY ${THREAD_POOL_DIR}
+)
+endif()
+
+# Clone and build libev
+if(NOT EXISTS ${LIBEV_DIR})
+execute_process(
+    COMMAND git clone https://github.com/enki/libev.git ${LIBEV_DIR}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+execute_process(
+    COMMAND ./autoreconf -vfi
+    WORKING_DIRECTORY ${LIBEV_DIR}
+)
+execute_process(
+    COMMAND ./configure --prefix=/usr --enable-shared
+    WORKING_DIRECTORY ${LIBEV_DIR}
+)
+execute_process(
+    COMMAND make
+    WORKING_DIRECTORY ${LIBEV_DIR}
+)
+endif()
+
+include_directories(${LIBEV_DIR})
+include_directories(${THREAD_POOL_DIR})
+
+# Add LSQUIC subdirectory
+# add_subdirectory(${LSQUIC_DIR}/src/liblsquic)
+
+# Find the libev library
+find_library(EVENT_LIBRARY NAMES libev.so PATHS ${LIBEV_DIR}/.libs NO_DEFAULT_PATH)
+find_library(THREAD_POOL_LIBRARY NAMES thpool PATHS ${THREAD_POOL_DIR} NO_DEFAULT_PATH)
+
 IF(${IMPL} STREQUAL "lsquic")
 
     add_definitions(-DLSQUIC)   
@@ -46,8 +92,6 @@ IF(${IMPL} STREQUAL "lsquic")
     # Define directories
     set(BORINGSSL_DIR ${CMAKE_BINARY_DIR}/boringssl)
     set(LSQUIC_DIR ${CMAKE_BINARY_DIR}/lsquic)
-    set(THREAD_POOL_DIR ${CMAKE_BINARY_DIR}/C-Thread-Pool)
-    set(LIBEV_DIR ${CMAKE_BINARY_DIR}/libev)
 
     # Clone and build BoringSSL
     if(NOT EXISTS ${BORINGSSL_DIR})
@@ -130,15 +174,6 @@ IF(${IMPL} STREQUAL "lsquic")
     include_directories(${BORINGSSL_DIR}/include)
     include_directories(${LSQUIC_DIR}/include)
     include_directories(${LSQUIC_DIR}/src/liblsquic)
-    include_directories(${LIBEV_DIR})
-    include_directories(${THREAD_POOL_DIR})
-
-    # Add LSQUIC subdirectory
-    # add_subdirectory(${LSQUIC_DIR}/src/liblsquic)
-
-    # Find the libev library
-    find_library(EVENT_LIBRARY NAMES libev.so PATHS ${LIBEV_DIR}/.libs NO_DEFAULT_PATH)
-    find_library(THREAD_POOL_LIBRARY NAMES thpool PATHS ${THREAD_POOL_DIR} NO_DEFAULT_PATH)
 
     # Manually set the libraries
     set(LIBS ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} ${BORINGSSL_DIR}/ssl/libssl.so ${BORINGSSL_DIR}/crypto/libcrypto.so ${LSQUIC_DIR}/src/liblsquic/liblsquic.so m yaml z)
@@ -152,6 +187,42 @@ IF(${IMPL} STREQUAL "lsquic")
             SET(LIBS ${LIBS} rt)
         ENDIF()
     ENDIF()
+ELSEIF(${IMPL} STREQUAL "msquic")
+
+    add_definitions(-DMSQUIC)
+
+    # Clone and build msquic
+    if(NOT EXISTS ${CMAKE_BINARY_DIR}/msquic)
+        execute_process(
+            COMMAND git clone https://github.com/microsoft/msquic.git ${CMAKE_BINARY_DIR}/msquic
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND git submodule update --init
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/msquic
+        )
+        execute_process(
+            COMMAND pwsh ./scripts/prepare-machine.ps1 -UseXdp -ForceXdpInstall
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/msquic
+        )
+        execute_process(
+            COMMAND pwsh ./scripts/build.ps1 -UseXdp
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/msquic
+        )
+    endif()
+    
+    # Add msquic
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/inc)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/core)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl/include)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl/crypto/include)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl/ssl/include)
+
+    # Set libraries
+    SET(LIBS msquic yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 
 ELSEIF(${IMPL} STREQUAL "quiche")
 
