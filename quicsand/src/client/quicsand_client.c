@@ -192,14 +192,14 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     }
 
     while ((len = recv_data(ctx, connection, buffer, CHUNK_SIZE, 0)) > 0) {
+        if (len == 0) {
+            break;
+        }
         fflush(fp);
         fwrite(buffer, sizeof(char), len, file);
         fflush(file);
         total_bytes += len;
         num_chunks++;
-        if (len < CHUNK_SIZE) {
-            break;
-        }
     }
     fclose(file);
 

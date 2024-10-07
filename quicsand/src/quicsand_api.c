@@ -1407,7 +1407,7 @@ ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t
 
     pthread_mutex_lock(&connection_info->recv_buff.lock);
 
-    if (connection_info->last_receive_count == connection_info->receive_count) {
+    if (connection_info->recv_buff.total_buffer_length == 0) {
         // Wait for data to be available
         if (timeout == 0) {
             pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
@@ -1431,10 +1431,7 @@ ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t
     } else if (to_read == 0) {
         printf("No data available\n");
         pthread_mutex_unlock(&connection_info->recv_buff.lock);
-        connection_info->last_receive_count = connection_info->receive_count;
         return 0; // No data available
-    } else {
-        connection_info->last_receive_count = connection_info->receive_count;
     }
 
     // Copy data to the buffer
