@@ -172,7 +172,6 @@ void *handle_connection(void *arg)
         char buffer[CHUNK_SIZE];
         while ((len = fread(buffer, sizeof(char), CHUNK_SIZE, file)) > 0) {
             send_data(ctx, connection, stream,(void *)buffer, len);
-            sleep(1);
         }
         fclose(file);
         fprintf(fp, "File download completed\n");
