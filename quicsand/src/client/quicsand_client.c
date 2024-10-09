@@ -14,6 +14,8 @@
 #include "quicsand_api.h"
 #include "utils.h"
 #include "log.h"
+#include <bits/time.h>
+// #include <linux/time.h>
 
 #define LOGS_FORMAT "[%s] %f %s"
 #define TTFB "TTFB"
@@ -242,6 +244,7 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
   fprintf(fp, "Created context\n");
   fprintf(fp, "Connecting to %s:%d\n", ip_address, port);
   fflush(fp);
+  bind_addr(ctx, "127.0.0.1", 5678);
   connection_t connection = open_connection(ctx, ip_address, port);
   fprintf(fp, "Opened connection\n");
   fflush(fp);

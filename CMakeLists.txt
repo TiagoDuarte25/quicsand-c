@@ -76,14 +76,11 @@ endif()
 include_directories(${LIBEV_DIR})
 include_directories(${THREAD_POOL_DIR})
 
-# Add LSQUIC subdirectory
-# add_subdirectory(${LSQUIC_DIR}/src/liblsquic)
-
 # Find the libev library
 find_library(EVENT_LIBRARY NAMES libev.so PATHS ${LIBEV_DIR}/.libs NO_DEFAULT_PATH)
 find_library(THREAD_POOL_LIBRARY NAMES thpool PATHS ${THREAD_POOL_DIR} NO_DEFAULT_PATH)
 
-IF(${IMPL} STREQUAL "lsquic")
+if("${IMPL}" STREQUAL "lsquic")
 
     add_definitions(-DLSQUIC)   
 
@@ -94,7 +91,10 @@ IF(${IMPL} STREQUAL "lsquic")
     set(LSQUIC_DIR ${CMAKE_BINARY_DIR}/lsquic)
 
     # Clone and build BoringSSL
-    if(NOT EXISTS ${BORINGSSL_DIR})
+    if(NOT EXISTS ${BORINGSSL_DIR}/ssl/libssl.so OR NOT EXISTS ${BORINGSSL_DIR}/crypto/libcrypto.so)
+        if(EXISTS ${BORINGSSL_DIR})
+            file(REMOVE_RECURSE ${BORINGSSL_DIR})
+        endif()
         execute_process(
             COMMAND git clone https://boringssl.googlesource.com/boringssl ${BORINGSSL_DIR}
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -115,7 +115,10 @@ IF(${IMPL} STREQUAL "lsquic")
     endif()
 
     # Clone and build LSQUIC
-    if(NOT EXISTS ${LSQUIC_DIR})
+    if(NOT EXISTS ${LSQUIC_DIR}/src/liblsquic/liblsquic.so)
+        if(EXISTS ${LSQUIC_DIR})
+            file(REMOVE_RECURSE ${LSQUIC_DIR})
+        endif()
         execute_process(
             COMMAND git clone https://github.com/litespeedtech/lsquic.git ${LSQUIC_DIR}
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -125,53 +128,19 @@ IF(${IMPL} STREQUAL "lsquic")
             WORKING_DIRECTORY ${LSQUIC_DIR}
         )
         execute_process(
-        COMMAND cmake -DBORINGSSL_DIR=${BORINGSSL_DIR} -DLSQUIC_SHARED_LIB=1 .
-        WORKING_DIRECTORY ${LSQUIC_DIR}
+            COMMAND cmake -DBORINGSSL_DIR=${BORINGSSL_DIR} -DLSQUIC_SHARED_LIB=1 .
+            WORKING_DIRECTORY ${LSQUIC_DIR}
         )
         execute_process(
-            COMMAND make lsquic
+            COMMAND make
             WORKING_DIRECTORY ${LSQUIC_DIR}
         )
     endif()
 
-    # Clone and build C-Thread-Pool
-    if(NOT EXISTS ${THREAD_POOL_DIR})
-        execute_process(
-            COMMAND git clone https://github.com/Pithikos/C-Thread-Pool.git ${THREAD_POOL_DIR}
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        )
-        # Compile the source files into a shared library
-        execute_process(
-            COMMAND gcc -fPIC -shared thpool.c -o libthpool.so -pthread
-            WORKING_DIRECTORY ${THREAD_POOL_DIR}
-        )
-    endif()
-
-    # Clone and build libev
-    if(NOT EXISTS ${LIBEV_DIR})
-        execute_process(
-            COMMAND git clone https://github.com/enki/libev.git ${LIBEV_DIR}
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        )
-        execute_process(
-            COMMAND ./autoreconf -vfi
-            WORKING_DIRECTORY ${LIBEV_DIR}
-        )
-        execute_process(
-            COMMAND ./configure --prefix=/usr --enable-shared
-            WORKING_DIRECTORY ${LIBEV_DIR}
-        )
-        execute_process(
-            COMMAND make
-            WORKING_DIRECTORY ${LIBEV_DIR}
-        )
-    endif()
-
-    # Add BoringSSL subdirectory
-    # add_subdirectory(${BORINGSSL_DIR})
-
     # Add LSQUIC library directories and BoringSSL include directories
     include_directories(${BORINGSSL_DIR}/include)
+    include_directories(${BORINGSSL_DIR}/include/openssl)
+    include_directories(${BORINGSSL_DIR}/include/crypto)
     include_directories(${LSQUIC_DIR}/include)
     include_directories(${LSQUIC_DIR}/src/liblsquic)
 
@@ -187,7 +156,7 @@ IF(${IMPL} STREQUAL "lsquic")
             SET(LIBS ${LIBS} rt)
         ENDIF()
     ENDIF()
-ELSEIF(${IMPL} STREQUAL "msquic")
+ELSEIF("${IMPL}" STREQUAL "msquic")
 
     add_definitions(-DMSQUIC)
 
@@ -224,7 +193,7 @@ ELSEIF(${IMPL} STREQUAL "msquic")
     # Set libraries
     SET(LIBS msquic yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 
-ELSEIF(${IMPL} STREQUAL "quiche")
+ELSEIF("${IMPL}" STREQUAL "quiche")
 
     add_definitions(-DQUICHE)
 
@@ -255,8 +224,8 @@ ELSEIF(${IMPL} STREQUAL "quiche")
     # Set libraries
     SET(LIBS ${QUICHE_LIBRARY} ${EVENT_LIBRARY} yaml)
 
-ELSE()
-    MESSAGE(FATAL_ERROR "Invalid implementation: ${IMPL}")
+# ELSE()
+#     MESSAGE(FATAL_ERROR "Invalid implementation: ${IMPL}")
 ENDIF()
     
 TARGET_INCLUDE_DIRECTORIES(server PRIVATE quicsand/include)

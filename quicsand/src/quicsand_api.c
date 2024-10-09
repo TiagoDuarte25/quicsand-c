@@ -167,6 +167,8 @@ struct context
 
 #include <ev.h>
 #include <lsquic.h>
+#include <errno.h>
+#include <assert.h>
 
 struct context {
 
@@ -181,6 +183,7 @@ struct context {
     lsquic_engine_t            *engine;
     struct lsquic_engine_api    eapi;
     struct sockaddr_storage     local_sas;
+    struct lsquic_engine_settings settings;
     union
     {
         struct client
@@ -191,11 +194,22 @@ struct context {
             char                buf[0x100]; /* Read up to this many bytes */
         }   c;
     };   
-    struct sockaddr_in addr; 
+    struct sockaddr_in local_addr;
+    struct sockaddr_in peer_addr;
     SSL_CTX *ssl_ctx;
 };
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+static int
+log_buf (void *ctx, const char *buf, size_t len)
+{
+    FILE *out = ctx;
+    fwrite(buf, 1, len, out);
+    fflush(out);
+    return 0;
+}
+static const struct lsquic_logger_if logger_if = { log_buf, };
 
 static int load_cert(struct context *ctx, char * cert_path, const char * key_path) {
 
@@ -292,24 +306,23 @@ set_origdst(int fd, const struct sockaddr_in *addr)
 static lsquic_conn_ctx_t *
 on_new_conn (void *stream_if_ctx, struct lsquic_conn *conn)
 {
-    struct tut *const tut = stream_if_ctx;
-    tut->tut_u.c.conn = conn;
+    struct context *const ctx = stream_if_ctx;
+    ctx->c.conn = conn;
     printf("created connection");
-    return (void *) tut;
+    return (void *) ctx;
 }
 
 
 static void
 on_hsk_done (lsquic_conn_t *conn, enum lsquic_hsk_status status)
 {
-    struct tut *const tut = (void *) lsquic_conn_get_ctx(conn);
+    struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
 
     switch (status)
     {
     case LSQ_HSK_OK:
     case LSQ_HSK_RESUMED_OK:
         printf("handshake successful, start stdin watcher");
-        ev_io_start(tut->tut_loop, &tut->tut_u.c.stdin_w);
         break;
     default:
         printf("handshake failed");
@@ -321,21 +334,20 @@ on_hsk_done (lsquic_conn_t *conn, enum lsquic_hsk_status status)
 static void
 on_conn_closed (struct lsquic_conn *conn)
 {
-    struct tut *const tut = (void *) lsquic_conn_get_ctx(conn);
+    struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
 
     printf("client connection closed -- stop reading from socket");
-    ev_io_stop(tut->tut_loop, &tut->tut_sock_w);
 }
 
 
 static lsquic_stream_ctx_t *
 on_new_stream (void *stream_if_ctx, struct lsquic_stream *stream)
 {
-    struct tut *tut = stream_if_ctx;
+    struct context *ctx = stream_if_ctx;
     printf("created new stream, we want to write\n");
     lsquic_stream_wantwrite(stream, 1);
     /* return tut: we don't have any stream-specific context */
-    return (void *) tut;
+    return (void *) ctx;
 }
 
 
@@ -343,7 +355,7 @@ on_new_stream (void *stream_if_ctx, struct lsquic_stream *stream)
 static void
 on_read_v0 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
 {
-    struct tut *tut = (struct tut *) h;
+    struct context *ctx = (struct context *) h;
     ssize_t nread;
     unsigned char buf[3];
 
@@ -357,12 +369,10 @@ on_read_v0 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
     {
         printf("read to end-of-stream: close and read from stdin again\n");
         lsquic_stream_shutdown(stream, 0);
-        ev_io_start(tut->tut_loop, &tut->tut_u.c.stdin_w);
     }
     else
     {
         printf("error reading from stream (%s) -- exit loop\n");
-        ev_break(tut->tut_loop, EVBREAK_ONE);
     }
 }
 
@@ -383,7 +393,7 @@ readf_v1 (void *ctx, const unsigned char *data, size_t len, int fin)
 static void
 on_read_v1 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
 {
-    struct tut *tut = (struct tut *) h;
+    struct context *ctx = (struct context *) h;
     ssize_t nread;
 
     nread = lsquic_stream_readf(stream, readf_v1, NULL);
@@ -391,12 +401,10 @@ on_read_v1 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
     {
         printf("read to end-of-stream: close and read from stdin again\n");
         lsquic_stream_shutdown(stream, 0);
-        ev_io_start(tut->tut_loop, &tut->tut_u.c.stdin_w);
     }
     else if (nread < 0)
     {
         printf("error reading from stream (%s) -- exit loop\n");
-        ev_break(tut->tut_loop, EVBREAK_ONE);
     }
 }
 
@@ -421,7 +429,6 @@ readf_v2 (void *ctx, const unsigned char *data, size_t len, int fin)
         fflush(stdout);
         printf("read to end-of-stream: close and read from stdin again");
         lsquic_stream_shutdown(v2ctx->stream, 0);
-        ev_io_start(v2ctx->tut->tut_loop, &v2ctx->tut->tut_u.c.stdin_w);
     }
     return len;
 }
@@ -433,15 +440,14 @@ readf_v2 (void *ctx, const unsigned char *data, size_t len, int fin)
 static void
 on_read_v2 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
 {
-    struct tut *tut = (struct tut *) h;
+    struct context *ctx = (struct context *) h;
     ssize_t nread;
 
-    struct client_read_v2_ctx v2ctx = { tut, stream, };
-    nread = lsquic_stream_readf(stream, readf_v2, &v2ctx);
+    // struct client_read_v2_ctx v2ctx = { ctx, stream, };
+    // nread = lsquic_stream_readf(stream, readf_v2, &v2ctx);
     if (nread < 0)
     {
         printf("error reading from stream (%s) -- exit loop\n");
-        ev_break(tut->tut_loop, EVBREAK_ONE);
     }
 }
 
@@ -453,17 +459,17 @@ static void
 on_write (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
 {
     lsquic_conn_t *conn;
-    struct tut *tut;
+    struct context *ctx;
     ssize_t nw;
 
     conn = lsquic_stream_conn(stream);
-    tut = (void *) lsquic_conn_get_ctx(conn);
+    ctx = (void *) lsquic_conn_get_ctx(conn);
 
-    nw = lsquic_stream_write(stream, tut->tut_u.c.buf, tut->tut_u.c.sz);
+    nw = lsquic_stream_write(stream, ctx->c.buf, ctx->c.sz);
     if (nw > 0)
     {
-        tut->tut_u.c.sz -= (size_t) nw;
-        if (tut->tut_u.c.sz == 0)
+        ctx->c.sz -= (size_t) nw;
+        if (ctx->c.sz == 0)
         {
             printf("wrote all %zd bytes to stream, switch to reading\n",
                                                             (size_t) nw);
@@ -472,9 +478,9 @@ on_write (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
         }
         else
         {
-            memmove(tut->tut_u.c.buf, tut->tut_u.c.buf + nw, tut->tut_u.c.sz);
+            memmove(ctx->c.buf, ctx->c.buf + nw, ctx->c.sz);
             printf("wrote %zd bytes to stream, still have %zd bytes to write\n",
-                                                (size_t) nw, tut->tut_u.c.sz);
+                                                (size_t) nw, ctx->c.sz);
         }
     }
     else
@@ -493,6 +499,52 @@ static void
 on_close (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
 {
     printf("stream closed\n");
+}
+
+static int
+packets_out_v0 (void *packets_out_ctx, const struct lsquic_out_spec *specs,
+                                                                unsigned count)
+{
+    unsigned n;
+    int fd, s = 0;
+    struct msghdr msg;
+
+    if (0 == count)
+        return 0;
+
+    n = 0;
+    msg.msg_flags      = 0;
+    msg.msg_control    = NULL;
+    msg.msg_controllen = 0;
+    do
+    {
+        fd                 = (int) (uint64_t) specs[n].peer_ctx;
+        msg.msg_name       = (void *) specs[n].dest_sa;
+        msg.msg_namelen    = (AF_INET == specs[n].dest_sa->sa_family ?
+                                            sizeof(struct sockaddr_in) :
+                                            sizeof(struct sockaddr_in6)),
+        msg.msg_iov        = specs[n].iov;
+        msg.msg_iovlen     = specs[n].iovlen;
+        s = sendmsg(fd, &msg, 0);
+        if (s < 0)
+        {
+            printf("sendmsg failed: %s\n", strerror(errno));
+            break;
+        }
+        ++n;
+    }
+    while (n < count);
+
+    if (n < count)
+        printf("could not send all of them\n");    /* TODO */
+
+    if (n > 0)
+        return n;
+    else
+    {
+        assert(s < 0);
+        return -1;
+    }
 }
 
 
@@ -986,6 +1038,12 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     struct lsquic_engine_settings settings;
     const char *key_printf_dir = NULL;
     char errbuf[0x100];
+
+    
+
+    lsquic_logger_init(&logger_if, stdout, LLTS_HHMMSSUS);
+    lsquic_set_log_level("debug");
+
     if (ctx == NULL) {
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
@@ -996,6 +1054,12 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     else {
         is_server = 1;
     }
+
+    if (0 != lsquic_global_init(LSQUIC_GLOBAL_SERVER | LSQUIC_GLOBAL_CLIENT))
+    {
+        exit(EXIT_FAILURE);
+    }
+
     lsquic_engine_init_settings(&settings, is_server ? LSENG_SERVER : 0);
     settings.es_versions = LSQUIC_DF_VERSIONS;
 
@@ -1010,7 +1074,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
      * override the default.
      */
     settings.es_ql_bits = 0;
-    ctx->flags = is_server ? LSENG_SERVER; : 0;
+    ctx->flags = is_server ? LSENG_SERVER : 0;
 
     /* Check settings */
     if (0 != lsquic_engine_check_settings(&settings,
@@ -1021,17 +1085,17 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         exit(EXIT_FAILURE);
     }
 
-    struct lsquic_engine_api eapi = ctx->eapi;
-
     /* Initialize callbacks */
-    memset(&eapi, 0, sizeof(eapi));
-    eapi.ea_get_ssl_ctx = get_ssl_ctx;
-    eapi.ea_settings = &settings;
-
-    ctx->flags = LSENG_SERVER;
+    memset(&ctx->eapi, 0, sizeof(ctx->eapi));
+    ctx->eapi.ea_packets_out = packets_out_v0;
+    ctx->eapi.ea_packets_out_ctx = ctx;
+    ctx->eapi.ea_stream_if = &callbacks;
+    ctx->eapi.ea_stream_if_ctx = ctx;
+    ctx->eapi.ea_get_ssl_ctx = get_ssl_ctx;
+    ctx->eapi.ea_settings = &settings;
 
     ctx->engine = lsquic_engine_new(ctx->flags & LSENG_SERVER
-                                            ? LSENG_SERVER : 0, &eapi);
+                                            ? LSENG_SERVER : 0, &ctx->eapi);
     if (!ctx->engine)
     {
         printf("cannot create engine\n");
@@ -1073,12 +1137,12 @@ void bind_addr(context_t context, char* ip, int port) {
     struct context *ctx = (struct context *)context;
     
     /* Parse IP address and port number */
-    if (inet_pton(AF_INET, ip, &ctx->addr.sin_addr))
+    if (inet_pton(AF_INET, ip, &ctx->local_addr.sin_addr))
     {
-        ctx->addr.sin_family = AF_INET;
-        ctx->addr.sin_port   = htons(port);
+        ctx->local_addr.sin_family = AF_INET;
+        ctx->local_addr.sin_port   = htons(port);
     }
-    ctx->sock_fd = socket(ctx->addr.sin_family, SOCK_DGRAM, 0);
+    ctx->sock_fd = socket(ctx->local_addr.sin_family, SOCK_DGRAM, 0);
     if (ctx->sock_fd < 0) {
         perror("socket");
         exit(EXIT_FAILURE);
@@ -1088,21 +1152,19 @@ void bind_addr(context_t context, char* ip, int port) {
         perror("fcntl");
         exit(EXIT_FAILURE);
     }
-    if (0 != set_ecn(ctx->sock_fd, &ctx->addr))
+    if (0 != set_ecn(ctx->sock_fd, &ctx->local_addr))
         exit(EXIT_FAILURE);
     if (ctx->flags & 1)
-        if (0 != set_origdst(ctx->sock_fd, &ctx->addr))
+        if (0 != set_origdst(ctx->sock_fd, &ctx->local_addr))
             exit(EXIT_FAILURE);
 
-    if (ctx->flags & 1) {
-        socklen_t socklen = sizeof(ctx->addr);
-        if (0 != bind(ctx->sock_fd, &ctx->addr, socklen))
-        {
-            perror("bind");
-            exit(EXIT_FAILURE);
-        }
-        memcpy(&ctx->local_sas, &ctx->addr, sizeof(ctx->addr));
+    socklen_t socklen = sizeof(ctx->local_addr);
+    if (0 != bind(ctx->sock_fd, &ctx->local_addr, socklen))
+    {
+        perror("bind");
+        exit(EXIT_FAILURE);
     }
+    memcpy(&ctx->local_sas, &ctx->local_addr, sizeof(ctx->local_addr));
     printf("Socket created\n");
 
     #endif
@@ -1233,25 +1295,45 @@ connection_t open_connection(context_t context, char* ip, int port) {
     printf("Opening connection\n");
 
     struct lsquic_engine_api eapi = ctx->eapi;
-
-    /* Initialize callbacks */
-    memset(&eapi, 0, sizeof(eapi));
-    eapi.ea_packets_out = packets_out;
-    eapi.ea_packets_out_ctx = ctx;
-    eapi.ea_stream_if = &callbacks;
-    eapi.ea_stream_if_ctx = ctx;
-    eapi.ea_get_ssl_ctx = get_ssl_ctx;
-    eapi.ea_settings = &ctx->settings;
-
-    ctx->flags = LSENG_SERVER;
-
-    ctx->engine = lsquic_engine_new(ctx->flags & LSENG_SERVER
-                                            ? LSENG_SERVER : 0, &eapi);
-    if (!ctx->engine)
+    /* Parse IP address and port number */
+    if (inet_pton(AF_INET, ip, &ctx->peer_addr.sin_addr))
     {
-        printf("cannot create engine\n");
+        ctx->peer_addr.sin_family = AF_INET;
+        ctx->peer_addr.sin_port   = htons(port);
+    }
+
+    printf("Connecting to %s:%d\n", ip, port);
+    printf("Socket: %d\n", ctx->sock_fd);
+    printf("Family local_sas: %d\n", ctx->local_sas.ss_family);
+    printf("Port local_sas: %d\n", ((struct sockaddr_in *)&ctx->local_sas)->sin_port);
+    printf("Address local_sas: %d\n", ((struct sockaddr_in *)&ctx->local_sas)->sin_addr.s_addr);
+    printf("Family peer_addr: %d\n", ctx->peer_addr.sin_family);
+    printf("Port peer_addr: %d\n", ctx->peer_addr.sin_port);
+    printf("Address peer_addr: %d\n", ctx->peer_addr.sin_addr.s_addr);
+    printf("Engine: %p\n", (void *)ctx->engine);
+    printf("Socket: %d\n", ctx->sock_fd);
+
+    ctx->c.conn = lsquic_engine_connect(
+            ctx->engine, N_LSQVER,
+            (struct sockaddr *) &ctx->local_sas, (struct sockaddr *)&ctx->peer_addr,
+            (void *) (uintptr_t) ctx->sock_fd,  /* Peer ctx */
+            NULL, NULL, 0, NULL, 0, NULL, 0);
+    printf("Connection: %p\n", (void *)ctx->c.conn);
+    if (!ctx->c.conn)
+    {
+        printf("cannot create connection\n");
         exit(EXIT_FAILURE);
     }
+    printf("Connection created\n");
+
+    // ctx->engine = lsquic_engine_new(ctx->flags & LSENG_SERVER
+    //                                         ? LSENG_SERVER : 0, &eapi);
+    // if (!ctx->engine)
+    // {
+    //     printf("cannot create engine\n");LOG
+    //     exit(EXIT_FAILURE);
+    // }
+    return (connection_t) &ctx->c.conn;
     #endif
 }
 
@@ -1332,6 +1414,7 @@ stream_t open_stream(context_t context, connection_t connection) {
     return (stream_t) stream_node;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
+    printf("Opening stream\n");
     #endif
 }
 

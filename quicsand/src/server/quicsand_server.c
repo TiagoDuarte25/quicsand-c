@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <time.h>
 #include <log.h>
 #include "quicsand_api.h"
 #include "utils.h"

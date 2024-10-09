@@ -9,7 +9,7 @@ typedef void *context_t;
 typedef void *connection_t;
 typedef void *stream_t;
 
-#define MSQUIC 1
+#define LSQUIC 1
 
 enum mode_t
 {
