@@ -66,7 +66,7 @@ void download_file(context_t ctx, connection_t connection, const char *file_path
     stream_t stream = open_stream(ctx, connection);
     char buffer[CHUNK_SIZE];
     ssize_t len;
-    while ((len = recv_data(ctx, connection, buffer, sizeof(buffer), 0)) > 0) {
+    while ((len = recv_data(ctx, connection, stream, buffer, sizeof(buffer), 0)) > 0) {
         fwrite(buffer, 1, len, file);
     }
 
@@ -78,7 +78,7 @@ void single_send_receive(context_t ctx, connection_t connection) {
     stream_t stream = open_stream(ctx, connection);
     send_data(ctx, connection, stream, "Hello, server!", 14);
     char buffer[CHUNK_SIZE];
-    ssize_t len = recv_data(ctx, connection, buffer, sizeof(buffer), 0);
+    ssize_t len = recv_data(ctx, connection, stream, buffer, sizeof(buffer), 0);
     if (len > 0) {
         buffer[len] = '\0';
         printf("Received from server: %s\n", buffer);
@@ -101,7 +101,7 @@ void *handle_connection(void *arg)
 
     // Receive control message
     char control_message[256];
-    ssize_t len = recv_data(ctx, connection, control_message, sizeof(control_message), 0);
+    ssize_t len = recv_data(ctx, connection, stream, control_message, sizeof(control_message), 0);
     if (len <= 0) {
         fprintf(fp, "Error: Failed to receive control message\n");
         close_stream(ctx, connection, stream);
@@ -125,7 +125,7 @@ void *handle_connection(void *arg)
         }
 
         char buffer[CHUNK_SIZE];
-        while ((len = recv_data(ctx, connection, buffer, CHUNK_SIZE, 0)) > 0) {
+        while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
             fprintf(fp, "Received data: %.*s\n", (int)len, buffer);
             fprintf(fp, "len: %ld\n", len);
             fflush(fp);
@@ -148,7 +148,7 @@ void *handle_connection(void *arg)
 
         size_t len;
         char file_path[256];
-        len = (size_t)recv_data(ctx, connection, (void *)file_path, sizeof(file_path), 0);
+        len = (size_t)recv_data(ctx, connection, stream, (void *)file_path, sizeof(file_path), 0);
         if (len <= 0) {
             fprintf(fp, "Error: Failed to receive file path\n");
             close_stream(ctx, connection, stream);
@@ -187,7 +187,7 @@ void *handle_connection(void *arg)
             ssize_t total_len = 0;
             while (1)
             {
-                len = recv_data(ctx, connection, buffer + total_len, sizeof(buffer) - total_len, 0);
+                len = recv_data(ctx, connection, stream, buffer + total_len, sizeof(buffer) - total_len, 0);
                 if (len > 0)
                 {
                     total_len += len;

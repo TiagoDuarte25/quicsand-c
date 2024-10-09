@@ -74,6 +74,15 @@ typedef struct {
     int established;
     pthread_mutex_t lock;
     pthread_cond_t cond;
+    struct Buffer
+    {
+        QUIC_BUFFER *buffers;
+        uint64_t total_buffer_length;
+        uint32_t buffer_count;
+        uint64_t absolute_offset;
+        pthread_mutex_t lock;
+        pthread_cond_t cond;
+    } recv_buff;
 } stream_info_t;
 
 typedef struct stream_node{
@@ -88,18 +97,9 @@ typedef struct {
     stream_node_t *last_new_stream;
     stream_node_t *new_stream;
     size_t stream_count;
-    int connected;
     pthread_mutex_t lock;
     pthread_cond_t cond;
-    struct Buffer
-    {
-        QUIC_BUFFER *buffers;
-        uint64_t total_buffer_length;
-        uint32_t buffer_count;
-        uint64_t absolute_offset;
-        pthread_mutex_t lock;
-        pthread_cond_t cond;
-    } recv_buff;
+    int connected;
     int last_receive_count;
     int receive_count;
 } connection_info_t;
@@ -659,6 +659,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         pthread_mutex_lock(&connection_info->lock);
         stream_info->established = 1;
         printf("[strm][%p] Start complete\n", (void *)stream);
+
         pthread_cond_signal(&connection_info->cond);
         pthread_mutex_unlock(&connection_info->lock);
         break;
@@ -674,44 +675,37 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         // Data was received from the peer on the stream.
         //
-        pthread_mutex_lock(&connection_info->recv_buff.lock);
-
+        printf("[strm][%p] Data received\n", (void *)stream);
+        pthread_mutex_lock(&stream_info->recv_buff.lock);
         // Reallocate memory for the recv_buff.buffers array to accommodate the new buffer
-        connection_info->recv_buff.buffers = (QUIC_BUFFER *)realloc(
-            connection_info->recv_buff.buffers,
-            (connection_info->recv_buff.buffer_count + 1) * sizeof(QUIC_BUFFER)
+        stream_info->recv_buff.buffers = (QUIC_BUFFER *)realloc(
+            stream_info->recv_buff.buffers,
+            (stream_info->recv_buff.buffer_count + 1) * sizeof(QUIC_BUFFER)
         );
-        if (connection_info->recv_buff.buffers == NULL) {
+        if (stream_info->recv_buff.buffers == NULL) {
             // Handle memory allocation failure
-            fprintf(stderr, "Memory allocation failed\n");
-            pthread_mutex_unlock(&connection_info->recv_buff.lock);
+            pthread_mutex_unlock(&stream_info->recv_buff.lock);
             exit(1);
         }
-        printf("correct reallocation\n");
 
         // Allocate memory for the new buffer and copy the received data into it
-        QUIC_BUFFER *new_buffer = &connection_info->recv_buff.buffers[connection_info->recv_buff.buffer_count];
+        QUIC_BUFFER *new_buffer = &stream_info->recv_buff.buffers[stream_info->recv_buff.buffer_count];
         new_buffer->Buffer = (uint8_t *)malloc(event->RECEIVE.TotalBufferLength);
         if (new_buffer->Buffer == NULL) {
             // Handle memory allocation failure
-            fprintf(stderr, "Memory allocation failed\n");
-            pthread_mutex_unlock(&connection_info->recv_buff.lock);
+            pthread_mutex_unlock(&stream_info->recv_buff.lock);
             exit(1);
         }
-        printf("correct new buffer allocation\n");
         memcpy(new_buffer->Buffer, event->RECEIVE.Buffers->Buffer, event->RECEIVE.TotalBufferLength);
         new_buffer->Length = event->RECEIVE.TotalBufferLength;
-
         // Update the metadata fields
-        connection_info->recv_buff.total_buffer_length += event->RECEIVE.TotalBufferLength;
-        connection_info->recv_buff.buffer_count++;
-        connection_info->recv_buff.absolute_offset = event->RECEIVE.AbsoluteOffset;
+        stream_info->recv_buff.total_buffer_length += event->RECEIVE.TotalBufferLength;
+        stream_info->recv_buff.buffer_count++;
+        stream_info->recv_buff.absolute_offset = event->RECEIVE.AbsoluteOffset;
         connection_info->receive_count++;
 
-        pthread_cond_signal(&connection_info->recv_buff.cond);
-        pthread_mutex_unlock(&connection_info->recv_buff.lock);
-        printf("[strm][%p] Data received\n", (void *)stream);
-
+        pthread_cond_signal(&stream_info->recv_buff.cond);
+        pthread_mutex_unlock(&stream_info->recv_buff.lock);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         //
@@ -823,6 +817,21 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
         stream_info->stream = event->PEER_STREAM_STARTED.Stream;
         stream_info->established = 1;
+        // Allocate memory for the data buffer
+        stream_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
+        if (stream_info->recv_buff.buffers == NULL) {
+            // Handle memory allocation failure
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+
+        stream_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+        stream_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        stream_info->recv_buff.buffers->Buffer = NULL;
+        stream_info->recv_buff.buffers->Length = 0;
+        stream_info->recv_buff.total_buffer_length = 0;
+        stream_info->recv_buff.buffer_count = 0;
+        stream_info->recv_buff.absolute_offset = 0;
         stream_node_t *stream_node = push_stream(connection_info->streams, stream_info);
         connection_info->new_stream = stream_node;
         ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
@@ -873,17 +882,6 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         connection_info->stream_count = 0;
         connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-
-        // Allocate memory for the data buffer
-        connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
-        if (connection_info->recv_buff.buffers == NULL) {
-            // Handle memory allocation failure
-            fprintf(stderr, "Memory allocation failed\n");
-            exit(1);
-        }
-
-        connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-        connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
         // set the callback handler
         connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
@@ -1248,16 +1246,6 @@ connection_t open_connection(context_t context, char* ip, int port) {
     connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
-    // Allocate memory for the destination buffer
-    connection_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
-    if (connection_info->recv_buff.buffers == NULL) {
-        // Handle memory allocation failure
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
-    }
-    connection_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    connection_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-
     connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
     ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
     ctx_conn->ctx = ctx;
@@ -1282,10 +1270,9 @@ connection_t open_connection(context_t context, char* ip, int port) {
     pthread_mutex_lock(&ctx->lock);
     if (ctx->last_new_connection == ctx->new_connection)
     {
-        printf("Waiting for connection\n");
+        printf("Waiting for connection: %p\n", (void *)ctx);
         pthread_cond_wait(&ctx->cond, &ctx->lock);
     }
-    printf("Connection established\n");
 
     ctx->last_new_connection = ctx->new_connection;
     pthread_mutex_unlock(&ctx->lock);
@@ -1361,6 +1348,22 @@ stream_t open_stream(context_t context, connection_t connection) {
     connection_info_t *connection_info = connection_node->connection_info;
     stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
     stream_info->established = 0;
+
+    // Allocate memory for the data buffer
+    stream_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
+    if (stream_info->recv_buff.buffers == NULL) {
+        // Handle memory allocation failure
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(1);
+    }
+    stream_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    stream_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+    stream_info->recv_buff.buffers->Buffer = NULL;
+    stream_info->recv_buff.buffers->Length = 0;
+    stream_info->recv_buff.total_buffer_length = 0;
+    stream_info->recv_buff.buffer_count = 0;
+    stream_info->recv_buff.absolute_offset = 0;
+
     stream_node_t *stream_node = push_stream(connection_info->streams, stream_info);
     connection_info->new_stream = stream_node;
     ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
@@ -1406,11 +1409,11 @@ stream_t open_stream(context_t context, connection_t connection) {
     stream_info->stream = stream;
     stream_info->stream_id = stream_id;
     char data[256];
-    ssize_t len = recv_data(context, connection, data, 256, 0);
+    ssize_t len = recv_data(context, connection, (stream_t) connection_info->new_stream, data, 256, 0);
     if (strcmp(data, "STREAM HSK") == 0) {
         printf("stream started on server side\n");
     }
-    connection_info->last_new_stream = connection_info->new_stream;
+    connection_info->last_new_stream = stream_node;
     return (stream_t) stream_node;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
@@ -1478,47 +1481,54 @@ void send_data(context_t context, connection_t connection, stream_t stream, void
     
 }
 
-ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t n_bytes, time_t timeout) {
+ssize_t recv_data(context_t context, connection_t connection, stream_t stream, void* buf, ssize_t n_bytes, time_t timeout) {
     #ifdef QUICHE
     struct context *ctx = (struct context *)context;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
     connection_node_t *connection_node = (connection_node_t *)connection;
     connection_info_t *connection_info = connection_node->connection_info;
+    stream_node_t *stream_node = (stream_node_t *)stream;
+    stream_info_t *stream_info = stream_node->stream_info;
 
-    pthread_mutex_lock(&connection_info->recv_buff.lock);
+    pthread_mutex_lock(&stream_info->recv_buff.lock);
 
-    if (connection_info->recv_buff.total_buffer_length == 0) {
+    if (stream_info->recv_buff.total_buffer_length == 0) {
         // Wait for data to be available
         if (timeout == 0) {
-            pthread_cond_wait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock);
+            pthread_cond_wait(&stream_info->recv_buff.cond, &stream_info->recv_buff.lock);
         } else {
             struct timespec ts;
             clock_gettime(CLOCK_REALTIME, &ts);
             ts.tv_sec += timeout;
-            int ret = pthread_cond_timedwait(&connection_info->recv_buff.cond, &connection_info->recv_buff.lock, &ts);
+            int ret = pthread_cond_timedwait(&stream_info->recv_buff.cond, &stream_info->recv_buff.lock, &ts);
             if (ret == ETIMEDOUT) {
                 printf("Timed out\n");
-                pthread_mutex_unlock(&connection_info->recv_buff.lock);
+                pthread_mutex_unlock(&stream_info->recv_buff.lock);
                 return -1; // Indicate timeout
             }
         }
     }
 
     // Calculate the amount of data to read
-    ssize_t to_read = connection_info->recv_buff.total_buffer_length;
+    ssize_t to_read = stream_info->recv_buff.total_buffer_length;
     if (to_read > n_bytes) {
         to_read = n_bytes;
     } else if (to_read == 0) {
         printf("No data available\n");
-        pthread_mutex_unlock(&connection_info->recv_buff.lock);
+        pthread_mutex_unlock(&stream_info->recv_buff.lock);
         return 0; // No data available
     }
 
     // Copy data to the buffer
     size_t copied = 0;
     while (copied < to_read) {
-        QUIC_BUFFER *current_buffer = &connection_info->recv_buff.buffers[0];
+        if (stream_info->recv_buff.buffer_count == 0) {
+            printf("No more buffers available\n");
+            break;
+        }
+
+        QUIC_BUFFER *current_buffer = &stream_info->recv_buff.buffers[0];
         size_t copy_size = current_buffer->Length < (to_read - copied) ? current_buffer->Length : (to_read - copied);
         memcpy((uint8_t *)buf + copied, current_buffer->Buffer, copy_size);
         copied += copy_size;
@@ -1531,13 +1541,13 @@ ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t
         } else {
             // Remove the current buffer
             free(current_buffer->Buffer);
-            memmove(connection_info->recv_buff.buffers, connection_info->recv_buff.buffers + 1, (connection_info->recv_buff.buffer_count - 1) * sizeof(QUIC_BUFFER));
-            connection_info->recv_buff.buffer_count--;
+            memmove(stream_info->recv_buff.buffers, stream_info->recv_buff.buffers + 1, (stream_info->recv_buff.buffer_count - 1) * sizeof(QUIC_BUFFER));
+            stream_info->recv_buff.buffer_count--;
         }
     }
 
-    connection_info->recv_buff.total_buffer_length -= to_read;
-    pthread_mutex_unlock(&connection_info->recv_buff.lock);
+    stream_info->recv_buff.total_buffer_length -= to_read;
+    pthread_mutex_unlock(&stream_info->recv_buff.lock);
 
     return to_read;
     #elif LSQUIC

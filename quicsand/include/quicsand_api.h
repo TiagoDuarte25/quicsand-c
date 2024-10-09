@@ -48,7 +48,7 @@ void close_connection(context_t context, connection_t connection);
 stream_t open_stream(context_t context, connection_t connection);
 void close_stream(context_t context, connection_t connection, stream_t stream);
 void send_data(context_t context, connection_t connection, stream_t stream, void* data, int len);
-ssize_t recv_data(context_t context, connection_t connection, void* buf, ssize_t n_bytes, time_t timeout);
+ssize_t recv_data(context_t context, connection_t connection, stream_t stream, void* buf, ssize_t n_bytes, time_t timeout);
 
 // server functions
 void set_listen(context_t context);

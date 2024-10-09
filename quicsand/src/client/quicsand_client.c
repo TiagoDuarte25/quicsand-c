@@ -169,7 +169,7 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     fprintf(fp, "Sent control message: %s\n", control_message);
     fflush(fp);
     char ack[256];
-    ssize_t len = recv_data(ctx, connection, ack, sizeof(ack), 0);
+    ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
     fprintf(fp, "Received ack: %s\n", ack);
 
     // send another message with a file path request
@@ -193,7 +193,7 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
         exit(EXIT_FAILURE);
     }
 
-    while ((len = recv_data(ctx, connection, buffer, CHUNK_SIZE, 0)) > 0) {
+    while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
         if (len == 0) {
             break;
         }
@@ -258,7 +258,7 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
   fprintf(fp, "Sent control message: %s\n", control_message);
   fflush(fp);
   char ack[256];
-  ssize_t len = recv_data(ctx, connection, ack, sizeof(ack), 0);
+  ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
   fprintf(fp, "Received ack: %s\n", ack);
 
   for (int i = 0; i < NUM_REPETITIONS; i++)
@@ -270,7 +270,7 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
     ssize_t len;
     ssize_t total_len = 0;
     while (1) {
-        len = recv_data(ctx, connection, response + total_len, 1024 - total_len, 0);
+        len = recv_data(ctx, connection, stream, response + total_len, 1024 - total_len, 0);
         if (len > 0) {
             total_len += len;
             // Ensure termination
@@ -333,7 +333,7 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
     fprintf(fp, "Sent control message: %s\n", control_message);
     fflush(fp);
     char ack[256];
-    ssize_t len = recv_data(ctx, connection, ack, sizeof(ack), 0);
+    ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
     fprintf(fp, "Received ack: %s\n", ack);
 
 
