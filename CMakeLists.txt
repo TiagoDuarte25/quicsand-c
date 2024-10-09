@@ -90,11 +90,7 @@ if("${IMPL}" STREQUAL "lsquic")
     set(BORINGSSL_DIR ${CMAKE_BINARY_DIR}/boringssl)
     set(LSQUIC_DIR ${CMAKE_BINARY_DIR}/lsquic)
 
-    # Clone and build BoringSSL
-    if(NOT EXISTS ${BORINGSSL_DIR}/ssl/libssl.so OR NOT EXISTS ${BORINGSSL_DIR}/crypto/libcrypto.so)
-        if(EXISTS ${BORINGSSL_DIR})
-            file(REMOVE_RECURSE ${BORINGSSL_DIR})
-        endif()
+    if(NOT EXISTS ${BORINGSSL_DIR})
         execute_process(
             COMMAND git clone https://boringssl.googlesource.com/boringssl ${BORINGSSL_DIR}
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -103,6 +99,10 @@ if("${IMPL}" STREQUAL "lsquic")
             COMMAND git checkout 9fc1c33e9c21439ce5f87855a6591a9324e569fd
             WORKING_DIRECTORY ${BORINGSSL_DIR}
         )
+    endif()
+
+    # Build BoringSSL
+    if(NOT EXISTS ${BORINGSSL_DIR}/ssl/libssl.so OR NOT EXISTS ${BORINGSSL_DIR}/crypto/libcrypto.so)
         # Enable dynamic libraries
         execute_process(
             COMMAND cmake -DBUILD_SHARED_LIBS=1 -DCMAKE_C_FLAGS="-Wno-error" -DCMAKE_CXX_FLAGS="-Wno-error" .
@@ -114,11 +114,8 @@ if("${IMPL}" STREQUAL "lsquic")
         )
     endif()
 
-    # Clone and build LSQUIC
-    if(NOT EXISTS ${LSQUIC_DIR}/src/liblsquic/liblsquic.so)
-        if(EXISTS ${LSQUIC_DIR})
-            file(REMOVE_RECURSE ${LSQUIC_DIR})
-        endif()
+    # Clone LSQUIC
+    if(NOT EXISTS ${LSQUIC_DIR})
         execute_process(
             COMMAND git clone https://github.com/litespeedtech/lsquic.git ${LSQUIC_DIR}
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -127,6 +124,11 @@ if("${IMPL}" STREQUAL "lsquic")
             COMMAND git submodule update --init
             WORKING_DIRECTORY ${LSQUIC_DIR}
         )
+    endif()
+        
+
+    # Build LSQUIC
+    if(NOT EXISTS ${LSQUIC_DIR}/src/liblsquic/liblsquic.so)
         execute_process(
             COMMAND cmake -DBORINGSSL_DIR=${BORINGSSL_DIR} -DLSQUIC_SHARED_LIB=1 .
             WORKING_DIRECTORY ${LSQUIC_DIR}
@@ -160,38 +162,42 @@ ELSEIF("${IMPL}" STREQUAL "msquic")
 
     add_definitions(-DMSQUIC)
 
-    # Clone and build msquic
-    if(NOT EXISTS ${CMAKE_BINARY_DIR}/msquic)
+    set(MSQUIC_DIR ${CMAKE_BINARY_DIR}/msquic)
+
+    if(NOT EXISTS ${MSQUIC_DIR})
         execute_process(
-            COMMAND git clone https://github.com/microsoft/msquic.git ${CMAKE_BINARY_DIR}/msquic
+            COMMAND git clone https://github.com/microsoft/msquic.git ${MSQUIC_DIR}
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         )
         execute_process(
             COMMAND git submodule update --init
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/msquic
+            WORKING_DIRECTORY ${MSQUIC_DIR}
+        )
+    endif()
+
+    # Clone and build msquic
+    if(NOT EXISTS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so)
+        if(NOT EXISTS ${MSQUIC_DIR}/build)
+            execute_process(
+                COMMAND mkdir build
+                WORKING_DIRECTORY ${MSQUIC_DIR}
+            )
+        endif()
+        execute_process(
+            COMMAND cmake -G "Unix Makefiles" ..
+            WORKING_DIRECTORY ${MSQUIC_DIR}/build
         )
         execute_process(
-            COMMAND pwsh ./scripts/prepare-machine.ps1 -UseXdp -ForceXdpInstall
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/msquic
-        )
-        execute_process(
-            COMMAND pwsh ./scripts/build.ps1 -UseXdp
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/msquic
+            COMMAND cmake --build .
+            WORKING_DIRECTORY ${MSQUIC_DIR}/build
         )
     endif()
     
     # Add msquic
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/inc)
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/core)
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux)
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop)
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl)
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl/include)
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl/crypto/include)
-    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/platform/linux/interop/openssl/ssl/include)
+    INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/inc)
 
     # Set libraries
-    SET(LIBS msquic yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
+    SET(LIBS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 
 ELSEIF("${IMPL}" STREQUAL "quiche")
 
