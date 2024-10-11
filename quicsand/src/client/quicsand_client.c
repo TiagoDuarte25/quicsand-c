@@ -244,14 +244,12 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
   fprintf(fp, "Created context\n");
   fprintf(fp, "Connecting to %s:%d\n", ip_address, port);
   fflush(fp);
-  bind_addr(ctx, "127.0.0.1", 5678);
   connection_t connection = open_connection(ctx, ip_address, port);
   fprintf(fp, "Opened connection\n");
   fflush(fp);
   stream_t stream = open_stream(ctx, connection);
   fprintf(fp, "Opened stream\n");
   fflush(fp);
-
   // Send control message
   const char *control_message = CONTROL_SINGLE;
   send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);

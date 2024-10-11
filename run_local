@@ -6,7 +6,7 @@ rm -rf quicsand/bin/*
 usage() {
     echo "Usage: $0 [-i <implementation>]" 1>&2
     echo "Options:" 1>&2
-    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
+    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic or quiche or ngtcp2)" 1>&2
     exit 1
 }
 
@@ -34,8 +34,9 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # rm -rf build
+echo "Building $IMPLEMENTATION implementation"
 
-if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ] || [ "$IMPLEMENTATION" == "quiche" ]; then
+if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ] || [ "$IMPLEMENTATION" == "quiche" ] || [ "$IMPLEMENTATION" == "ngtcp2" ]; then
     cmake -S . -B build -DIMPL=$IMPLEMENTATION
 else
     echo "Error: Unknown implementation $IMPLEMENTATION"

@@ -1,4 +1,5 @@
 #include "quicsand_api.h"
+#include <errno.h>
 
 #ifdef QUICHE
 
@@ -182,22 +183,29 @@ struct context {
     struct ev_loop             *loop;
     lsquic_engine_t            *engine;
     struct lsquic_engine_api    eapi;
-    struct sockaddr_storage     local_sas;
     struct lsquic_engine_settings settings;
     union
     {
         struct client
         {
-            ev_io               stdin_w;    /* stdin watcher */
             struct lsquic_conn *conn;
             size_t              sz;         /* Size of bytes read is stored here */
             char                buf[0x100]; /* Read up to this many bytes */
         }   c;
     };   
-    struct sockaddr_in local_addr;
-    struct sockaddr_in peer_addr;
+    struct sockaddr_storage local_sas;
+    union {
+        struct sockaddr sa;
+        struct sockaddr_in sin;
+    } local_addr;
+    union {
+        struct sockaddr sa;
+        struct sockaddr_in sin;
+    } peer_addr;
     SSL_CTX *ssl_ctx;
 };
+
+static void process_conns (struct context *);
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -272,15 +280,13 @@ set_nonblocking (int fd)
 
 /* ToS is used to get ECN value */
 static int
-set_ecn (int fd, const struct sockaddr_in *addr)
+set_ecn (int fd, const struct sockaddr *addr)
 {
     int on, s;
 
     on = 1;
-    if (AF_INET == addr->sin_family)
+    if (AF_INET == addr->sa_family)
         s = setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
-    else
-        s = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
     if (s != 0)
         perror("setsockopt(ecn)");
 
@@ -290,7 +296,7 @@ set_ecn (int fd, const struct sockaddr_in *addr)
 
 /* Set up the socket to return original destination address in ancillary data */
 static int
-set_origdst(int fd, const struct sockaddr_in *addr)
+set_origdst(int fd, const struct sockaddr *addr)
 {
     int on, s;
 
@@ -306,6 +312,7 @@ set_origdst(int fd, const struct sockaddr_in *addr)
 static lsquic_conn_ctx_t *
 on_new_conn (void *stream_if_ctx, struct lsquic_conn *conn)
 {
+    printf("new connection\n");
     struct context *const ctx = stream_if_ctx;
     ctx->c.conn = conn;
     printf("created connection");
@@ -316,11 +323,14 @@ on_new_conn (void *stream_if_ctx, struct lsquic_conn *conn)
 static void
 on_hsk_done (lsquic_conn_t *conn, enum lsquic_hsk_status status)
 {
+    printf("handshake done\n");
     struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
 
     switch (status)
     {
     case LSQ_HSK_OK:
+        printf("handshake successful, start stdin watcher");
+        break;
     case LSQ_HSK_RESUMED_OK:
         printf("handshake successful, start stdin watcher");
         break;
@@ -334,6 +344,7 @@ on_hsk_done (lsquic_conn_t *conn, enum lsquic_hsk_status status)
 static void
 on_conn_closed (struct lsquic_conn *conn)
 {
+    printf("client connection closed -- stop reading from socket");
     struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
 
     printf("client connection closed -- stop reading from socket");
@@ -343,6 +354,7 @@ on_conn_closed (struct lsquic_conn *conn)
 static lsquic_stream_ctx_t *
 on_new_stream (void *stream_if_ctx, struct lsquic_stream *stream)
 {
+    printf("created new stream, we want to write\n");
     struct context *ctx = stream_if_ctx;
     printf("created new stream, we want to write\n");
     lsquic_stream_wantwrite(stream, 1);
@@ -355,6 +367,7 @@ on_new_stream (void *stream_if_ctx, struct lsquic_stream *stream)
 static void
 on_read_v0 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
 {
+    printf("read from stream\n");
     struct context *ctx = (struct context *) h;
     ssize_t nread;
     unsigned char buf[3];
@@ -505,6 +518,7 @@ static int
 packets_out_v0 (void *packets_out_ctx, const struct lsquic_out_spec *specs,
                                                                 unsigned count)
 {
+    printf("packets out\n");
     unsigned n;
     int fd, s = 0;
     struct msghdr msg;
@@ -567,6 +581,172 @@ static struct lsquic_stream_if callbacks =
     .on_close           = on_close,
 };
 
+enum ctl_what
+{
+    CW_SENDADDR = 1 << 0,
+    CW_ECN      = 1 << 1,
+};
+
+
+static void
+setup_control_msg (struct msghdr *msg, enum ctl_what cw,
+        const struct lsquic_out_spec *spec, unsigned char *buf, size_t bufsz)
+{
+    printf("setup control message\n");
+    struct cmsghdr *cmsg;
+    struct sockaddr_in *local_sa;
+    struct sockaddr_in6 *local_sa6;
+    struct in_pktinfo info;
+    struct in6_pktinfo info6;
+    size_t ctl_len;
+
+    msg->msg_control    = buf;
+    msg->msg_controllen = bufsz;
+
+    /* Need to zero the buffer due to a bug(?) in CMSG_NXTHDR.  See
+     * https://stackoverflow.com/questions/27601849/cmsg-nxthdr-returns-null-even-though-there-are-more-cmsghdr-objects
+     */
+    memset(buf, 0, bufsz);
+
+    ctl_len = 0;
+    for (cmsg = CMSG_FIRSTHDR(msg); cw && cmsg; cmsg = CMSG_NXTHDR(msg, cmsg))
+    {
+        if (cw & CW_SENDADDR)
+        {
+            if (AF_INET == spec->dest_sa->sa_family)
+            {
+                local_sa = (struct sockaddr_in *) spec->local_sa;
+                memset(&info, 0, sizeof(info));
+                info.ipi_spec_dst = local_sa->sin_addr;
+                cmsg->cmsg_level    = IPPROTO_IP;
+                cmsg->cmsg_type     = IP_PKTINFO;
+                cmsg->cmsg_len      = CMSG_LEN(sizeof(info));
+                ctl_len += CMSG_SPACE(sizeof(info));
+                memcpy(CMSG_DATA(cmsg), &info, sizeof(info));
+            }
+            cw &= ~CW_SENDADDR;
+        }
+        else if (cw & CW_ECN)
+        {
+            if (AF_INET == spec->dest_sa->sa_family)
+            {
+                const int tos = spec->ecn;
+                cmsg->cmsg_level = IPPROTO_IP;
+                cmsg->cmsg_type  = IP_TOS;
+                cmsg->cmsg_len   = CMSG_LEN(sizeof(tos));
+                memcpy(CMSG_DATA(cmsg), &tos, sizeof(tos));
+                ctl_len += CMSG_SPACE(sizeof(tos));
+            }
+            cw &= ~CW_ECN;
+        }
+        else
+            assert(0);
+    }
+
+    msg->msg_controllen = ctl_len;
+}
+
+static void
+timer_expired (EV_P_ ev_timer *timer, int revents)
+{
+    printf("timer expired\n");
+    process_conns(timer->data);
+}
+
+static void
+process_conns (struct context *ctx)
+{
+    printf("process connections\n");
+    int diff;
+    ev_tstamp timeout;
+
+    ev_timer_stop(ctx->loop, &ctx->timer);
+    lsquic_engine_process_conns(ctx->engine);
+
+    if (lsquic_engine_earliest_adv_tick(ctx->engine, &diff))
+    {
+        if (diff >= LSQUIC_DF_CLOCK_GRANULARITY)
+            /* Expected case: convert to seconds */
+            timeout = (ev_tstamp) diff / 1000000;
+        else if (diff <= 0)
+            /* It should not happen often that the next tick is in the past
+             * as we just processed connections.  Avoid a busy loop by
+             * scheduling an event:
+             */
+            timeout = 0.0;
+        else
+            /* Round up to granularity */
+            timeout = (ev_tstamp) LSQUIC_DF_CLOCK_GRANULARITY / 1000000;
+        printf("converted diff %d usec to %.4lf seconds\n", diff, timeout);
+        ev_timer_init(&ctx->timer, timer_expired, timeout, 0.);
+        ev_timer_start(ctx->loop, &ctx->timer);
+    }
+}
+
+
+
+
+
+static void
+proc_ancillary (struct msghdr *msg, struct sockaddr_storage *storage, int *ecn)
+{
+    printf("process ancillary\n");
+    struct cmsghdr *cmsg;
+    for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg))
+    {
+        if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type  == IP_ORIGDSTADDR)
+        {
+            memcpy(storage, CMSG_DATA(cmsg), sizeof(struct sockaddr_in));
+        }
+    }
+}
+
+#define DST_MSG_SZ sizeof(struct sockaddr_in)
+
+#define ECN_SZ CMSG_SPACE(sizeof(int))
+
+/* Amount of space required for incoming ancillary data */
+#define CTL_SZ (CMSG_SPACE(DST_MSG_SZ))
+
+static void
+read_socket (EV_P_ ev_io *w, int revents)
+{
+    printf("read socket\n");
+    struct context *const ctx = w->data;
+    ssize_t nread;
+    int ecn;
+    struct sockaddr_storage peer_sas, local_sas;
+    unsigned char buf[0x1000];
+    struct iovec vec[1] = {{ buf, sizeof(buf) }};
+    unsigned char ctl_buf[CTL_SZ];
+
+    struct msghdr msg = {
+        .msg_name       = &peer_sas,
+        .msg_namelen    = sizeof(peer_sas),
+        .msg_iov        = vec,
+        .msg_iovlen     = 1,
+        .msg_control    = ctl_buf,
+        .msg_controllen = sizeof(ctl_buf),
+    };
+    nread = recvmsg(w->fd, &msg, 0);
+    if (-1 == nread) {
+        if (!(EAGAIN == errno || EWOULDBLOCK == errno))
+            printf("recvmsg: %s\n", strerror(errno));
+        return;
+    }
+
+    local_sas = ctx->local_sas;
+    ecn = 0;
+    proc_ancillary(&msg, &local_sas, &ecn);
+
+    (void) lsquic_engine_packet_in(ctx->engine, buf, nread,
+        (struct sockaddr *) &local_sas,
+        (struct sockaddr *) &peer_sas,
+        (void *) (uintptr_t) w->fd, ecn);
+
+    process_conns(ctx);
+}
+
 
 #endif
 
@@ -578,19 +758,26 @@ static struct lsquic_stream_if callbacks =
 #elif MSQUIC
 
 //print every connections and streams in the context
-void print_context(context_t context) {
-    struct context *ctx = (struct context *)context;
-    connection_node_t *current_conn = ctx->connections;
-    while (current_conn->next != NULL) {
-        connection_info_t *connection_info = current_conn->connection_info;
-        printf("Connection: %p\n", (void *)connection_info->connection);
-        stream_node_t *current_strm = connection_info->streams;
-        while (current_strm->next != NULL) {
-            stream_info_t *stream_info = current_strm->stream_info;
-            printf("Stream: %p\n", (void *)stream_info->stream);
-            current_strm = current_strm->next;
-        }
-        current_conn = current_conn->next;
+int print_context(context_t context) {
+    // struct context *ctx = (struct context *)context;
+    // connection_node_t *current_conn = ctx->connections;
+    // while (current_conn->next != NULL) {
+    //     connection_info_t *connection_info = current_conn->connection_info;
+    //     printf("Connection: %p\n", (void *)connection_info->connection);
+    //     stream_node_t *current_strm = connection_info->streams;
+    //     while (current_strm->next != NULL) {
+    //         stream_info_t *stream_info = current_strm->stream_info;
+    //         printf("Stream: %p\n", (void *)stream_info->stream);
+    //         current_strm = current_strm->next;
+    //     }
+    //     current_conn = current_conn->next;
+    // }
+    if (context == NULL) {
+        errno = EINVAL;
+        return -1;
+    } else {
+        errno = 0;
+        return 0;
     }
 }
 
@@ -1029,6 +1216,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     #elif LSQUIC
     printf("Using lsquic\n");
     struct context *ctx = (struct context *)malloc(sizeof(struct context));
+    memset(ctx, 0, sizeof(*ctx));
     const char *val;
     int opt, is_server, version_cleared = 0;
     int packets_out_version = 0;
@@ -1036,22 +1224,28 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     struct lsquic_engine_settings settings;
     const char *key_printf_dir = NULL;
     char errbuf[0x100];
-
-    
+    ctx->loop = EV_DEFAULT;
 
     lsquic_logger_init(&logger_if, stdout, LLTS_HHMMSSUS);
-    lsquic_set_log_level("debug");
+    lsquic_set_log_level("DEBUG");
 
     if (ctx == NULL) {
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
     }
-    if (cert_path == NULL && key_path == NULL) {
+    if (cert_path != NULL && key_path != NULL) {
+        load_cert(ctx, cert_path, key_path);
+        is_server = 1;
+    }
+    else if (cert_path == NULL && key_path == NULL) {
         is_server = 0;
     }
     else {
-        is_server = 1;
+        fprintf(stderr, "Both cert_path and key_path must be provided\n");
+        exit(1);
+        
     }
+    printf("is_server: %d\n", is_server);
 
     if (0 != lsquic_global_init(LSQUIC_GLOBAL_SERVER | LSQUIC_GLOBAL_CLIENT))
     {
@@ -1061,9 +1255,6 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     lsquic_engine_init_settings(&settings, is_server ? LSENG_SERVER : 0);
     settings.es_versions = LSQUIC_DF_VERSIONS;
 
-    if (is_server) {
-        load_cert(ctx, cert_path, key_path);
-    }
     printf("cert_path: %s\n", cert_path);
     printf("key_path: %s\n", key_path);
 
@@ -1073,6 +1264,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
      */
     settings.es_ql_bits = 0;
     ctx->flags = is_server ? LSENG_SERVER : 0;
+
 
     /* Check settings */
     if (0 != lsquic_engine_check_settings(&settings,
@@ -1133,15 +1325,23 @@ void bind_addr(context_t context, char* ip, int port) {
 
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
-    
+
     /* Parse IP address and port number */
-    if (inet_pton(AF_INET, ip, &ctx->local_addr.sin_addr))
+    if (inet_pton(AF_INET, ip, &ctx->local_addr.sin.sin_addr))
     {
-        ctx->local_addr.sin_family = AF_INET;
-        ctx->local_addr.sin_port   = htons(port);
+        ctx->local_addr.sin.sin_family = AF_INET;
+        ctx->local_addr.sin.sin_port   = htons(port);
+    } else {
+        perror("inet_pton");
+        exit(EXIT_FAILURE);
     }
-    ctx->sock_fd = socket(ctx->local_addr.sin_family, SOCK_DGRAM, 0);
-    if (ctx->sock_fd < 0) {
+    
+    /* Initialize event loop */
+    ctx->sock_fd = socket(ctx->local_addr.sa.sa_family, SOCK_DGRAM, 0);
+
+    /* Set up socket */
+    if (ctx->sock_fd < 0)
+    {
         perror("socket");
         exit(EXIT_FAILURE);
     }
@@ -1150,20 +1350,26 @@ void bind_addr(context_t context, char* ip, int port) {
         perror("fcntl");
         exit(EXIT_FAILURE);
     }
-    if (0 != set_ecn(ctx->sock_fd, &ctx->local_addr))
+    if (0 != set_ecn(ctx->sock_fd, &ctx->local_addr.sa))
         exit(EXIT_FAILURE);
-    if (ctx->flags & 1)
-        if (0 != set_origdst(ctx->sock_fd, &ctx->local_addr))
+    if (ctx->flags & LSENG_SERVER)
+        if (0 != set_origdst(ctx->sock_fd, &ctx->local_addr.sa))
             exit(EXIT_FAILURE);
 
-    socklen_t socklen = sizeof(ctx->local_addr);
-    if (0 != bind(ctx->sock_fd, &ctx->local_addr, socklen))
+    if (ctx->flags & LSENG_SERVER)
     {
-        perror("bind");
-        exit(EXIT_FAILURE);
+        ssize_t socklen = sizeof(ctx->local_addr);
+        if (0 != bind(ctx->sock_fd, &ctx->local_addr.sa, socklen))
+        {
+            perror("bind");
+            exit(EXIT_FAILURE);
+        }
+        memcpy(&ctx->local_sas, &ctx->local_addr, sizeof(ctx->local_addr));
     }
-    memcpy(&ctx->local_sas, &ctx->local_addr, sizeof(ctx->local_addr));
     printf("Socket created\n");
+
+    ev_io_init(&ctx->sock_w, read_socket, ctx->sock_fd, EV_READ);
+    ev_io_start(ctx->loop, &ctx->sock_w);
 
     #endif
 }
@@ -1281,28 +1487,50 @@ connection_t open_connection(context_t context, char* ip, int port) {
     struct context *ctx = (struct context *)context;
     printf("Opening connection\n");
 
-    struct lsquic_engine_api eapi = ctx->eapi;
-    /* Parse IP address and port number */
-    if (inet_pton(AF_INET, ip, &ctx->peer_addr.sin_addr))
+    ctx->local_addr.sin.sin_family = AF_INET;
+    ctx->local_addr.sin.sin_addr.s_addr = htonl(INADDR_ANY);
+    ctx->local_addr.sin.sin_port = htons(0);
+
+    ctx->sock_fd = socket(ctx->local_addr.sa.sa_family, SOCK_DGRAM, 0);
+    if (ctx->sock_fd < 0)
     {
-        ctx->peer_addr.sin_family = AF_INET;
-        ctx->peer_addr.sin_port   = htons(port);
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+    if (0 != set_nonblocking(ctx->sock_fd))
+    {
+        perror("fcntl");
+        exit(EXIT_FAILURE);
+    }
+    if (0 != set_ecn(ctx->sock_fd, &ctx->local_addr.sa))
+        exit(EXIT_FAILURE);
+
+    ctx->local_sas.ss_family = ctx->local_addr.sa.sa_family;
+    size_t socklen = sizeof(ctx->local_sas);
+    if (0 != bind(ctx->sock_fd, (struct sockaddr *) &ctx->local_sas, socklen))
+    {
+        perror("bind");
+        exit(EXIT_FAILURE);
+    }
+    ev_init(&ctx->timer, timer_expired);
+
+    ev_io_init(&ctx->sock_w, read_socket, ctx->sock_fd, EV_READ);
+    ev_io_start(ctx->loop, &ctx->sock_w);
+
+    ctx->timer.data = &ctx;
+    ctx->sock_w.data = &ctx;
+    /* Parse IP address and port number */
+    if (inet_pton(AF_INET, ip, &ctx->peer_addr.sin.sin_addr))
+    {
+        ctx->peer_addr.sin.sin_family = AF_INET;
+        ctx->peer_addr.sin.sin_port   = htons(port);
     }
 
     printf("Connecting to %s:%d\n", ip, port);
-    printf("Socket: %d\n", ctx->sock_fd);
-    printf("Family local_sas: %d\n", ctx->local_sas.ss_family);
-    printf("Port local_sas: %d\n", ((struct sockaddr_in *)&ctx->local_sas)->sin_port);
-    printf("Address local_sas: %d\n", ((struct sockaddr_in *)&ctx->local_sas)->sin_addr.s_addr);
-    printf("Family peer_addr: %d\n", ctx->peer_addr.sin_family);
-    printf("Port peer_addr: %d\n", ctx->peer_addr.sin_port);
-    printf("Address peer_addr: %d\n", ctx->peer_addr.sin_addr.s_addr);
-    printf("Engine: %p\n", (void *)ctx->engine);
-    printf("Socket: %d\n", ctx->sock_fd);
 
     ctx->c.conn = lsquic_engine_connect(
             ctx->engine, N_LSQVER,
-            (struct sockaddr *) &ctx->local_sas, (struct sockaddr *)&ctx->peer_addr,
+            (struct sockaddr *) &ctx->local_sas, &ctx->peer_addr.sa,
             (void *) (uintptr_t) ctx->sock_fd,  /* Peer ctx */
             NULL, NULL, 0, NULL, 0, NULL, 0);
     printf("Connection: %p\n", (void *)ctx->c.conn);
@@ -1312,6 +1540,8 @@ connection_t open_connection(context_t context, char* ip, int port) {
         exit(EXIT_FAILURE);
     }
     printf("Connection created\n");
+    process_conns(ctx);
+    ev_run(ctx->loop, 0);
 
     // ctx->engine = lsquic_engine_new(ctx->flags & LSENG_SERVER
     //                                         ? LSENG_SERVER : 0, &eapi);
@@ -1608,6 +1838,10 @@ connection_t accept_connection(context_t context, time_t timeout) {
     pthread_mutex_unlock(&ctx->lock);
     return (connection_t)ctx->new_connection;
     #elif LSQUIC
+    printf("accept_connection\n");
+    struct context *ctx = (struct context *)context;
+    ev_run(ctx->loop, 0);
+    return (connection_t) &ctx->c.conn;
     #endif
 }
 

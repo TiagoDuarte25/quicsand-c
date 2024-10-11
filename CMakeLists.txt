@@ -28,6 +28,12 @@ MESSAGE(STATUS "Compiler flags: ${CMAKE_C_FLAGS}")
 
 add_definitions(-D_GNU_SOURCE)
 
+# Undefine prevoius definitions
+UNSET(LSQUIC CACHE)
+UNSET(MSQUIC CACHE)
+UNSET(QUICHE CACHE)
+UNSET(NGTCP2 CACHE)
+
 FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
 FILE(GLOB SERVER_SRC "quicsand/src/server/*.c")
 FILE(GLOB SRC "quicsand/src/*.c")
@@ -109,7 +115,7 @@ if("${IMPL}" STREQUAL "lsquic")
             WORKING_DIRECTORY ${BORINGSSL_DIR}
         )
         execute_process(
-            COMMAND make ssl crypto
+            COMMAND make -j ssl crypto
             WORKING_DIRECTORY ${BORINGSSL_DIR}
         )
     endif()
@@ -134,7 +140,7 @@ if("${IMPL}" STREQUAL "lsquic")
             WORKING_DIRECTORY ${LSQUIC_DIR}
         )
         execute_process(
-            COMMAND make
+            COMMAND make -j lsquic
             WORKING_DIRECTORY ${LSQUIC_DIR}
         )
     endif()
@@ -145,6 +151,8 @@ if("${IMPL}" STREQUAL "lsquic")
     include_directories(${BORINGSSL_DIR}/include/crypto)
     include_directories(${LSQUIC_DIR}/include)
     include_directories(${LSQUIC_DIR}/src/liblsquic)
+
+    add_executable(tut quicsand/tut.c)
 
     # Manually set the libraries
     set(LIBS ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} ${BORINGSSL_DIR}/ssl/libssl.so ${BORINGSSL_DIR}/crypto/libcrypto.so ${LSQUIC_DIR}/src/liblsquic/liblsquic.so m yaml z)
@@ -158,6 +166,8 @@ if("${IMPL}" STREQUAL "lsquic")
             SET(LIBS ${LIBS} rt)
         ENDIF()
     ENDIF()
+    target_link_libraries(tut ${LIBS})
+
 ELSEIF("${IMPL}" STREQUAL "msquic")
 
     add_definitions(-DMSQUIC)
@@ -203,35 +213,107 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
 
     add_definitions(-DQUICHE)
 
-    # Add a custom command to build libquiche.so
-    ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_SOURCE_DIR}/implementations/quiche/target/release/libquiche.so
-                        COMMAND cargo build --release --features ffi
-                        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/implementations/quiche
-                        COMMENT "Building libquiche.so")
+    set (QUICHE_DIR ${CMAKE_BINARY_DIR}/quiche)
 
-    # Add a custom target that depends on the custom command
-    ADD_CUSTOM_TARGET(BuildQuiche DEPENDS implementations/quiche/target/release/libquiche.so)
+    if(NOT EXISTS ${QUICHE_DIR})
+        execute_process(
+            COMMAND git clone --recursive https://github.com/cloudflare/quiche
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+    endif()
+    if (NOT EXISTS ${QUICHE_DIR}/target/debug/libquiche.a)
+        execute_process(
+            COMMAND cargo build --features ffi
+            WORKING_DIRECTORY ${QUICHE_DIR}
+        )
+    endif()
 
-    # Add the custom target as a dependency for the client and server executables
-    ADD_DEPENDENCIES(client BuildQuiche)
-    ADD_DEPENDENCIES(server BuildQuiche)
-
-    # Add quiche
-    INCLUDE_DIRECTORIES(implementations/quiche/quiche/include)
-    INCLUDE_DIRECTORIES(implementations/libev)
-
-    # Find the quiche library
-    FIND_LIBRARY(QUICHE_LIBRARY NAMES quiche PATHS implementations/quiche/target/release NO_DEFAULT_PATH)
-    FIND_LIBRARY(EVENT_LIBRARY NAMES ev PATHS implementations/libev/.libs NO_DEFAULT_PATH)
-
-    MESSAGE(STATUS "QUICHE_LIBRARY: ${QUICHE_LIBRARY}")
-    MESSAGE(STATUS "EVENT_LIBRARY: ${EVENT_LIBRARY}")
+    include_directories(${QUICHE_DIR}/quiche/include)
 
     # Set libraries
-    SET(LIBS ${QUICHE_LIBRARY} ${EVENT_LIBRARY} yaml)
+    SET(LIBS ${QUICHE_DIR}/target/debug/libquiche.a ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} yaml)
 
-# ELSE()
-#     MESSAGE(FATAL_ERROR "Invalid implementation: ${IMPL}")
+ELSEIF("${IMPL}" STREQUAL "ngtcp2")
+
+    # Link libraries
+    set(LIBS m yaml z)
+
+    # Build BoringSSL
+    set(BORINGSSL_DIR ${CMAKE_BINARY_DIR}/boringssl)
+    if (NOT EXISTS ${BORINGSSL_DIR})
+        execute_process(
+            COMMAND git clone https://boringssl.googlesource.com/boringssl
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND git checkout 76968bb3d53982560bcf08bcd0ba3e1865fe15cd
+            WORKING_DIRECTORY ${BORINGSSL_DIR}
+        )
+        execute_process(
+            COMMAND cmake -B build -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+            WORKING_DIRECTORY ${BORINGSSL_DIR}
+        )
+        execute_process(
+            COMMAND make -j$(nproc)
+            WORKING_DIRECTORY ${BORINGSSL_DIR}\build
+        )
+    endif()
+    include_directories(${BORINGSSL_DIR}/include)
+    list(APPEND LIBS ${BORINGSSL_DIR}/build/ssl/libssl.a ${BORINGSSL_DIR}/build/crypto/libcrypto.a)
+
+    # Build nghttp3
+    set(NGHTTP3_DIR ${CMAKE_BINARY_DIR}/nghttp3)
+    if (NOT EXISTS ${NGHTTP3_DIR})
+        execute_process(
+            COMMAND git clone --recursive https://github.com/ngtcp2/nghttp3
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND autoreconf -i
+            WORKING_DIRECTORY ${NGHTTP3_DIR}
+        )
+        execute_process(
+            COMMAND ./configure --prefix=${NGHTTP3_DIR}/build --enable-lib-only
+            WORKING_DIRECTORY ${NGHTTP3_DIR}
+        )
+        execute_process(
+            COMMAND make -j$(nproc) check
+            WORKING_DIRECTORY ${NGHTTP3_DIR}
+        )
+        execute_process(
+            COMMAND make install
+            WORKING_DIRECTORY ${NGHTTP3_DIR}
+        )
+    endif()
+
+    include_directories(${NGHTTP3_DIR}/build/include)
+    list(APPEND LIBS ${NGHTTP3_DIR}/build/lib/libnghttp3.a)
+
+    # Build ngtcp2
+    set(NGTCP2_DIR ${CMAKE_BINARY_DIR}/ngtcp2)
+    if (NOT EXISTS ${NGTCP2_DIR})
+        execute_process(
+            COMMAND git clone --recursive https://github.com/ngtcp2/ngtcp2
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND autoreconf -i
+            WORKING_DIRECTORY ${NGTCP2_DIR}
+        )
+        execute_process(
+            COMMAND ./configure PKG_CONFIG_PATH=${NGHTTP3_DIR}/build/lib/pkgconfig
+                    BORINGSSL_LIBS="-L${BORINGSSL_DIR}/build/ssl -lssl -L${BORINGSSL_DIR}/build/crypto -lcrypto"
+                    BORINGSSL_CFLAGS="-I${BORINGSSL_DIR}/include"
+                    --with-boringssl
+            WORKING_DIRECTORY ${NGTCP2_DIR}
+        )
+        execute_process(
+            COMMAND make -j$(nproc) check
+            WORKING_DIRECTORY ${NGTCP2_DIR}
+        )
+    endif()
+    include_directories(${NGTCP2_DIR}/build/include)
+    list(APPEND LIBS ${NGTCP2_DIR}/build/lib/libngtcp2.a)
 ENDIF()
     
 TARGET_INCLUDE_DIRECTORIES(server PRIVATE quicsand/include)

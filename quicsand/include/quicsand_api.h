@@ -9,8 +9,6 @@ typedef void *context_t;
 typedef void *connection_t;
 typedef void *stream_t;
 
-// #define LSQUIC 1
-
 enum mode_t
 {
     QUIC_CLIENT,
@@ -56,6 +54,6 @@ connection_t accept_connection(context_t context, time_t timeout);
 stream_t accept_stream(context_t context, connection_t connection, time_t timeout);
 
 // common functions
-void print_context(context_t context);
+int print_context(context_t context);
 
 #endif 
