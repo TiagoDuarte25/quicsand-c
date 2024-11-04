@@ -34,10 +34,12 @@
 struct connections {
     int sock;
 
-    struct sockaddr *local_addr;
+    struct sockaddr_strorage *local_addr;
     socklen_t local_addr_len;
 
     struct conn_io *h;
+
+    quiche_config *config;
 };
 
 struct conn_io {
@@ -66,10 +68,6 @@ struct context
     char *hostname;
     quiche_config *config;
 };
-
-static quiche_config *config = NULL;
-
-static struct connections *conns = NULL;
 
 #elif MSQUIC
 
@@ -1215,14 +1213,14 @@ static uint8_t *gen_cid(uint8_t *cid, size_t cid_len) {
     return cid;
 }
 
-static struct conn_io *create_conn(uint8_t *scid, size_t scid_len,
+static struct conn_io *create_conn(struct connections *conns, uint8_t *scid, size_t scid_len,
                                    uint8_t *odcid, size_t odcid_len,
                                    struct sockaddr *local_addr,
                                    socklen_t local_addr_len,
                                    struct sockaddr_storage *peer_addr,
                                    socklen_t peer_addr_len)
 {
-    struct conn_io *conn_io = calloc(1, sizeof(*conn_io));
+    struct conn_io *conn_io = malloc(sizeof(struct conn_io));
     if (conn_io == NULL) {
         fprintf(stderr, "failed to allocate connection IO\n");
         return NULL;
@@ -1234,29 +1232,42 @@ static struct conn_io *create_conn(uint8_t *scid, size_t scid_len,
 
     memcpy(conn_io->cid, scid, LOCAL_CONN_ID_LEN);
 
+    printf("local_addr_len: %zu\n", local_addr_len);
+    printf("peer_addr_len: %zu\n", peer_addr_len);
+
     quiche_conn *conn = quiche_accept(conn_io->cid, LOCAL_CONN_ID_LEN,
                                       odcid, odcid_len,
                                       local_addr,
                                       local_addr_len,
                                       (struct sockaddr *) peer_addr,
                                       peer_addr_len,
-                                      config);
+                                      conns->config);
+
+    printf("conn: %p\n", (void *)conn);
 
     if (conn == NULL) {
         fprintf(stderr, "failed to create connection\n");
         return NULL;
     }
 
+    printf("created connection\n");
+
     conn_io->sock = conns->sock;
+    printf("sock: %d\n", conn_io->sock);
     conn_io->conn = conn;
+    printf("conn: %p\n", (void *)conn);
 
     memcpy(&conn_io->peer_addr, peer_addr, peer_addr_len);
     conn_io->peer_addr_len = peer_addr_len;
+    printf("peer_addr_len: %zu\n", conn_io->peer_addr_len);
 
     ev_init(&conn_io->timer, server_timeout_cb);
     conn_io->timer.data = conn_io;
+    printf("timer data: %p\n", (void *)conn_io);
 
     HASH_ADD(hh, conns->h, cid, LOCAL_CONN_ID_LEN, conn_io);
+
+    printf("added connection to hash\n");
 
     fprintf(stderr, "new connection\n");
 
@@ -1391,8 +1402,8 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
                 continue;
             }
 
-            conn_io = create_conn(dcid, dcid_len, odcid, odcid_len,
-                                  conns->local_addr, conns->local_addr_len,
+            conn_io = create_conn(conns, dcid, dcid_len, odcid, odcid_len,
+                                  (struct sockaddr *)&conns->local_addr, conns->local_addr_len,
                                   &peer_addr, peer_addr_len);
 
             if (conn_io == NULL) {
@@ -1406,7 +1417,7 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
             (struct sockaddr *)&peer_addr,
             peer_addr_len,
 
-            conns->local_addr,
+            (struct sockaddr *)&conns->local_addr,
             conns->local_addr_len,
         };
 
@@ -1495,6 +1506,8 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
             perror("failed to read");
             return;
         }
+
+        fprintf(stderr, "received %zd bytes\n", read);
 
         quiche_recv_info recv_info = {
             (struct sockaddr *) &peer_addr,
@@ -1594,7 +1607,7 @@ static void server_timeout_cb(EV_P_ ev_timer *w, int revents) {
         fprintf(stderr, "connection closed, recv=%zu sent=%zu lost=%zu rtt=%" PRIu64 "ns cwnd=%zu\n",
                 stats.recv, stats.sent, stats.lost, path_stats.rtt, path_stats.cwnd);
 
-        HASH_DELETE(hh, conns->h, conn_io);
+        //HASH_DELETE(hh, conns->h, conn_io);
 
         ev_timer_stop(loop, &conn_io->timer);
         quiche_conn_free(conn_io->conn);
@@ -1677,6 +1690,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
             fprintf(stderr, "failed to allocate connections\n");
             exit(EXIT_FAILURE);
         }
+        ctx->conns->config = ctx->config;
         
         return (context_t) ctx;
 
@@ -1845,28 +1859,65 @@ void bind_addr(context_t context, char* ip, int port) {
     struct context *ctx = (struct context *)context;
 
 
-    struct sockaddr_in local_addr;
-    if (inet_pton(AF_INET, ip, &local_addr.sin_addr))
-    {
-        local_addr.sin_family = AF_INET;
-        local_addr.sin_port   = htons(port);
+    // struct sockaddr_in local_addr;
+    // if (inet_pton(AF_INET, ip, &local_addr.sin_addr))
+    // {
+    //     local_addr.sin_family = AF_INET;
+    //     local_addr.sin_port   = htons(port);
+    // }
+
+    // memcpy(&ctx->conns->local_addr, &local_addr, sizeof(local_addr));
+    // ctx->conns->local_addr_len = sizeof(local_addr);
+    // ctx->hostname = "quicsandserver";
+    // ctx->conns->local_addr->sa_family = PF_UNSPEC;
+    const struct addrinfo hints = {
+        .ai_family = PF_UNSPEC,
+        .ai_socktype = SOCK_DGRAM,
+        .ai_protocol = IPPROTO_UDP
+    };
+
+    char port_str[6];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    struct addrinfo *local;
+    if (getaddrinfo(ip, port_str, &hints, &local) != 0) {
+        perror("failed to resolve host");
+        exit(EXIT_FAILURE);
     }
 
-    memcpy(&ctx->conns->local_addr, &local_addr, sizeof(local_addr));
-    ctx->conns->local_addr_len = sizeof(local_addr);
-    ctx->hostname = "quicsandserver";
-
-    if ((ctx->conns->sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+    if ((ctx->conns->sock = socket(local->ai_family, SOCK_DGRAM, 0)) < 0)
     {
         perror("socket");
         exit(EXIT_FAILURE);
     }
 
-    if (bind(ctx->conns->sock, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0)
+    if (fcntl(ctx->conns->sock, F_SETFL, O_NONBLOCK) != 0)
+    {
+        perror("fcntl");
+        exit(EXIT_FAILURE);
+    }
+
+    if (bind(ctx->conns->sock, local->ai_addr, local->ai_addrlen) < 0)
     {
         perror("bind");
         exit(EXIT_FAILURE);
     }
+
+    memcpy(&ctx->conns->local_addr, local->ai_addr, local->ai_addrlen);
+    ctx->conns->local_addr_len = local->ai_addrlen;
+
+    //print binded address
+    char host[NI_MAXHOST];
+    char service[NI_MAXSERV];
+    if (getnameinfo(local->ai_addr, local->ai_addrlen, host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0)
+    {
+        fprintf(stderr, "bound to %s:%s\n", host, service);
+    }
+    else
+    {
+        perror("getnameinfo");
+        exit(EXIT_FAILURE);
+    }
+
 
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
@@ -2012,28 +2063,8 @@ connection_t open_connection(context_t context, char* ip, int port) {
         return NULL;
     };
 
-    printf("got socket local addr\n");
-
-    // print quiche_connect() arguments to find segmenation fault in quiche_connect()
-    printf("host: %s\n", host);
-    printf("scid: %hhn\n", scid);
-    printf("sizeof(scid): %ld\n", sizeof(scid));
-    // print local address ip and port
-    struct sockaddr_in local_addr;
-    memcpy(&local_addr, &ctx->conns->local_addr, sizeof(struct sockaddr_in));
-    printf("local_addr.sin_addr: %s\n", inet_ntoa(local_addr.sin_addr));
-    printf("local_addr.sin_port: %d\n", ntohs(local_addr.sin_port));
-    printf("local_addr_len: %d\n", ctx->conns->local_addr_len);
-    // print peer address ip and port
-    struct sockaddr_in peer_addr;
-    memcpy(&peer_addr, peer->ai_addr, sizeof(struct sockaddr_in));
-    printf("peer_addr.sin_addr: %s\n", inet_ntoa(peer_addr.sin_addr));
-    printf("peer_addr.sin_port: %d\n", ntohs(peer_addr.sin_port));
-    printf("peer->ai_addrlen: %d\n", peer->ai_addrlen);
-    printf("config: %p\n", ctx->config);
-
-    // // define ctx->conns->local_addr sock family as AF_INET
-    // ctx->conns->local_addr->sa_family = AF_INET;
+    memcpy(&ctx->conns->h->local_addr, &ctx->conns->local_addr, ctx->conns->local_addr_len);
+    ctx->conns->h->local_addr_len = ctx->conns->local_addr_len;
 
     quiche_conn *conn = quiche_connect(host, (const uint8_t *) scid, sizeof(scid),
                                        (struct sockaddr *) &ctx->conns->local_addr,
