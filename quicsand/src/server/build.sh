@@ -1,31 +1,26 @@
 #!/bin/bash
 
-# Update and install dependencies
-apt-get update
-apt-get install -y gcc apt-utils cmake build-essential git software-properties-common zlib1g-dev libevent-dev make
+# Install basic build tools
+apt-get update && apt-get install -y gcc g++ make libc6-dev dpkg-dev cmake git
 
-# Add Golang backports repository and install Golang
-add-apt-repository -y ppa:longsleep/golang-backports
-apt-get update
-apt-get install -y golang-1.21-go
-cp /usr/lib/go-1.21/bin/go* /usr/bin/.
+# Install additional packages for quic version
+apt-get install -y liblttng-ust-dev lttng-tools
 
-# Install libyaml-dev package
-apt-get install -y libyaml-dev
+# Install package for binaries
+apt-get install -y libyaml-dev 
 
-# Set GOROOT environment variable
-export GOROOT=/usr/lib/go-1.21
+apt-get install -y libc6-dev-i386 libbpf-dev libnl-3-dev
 
-# Clone and build BoringSSL
-# cd /app
-# git clone https://github.com/google/boringssl.git
-# cd boringssl
-# git checkout 9fc1c33e9c21439ce5f87855a6591a9324e569fd
-# cmake .
-# make
+# Install additional packages for xdp-tools
+apt-get install -y pkg-config llvm clang m4 libpcap-dev
 
-# Set extra CFLAGS
-export EXTRA_CFLAGS=-DLSQUIC_QIR=1
+mkdir -p /tools
+cd /tools
+git clone https://github.com/xdp-project/xdp-tools.git
+cd xdp-tools
+make install
+
+cp /usr/local/include/xdp/* /usr/include/
 
 # Change working directory
 cd /app

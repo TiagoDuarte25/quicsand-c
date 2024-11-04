@@ -17,22 +17,22 @@ COPY resources/testing_files /app/resources/testing_files
 RUN apt update && \
     apt install -y bash gcc g++ make libc6-dev dpkg-dev cmake git liblttng-ust-dev lttng-tools && \
     apt install -y libyaml-dev libc6-dev-i386 libbpf-dev libnl-3-dev pkg-config llvm clang m4 libpcap-dev && \
-    apt install -y libnuma-dev software-properties-common
+    apt install -y libnuma-dev software-properties-common wget
 
 # Download the Microsoft repository GPG keys
-RUN wget -q https://packages.microsoft.com/config/ubuntu/18.04/packages-microsoft-prod.deb
+# RUN wget -q https://packages.microsoft.com/config/ubuntu/18.04/packages-microsoft-prod.deb
 
-# Register the Microsoft repository GPG keys
-RUN dpkg -i packages-microsoft-prod.deb
+# # Register the Microsoft repository GPG keys
+# RUN dpkg -i packages-microsoft-prod.deb
 
-# Enable the "universe" repositories
-RUN add-arepository universe
+# # Enable the "universe" repositories
+# RUN add-arepository universe
 
-# Install PowerShell
-RUN apt install -y powershell
+# # Install PowerShell
+# RUN apt install -y powershell
 
-# Create the /tools directory
-RUN mkdir -p /tools
+# # Create the /tools directory
+# RUN mkdir -p /tools
 
 # # Clone the Git repository
 # RUN git clone https://github.com/xdp-project/xdp-tools.git /tools/xdp-tools

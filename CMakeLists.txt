@@ -152,7 +152,14 @@ if("${IMPL}" STREQUAL "lsquic")
     include_directories(${LSQUIC_DIR}/include)
     include_directories(${LSQUIC_DIR}/src/liblsquic)
 
+
+    # Add LSQUIC examples
+    set(LSQUIC_EXAMPLES_DIR ${LSQUIC_DIR}/bin)
+    include_directories(${LSQUIC_EXAMPLES_DIR})
+    CONFIGURE_FILE(${LSQUIC_EXAMPLES_DIR}/test_config.h.in ${LSQUIC_EXAMPLES_DIR}/test_config.h)
     add_executable(tut quicsand/tut.c)
+    add_executable(echo_server ${LSQUIC_EXAMPLES_DIR}/echo_server.c ${LSQUIC_EXAMPLES_DIR}/prog.c ${LSQUIC_EXAMPLES_DIR}/test_common.c ${LSQUIC_EXAMPLES_DIR}/test_cert.c)
+    add_executable(echo_client ${LSQUIC_EXAMPLES_DIR}/echo_client.c ${LSQUIC_EXAMPLES_DIR}/prog.c ${LSQUIC_EXAMPLES_DIR}/test_common.c ${LSQUIC_EXAMPLES_DIR}/test_cert.c)
 
     # Manually set the libraries
     set(LIBS ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} ${BORINGSSL_DIR}/ssl/libssl.so ${BORINGSSL_DIR}/crypto/libcrypto.so ${LSQUIC_DIR}/src/liblsquic/liblsquic.so m yaml z)
@@ -167,6 +174,8 @@ if("${IMPL}" STREQUAL "lsquic")
         ENDIF()
     ENDIF()
     target_link_libraries(tut ${LIBS})
+    target_link_libraries(echo_server ${LIBS} event)
+    target_link_libraries(echo_client ${LIBS} event)
 
 ELSEIF("${IMPL}" STREQUAL "msquic")
 
@@ -185,6 +194,33 @@ ELSEIF("${IMPL}" STREQUAL "msquic")
         )
     endif()
 
+    # If powershell is not installed, install it
+    if (NOT EXISTS /usr/bin/pwsh)
+        execute_process(
+            COMMAND wget -q https://packages.microsoft.com/config/ubuntu/18.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+            COMMAND dpkg -i packages-microsoft-prod.deb
+            COMMAND apt-get update
+            COMMAND add-apt-repository universe
+            COMMAND apt-get install -y powershell
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+        execute_process(
+            COMMAND apt-get remove libicu57
+            COMMAND wget http://security.ubuntu.com/ubuntu/pool/main/i/icu/libicu55_55.1-7ubuntu0.5_amd64.deb
+            COMMAND dpkg -i libicu55_55.1-7ubuntu0.5_amd64.deb
+            COMMAND wget http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.0.0_1.0.2g-1ubuntu4.20_amd64.deb
+            COMMAND dpkg -i libssl1.0.0_1.0.2g-1ubuntu4.20_amd64.deb
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+
+        execute_process(
+            COMMAND apt-add-repository "deb http://mirrors.kernel.org/ubuntu noble main" -y
+            COMMAND apt-get install -y libxdp1 libbpf1 libnl-3-200 libnl-route-3-200 libnl-genl-3-200
+            COMMAND apt-get --no-install-recommends -y install libxdp-dev libbpf-dev libnl-3-dev libnl-genl-3-dev libnl-route-3-dev 
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+    endif()
+
     # Clone and build msquic
     if(NOT EXISTS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so)
         if(NOT EXISTS ${MSQUIC_DIR}/build)
@@ -193,6 +229,7 @@ ELSEIF("${IMPL}" STREQUAL "msquic")
                 WORKING_DIRECTORY ${MSQUIC_DIR}
             )
         endif()
+        
         execute_process(
             COMMAND cmake -G "Unix Makefiles" ..
             WORKING_DIRECTORY ${MSQUIC_DIR}/build
@@ -231,7 +268,7 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
     include_directories(${QUICHE_DIR}/quiche/include)
 
     # Set libraries
-    SET(LIBS ${QUICHE_DIR}/target/debug/libquiche.a ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} yaml)
+    SET(LIBS ${QUICHE_DIR}/target/debug/libquiche.a ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} yaml m)
 
 ELSEIF("${IMPL}" STREQUAL "ngtcp2")
 
