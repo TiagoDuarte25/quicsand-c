@@ -1232,9 +1232,6 @@ static struct conn_io *create_conn(struct connections *conns, uint8_t *scid, siz
 
     memcpy(conn_io->cid, scid, LOCAL_CONN_ID_LEN);
 
-    printf("local_addr_len: %zu\n", local_addr_len);
-    printf("peer_addr_len: %zu\n", peer_addr_len);
-
     quiche_conn *conn = quiche_accept(conn_io->cid, LOCAL_CONN_ID_LEN,
                                       odcid, odcid_len,
                                       local_addr,
@@ -1259,7 +1256,6 @@ static struct conn_io *create_conn(struct connections *conns, uint8_t *scid, siz
 
     memcpy(&conn_io->peer_addr, peer_addr, peer_addr_len);
     conn_io->peer_addr_len = peer_addr_len;
-    printf("peer_addr_len: %zu\n", conn_io->peer_addr_len);
 
     ev_init(&conn_io->timer, server_timeout_cb);
     conn_io->timer.data = conn_io;
@@ -1411,8 +1407,6 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
             }
         }
 
-        printf("Processing received data\n");
-
         quiche_recv_info recv_info = {
             (struct sockaddr *)&peer_addr,
             peer_addr_len,
@@ -1431,6 +1425,8 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
         fprintf(stderr, "recv %zd bytes\n", done);
 
         if (quiche_conn_is_established(conn_io->conn)) {
+            fprintf(stderr, "connection established\n");
+
             uint64_t s = 0;
 
             quiche_stream_iter *readable = quiche_conn_readable(conn_io->conn);
@@ -1674,15 +1670,23 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         quiche_config_set_application_protos(ctx->config,
                                             (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
         // quiche_config_set_application_protos(ctx->config, (uint8_t *)("example-proto"), 12);
+        // quiche_config_set_max_idle_timeout(ctx->config, 5000);
+        // quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
+        // quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
+        // quiche_config_set_initial_max_data(ctx->config, 10000000);
+        // quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1000000);
+        // quiche_config_set_initial_max_stream_data_uni(ctx->config, 1000000);
+        // quiche_config_set_initial_max_streams_bidi(ctx->config, 100);
+        // quiche_config_set_initial_max_streams_uni(ctx->config, 100);
+        // quiche_config_set_disable_active_migration(ctx->config, true);
         quiche_config_set_max_idle_timeout(ctx->config, 5000);
         quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_initial_max_data(ctx->config, 10000000);
         quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1000000);
-        quiche_config_set_initial_max_stream_data_uni(ctx->config, 1000000);
+        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 1000000);
         quiche_config_set_initial_max_streams_bidi(ctx->config, 100);
-        quiche_config_set_initial_max_streams_uni(ctx->config, 100);
-        quiche_config_set_disable_active_migration(ctx->config, true);
+        quiche_config_set_cc_algorithm(ctx->config, QUICHE_CC_RENO);
 
         ctx->conns = (struct connections *)malloc(sizeof(struct connections));
         if (ctx->conns == NULL)
@@ -2488,7 +2492,14 @@ connection_t accept_connection(context_t context, time_t timeout) {
     ev_io_start(ctx->loop, &ctx->watcher);
     ctx->watcher.data = ctx->conns;
 
-    ev_loop(ctx->loop, 0);
+    // Create a new thread for the event loop
+    pthread_t thread_id;
+    if (pthread_create(&thread_id, NULL, event_loop_thread, ctx) != 0) {
+        perror("failed to create thread");
+        return NULL;
+    }
+
+    getchar();
 
     // quiche_conn *conn = quiche_accept((const uint8_t *)ctx->scid, sizeof(ctx->scid), NULL, 0,
     //                                     &ctx->local_addr, ctx->local_addr_len, &ctx->conn_io->peer_addr, 
@@ -2498,7 +2509,7 @@ connection_t accept_connection(context_t context, time_t timeout) {
     //     fprintf(stderr, "failed to create connection\n");
     //     exit(EXIT_FAILURE);
     // }
-    return (connection_t) (void*)0;
+    return (connection_t) ctx->conns;
 
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
