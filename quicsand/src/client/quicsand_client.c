@@ -389,7 +389,8 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
 
 int main(int argc, char *argv[])
 {
-  FILE *fp = fopen("client.log", "w+");
+  // FILE *fp = fopen("client.log", "w+");
+  FILE *fp = stdout;
   log_add_fp(fp, LOG_INFO);
   // log_set_level(LOG_INFO);
 

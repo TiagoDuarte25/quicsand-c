@@ -233,7 +233,8 @@ int main(int argc, char *argv[])
     int port = 0;
     int opt;
 
-    FILE *fp = fopen("server.log", "w+");
+    // FILE *fp = fopen("server.log", "w+");
+    FILE *fp = stdout;
 
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1)
