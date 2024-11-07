@@ -21,7 +21,7 @@
 #define TTFB "TTFB"
 #define HANDSHAKE "HDSK"
 #define CPU "CPU"
-#define NUM_REPETITIONS 100
+#define NUM_REPETITIONS 10
 #define CHUNK_SIZE 1024
 
 char *random_data(int len)
@@ -131,7 +131,7 @@ void test_multiple_sends(FILE *fp, config_t *config, char *ip_address, int port)
   while (current->next != NULL) {
     connection_t connection = current->connection;
     stream_t stream = open_stream(qs->ctx, connection);
-    sleep(1);
+    // sleep(1);
     for (int i = 0; i < NUM_REPETITIONS; i++) {
       clock_gettime(CLOCK_MONOTONIC, &start);
       char *data = random_data(200);
@@ -350,7 +350,7 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
         printf("Buffer content: %.*s\n", (int)bytes_read, buffer);
         clock_gettime(CLOCK_MONOTONIC, &end);
         total_time += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
-        sleep(1);
+        // sleep(1);
     }
 
     fclose(file);

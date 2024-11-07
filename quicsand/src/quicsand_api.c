@@ -76,6 +76,9 @@ struct stream_io {
 
     struct buffer *recv_buf;
 
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+
     UT_hash_handle hh;
 };
 
@@ -1324,8 +1327,6 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
             return;
         }
 
-        printf("Received %zd bytes\n", read);
-
         uint8_t type;
         uint32_t version;
 
@@ -1454,6 +1455,8 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
 
         fprintf(stderr, "recv %zd bytes\n", done);
 
+        pthread_mutex_lock(&conn_io->lock);
+
         if (quiche_conn_is_established(conn_io->conn)) {
             uint64_t s = 0;
 
@@ -1470,16 +1473,51 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
                 if (recv_len < 0) {
                     break;
                 }
-                fprintf(stderr, "data: %.*s\n", (int) recv_len, buf);
-
-                static const char *resp = "stream opened\n";
-
-                quiche_conn_stream_send(conn_io->conn, s, (uint8_t *) resp,
-                                        strlen(resp), false, &error_code);
+                fprintf(stderr, "quiche stream received: %.*s\n", (int) recv_len, buf);
+                struct stream_io *stream_io;
+                HASH_FIND(hh, conn_io->h, &s, sizeof(s), stream_io);
+                if (stream_io == NULL) {
+                    fprintf(stderr, "stream not found\n");
+                    if (strcmp((char *)buf, "open stream") == 0) {
+                        stream_io = malloc(sizeof(struct stream_io));
+                        if (stream_io == NULL) {
+                            fprintf(stderr, "failed to allocate stream IO\n");
+                            return;
+                        }
+                        stream_io->stream_id = s;
+                        stream_io->recv_buf = malloc(sizeof(struct buffer));
+                        stream_io->recv_buf->buf = NULL;
+                        stream_io->recv_buf->len = 0;
+                        stream_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+                        stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+                        conn_io->new_stream_io = stream_io;
+                        HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
+                        pthread_cond_signal(&conn_io->cond);
+                        quiche_conn_stream_send(conn_io->conn, s, (uint8_t *)"stream opened", sizeof("stream opened"), false, &error_code);
+                        flush_egress(loop, conn_io);
+                    }
+                } else {
+                    fprintf(stderr, "stream found\n");
+                    pthread_mutex_lock(&stream_io->lock);
+                    if (stream_io->recv_buf->buf != NULL) {
+                        // add new bytes to the buffer
+                        stream_io->recv_buf->buf = realloc(stream_io->recv_buf->buf, stream_io->recv_buf->len + recv_len);
+                        memcpy(stream_io->recv_buf->buf + stream_io->recv_buf->len, buf, recv_len);
+                        stream_io->recv_buf->len += recv_len;
+                    } else {
+                        stream_io->recv_buf->buf = malloc(recv_len);
+                        stream_io->recv_buf->len = recv_len;
+                        memcpy(stream_io->recv_buf->buf, buf, recv_len);
+                    }
+                    pthread_cond_signal(&stream_io->cond);
+                    pthread_mutex_unlock(&stream_io->lock);
+                }
             }
 
             quiche_stream_iter_free(readable);
         }
+
+        pthread_mutex_unlock(&conn_io->lock);
     }
 
     HASH_ITER(hh, conns->h, conn_io, tmp) {
@@ -1601,22 +1639,54 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
                 break;
             }
 
-            struct stream_io *stream_io = malloc(sizeof(struct stream_io));
+            struct stream_io *stream_io;
+            HASH_FIND(hh, conn_io->h, &s, sizeof(s), stream_io);
             if (stream_io == NULL) {
-                fprintf(stderr, "failed to allocate stream IO\n");
-                return;
-            }
-            printf("stream: %p\n", (void *)stream_io);
-            stream_io->stream_id = s;
-            stream_io->recv_buf = malloc(sizeof(struct buffer));
-            stream_io->recv_buf->buf = malloc(sizeof(buf));
-            stream_io->recv_buf->len = recv_len;
-            memcpy(stream_io->recv_buf->buf, buf, recv_len);
-            conn_io->new_stream_io = stream_io;
-            HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
-            pthread_cond_signal(&conn_io->cond);
+                fprintf(stderr, "stream not found\n");
+                stream_io = malloc(sizeof(struct stream_io));
+                if (stream_io == NULL) {
+                    fprintf(stderr, "failed to allocate stream IO\n");
+                    return;
+                }
+                if (strcmp((char *)buf, "open stream") == 0) {
+                    static const char *resp = "stream opened";
 
-            printf("%.*s", (int) recv_len, buf);
+                    quiche_conn_stream_send(conn_io->conn, s, (uint8_t *) resp,
+                                            strlen(resp), false, &error_code);
+                    flush_egress(loop, conn_io);
+                }
+                fprintf(stderr, "data: %.*s\n", (int) recv_len, buf);
+                stream_io->stream_id = s;
+                stream_io->recv_buf = malloc(sizeof(struct buffer));
+                stream_io->recv_buf->buf = NULL;
+                stream_io->recv_buf->len = 0;
+                stream_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+                stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+                conn_io->new_stream_io = stream_io;
+                HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
+                pthread_cond_signal(&conn_io->cond);
+            } else {
+                printf("stream found\n");
+                pthread_mutex_lock(&stream_io->lock);
+                fprintf(stderr, "data: %.*s\n", (int) recv_len, buf);
+                printf("allocating buffer\n");
+                if (stream_io->recv_buf->buf == NULL) {
+                    stream_io->recv_buf->buf = malloc(recv_len);
+                    if (stream_io->recv_buf->buf == NULL) {
+                        fprintf(stderr, "failed to allocate receive buffer\n");
+                        return;
+                    }
+                    stream_io->recv_buf->len = recv_len;
+                    memcpy(stream_io->recv_buf->buf, buf, recv_len);
+                } else {
+                    // add new bytes to the buffer
+                    stream_io->recv_buf->buf = realloc(stream_io->recv_buf->buf, stream_io->recv_buf->len + recv_len);
+                    memcpy(stream_io->recv_buf->buf + stream_io->recv_buf->len, buf, recv_len);
+                    stream_io->recv_buf->len += recv_len;
+                }
+                pthread_cond_signal(&stream_io->cond);
+                pthread_mutex_unlock(&stream_io->lock);
+            }
             if (fin) {
                 const uint8_t error_code;
                 if (quiche_conn_close(conn_io->conn, true, 0, &error_code, sizeof(error_code)) < 0) {
@@ -1628,9 +1698,9 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
         quiche_stream_iter_free(readable);
     }
 
-    pthread_mutex_unlock(&conn_io->lock);
-
     flush_egress(loop, conn_io);
+
+    pthread_mutex_unlock(&conn_io->lock);
 }
 
 static void server_timeout_cb(EV_P_ ev_timer *w, int revents) {
@@ -2292,7 +2362,7 @@ stream_t open_stream(context_t context, connection_t connection) {
     struct stream_io *stream_io = NULL;
     if (quiche_conn_is_established(conn_io->conn)) {
 
-        const static uint8_t r[] = "open stream\n";
+        const static uint8_t r[] = "open stream";
         uint64_t error_code;
         if (quiche_conn_stream_send(conn_io->conn, 4, r, sizeof(r), false, &error_code) < 0) {
             fprintf(stderr, "failed to send message: %" PRIu64 "\n", error_code);
@@ -2472,6 +2542,76 @@ void send_data(context_t context, connection_t connection, stream_t stream, void
 ssize_t recv_data(context_t context, connection_t connection, stream_t stream, void* buf, ssize_t n_bytes, time_t timeout) {
     #ifdef QUICHE
     struct context *ctx = (struct context *)context;
+    struct conn_io *conn_io = (struct conn_io *)connection;
+    struct stream_io *stream_io = (struct stream_io *)stream;
+    ssize_t to_read = 0;
+
+    printf("receiving data\n");
+    // buffer status
+    printf("stream_io->recv_buf->len: %ld\n", stream_io->recv_buf->len);
+
+
+    if (quiche_conn_is_established(conn_io->conn)) {
+        struct stream_io *stream_io_check;
+        HASH_FIND(hh, conn_io->h, &stream_io->stream_id, sizeof(stream_io->stream_id), stream_io_check);
+        if (stream_io_check == NULL) {
+            fprintf(stderr, "Stream not found\n");
+            return -1;
+        }
+
+        pthread_mutex_lock(&stream_io->lock);
+
+        if (stream_io->recv_buf->len == 0) {
+            if (timeout == 0) {
+                pthread_cond_wait(&stream_io->cond, &stream_io->lock);
+            } else {
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                ts.tv_sec += timeout;
+                int ret = pthread_cond_timedwait(&stream_io->cond, &stream_io->lock, &ts);
+                if (ret == ETIMEDOUT) {
+                    printf("Timed out\n");
+                    pthread_mutex_unlock(&stream_io->lock);
+                    return -1; // Indicate timeout
+                }
+            }
+        }
+
+        // Calculate the amount of data to read
+        to_read = stream_io->recv_buf->len;
+        if (to_read > n_bytes) {
+            to_read = n_bytes;
+        } else if (to_read == 0) {
+            printf("No data available\n");
+            pthread_mutex_unlock(&stream_io->lock);
+            return 0; // No data available
+        }
+
+        // Copy data to the buffer
+        size_t copied = 0;
+        struct buffer *current_buffer = stream_io->recv_buf;
+        size_t copy_size = current_buffer->len < (to_read - copied) ? current_buffer->len : (to_read - copied);
+        memcpy((uint8_t *)buf + copied, current_buffer->buf, copy_size);
+        copied += copy_size;
+
+        // Update the buffer state
+        if (copy_size < current_buffer->len) {
+            // There is still data left in the current buffer
+            memmove(current_buffer->buf, current_buffer->buf + copy_size, current_buffer->len - copy_size);
+            current_buffer->len -= copy_size;
+        } else {
+            // Remove the current buffer
+            current_buffer->buf = NULL;
+            current_buffer->len = 0;
+        }
+        printf("stream_io->recv_buf->len: %ld\n", stream_io->recv_buf->len);
+
+        // stream_io->recv_buf->len -= to_read;
+        // printf("stream_io->recv_buf->len: %d\n", stream_io->recv_buf->len);
+        pthread_mutex_unlock(&stream_io->lock);
+    }
+
+    return to_read;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
     connection_node_t *connection_node = (connection_node_t *)connection;
@@ -2662,7 +2802,31 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
     struct context *ctx = (struct context *)context;
     struct conn_io *conn_io = (struct conn_io *)connection;
     struct stream_io *stream_io = NULL;
-    getchar();
+
+    printf("Accepting stream\n");
+
+    pthread_mutex_lock(&conn_io->lock);
+    if (conn_io->last_stream_io == conn_io->new_stream_io)
+    {
+        if (timeout == 0)
+        {
+            pthread_cond_wait(&conn_io->cond, &conn_io->lock);
+        }
+        else
+        {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += timeout;
+            pthread_cond_timedwait(&conn_io->cond, &conn_io->lock, &ts);
+        }
+    }
+    conn_io->last_stream_io = conn_io->new_stream_io;
+    stream_io = conn_io->new_stream_io;
+    pthread_mutex_unlock(&conn_io->lock);
+
+    printf("New stream accepted\n");
+
+    return (stream_t) stream_io;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
     connection_node_t *connection_node = (connection_node_t *)connection;
