@@ -38,87 +38,35 @@ void send_control_message(context_t ctx, connection_t connection, const char *me
     close_stream(ctx, connection, stream);
 }
 
-void upload_file(context_t ctx, connection_t connection, const char *file_path) {
-    FILE *file = fopen(file_path, "rb");
-    if (!file) {
-        fprintf(stderr, "Error: Failed to open file %s\n", file_path);
-        return;
-    }
-
-    stream_t stream = open_stream(ctx, connection);
-    char buffer[CHUNK_SIZE];
-    size_t bytes_read;
-    while ((bytes_read = fread(buffer, 1, CHUNK_SIZE, file)) > 0) {
-        send_data(ctx, connection, stream, buffer, bytes_read);
-    }
-
-    fclose(file);
-    close_stream(ctx, connection, stream);
-}
-
-void download_file(context_t ctx, connection_t connection, const char *file_path) {
-    FILE *file = fopen(file_path, "wb");
-    if (!file) {
-        fprintf(stderr, "Error: Failed to open file for writing\n");
-        return;
-    }
-
-    stream_t stream = open_stream(ctx, connection);
-    char buffer[CHUNK_SIZE];
-    ssize_t len;
-    while ((len = recv_data(ctx, connection, stream, buffer, sizeof(buffer), 0)) > 0) {
-        fwrite(buffer, 1, len, file);
-    }
-
-    fclose(file);
-    close_stream(ctx, connection, stream);
-}
-
-void single_send_receive(context_t ctx, connection_t connection) {
-    stream_t stream = open_stream(ctx, connection);
-    send_data(ctx, connection, stream, "Hello, server!", 14);
-    char buffer[CHUNK_SIZE];
-    ssize_t len = recv_data(ctx, connection, stream, buffer, sizeof(buffer), 0);
-    if (len > 0) {
-        buffer[len] = '\0';
-        printf("Received from server: %s\n", buffer);
-    }
-    close_stream(ctx, connection, stream);
-}
-
 void *handle_connection(void *arg)
 {
     thread_data_t *data = (thread_data_t *)arg;
     context_t ctx = data->ctx;
     connection_t connection = data->connection;
     FILE *fp = data->fp;
-    fprintf(fp, "Handling connection\n");
-    fflush(fp);
+    log_info("handling connection");
 
     stream_t stream = accept_stream(ctx, connection, 0);
-    fprintf(fp, "Accepted stream\n");
-    fflush(fp);
+    log_info("stream accepted");
 
     // Receive control message
     char control_message[256];
     ssize_t len = recv_data(ctx, connection, stream, control_message, sizeof(control_message), 0);
     if (len <= 0) {
-        fprintf(fp, "Error: Failed to receive control message\n");
+        log_info("error: failed to receive control message");
         close_stream(ctx, connection, stream);
         close_connection(ctx, connection);
         return NULL;
     }
-    fprintf(fp, "Received control message: %s\n", control_message);
+    log_info("control message received: %s", control_message);
     send_data(ctx, connection, stream, control_message, len);
-    fflush(fp);
 
     // Handle control message
     if (strcmp(control_message, CONTROL_UPLOAD) == 0) {
-        fprintf(fp, "Handling file upload\n");
-        fflush(fp);
+        log_info("handling file upload");
         FILE *file = fopen("uploaded_file.txt", "w");
         if (!file) {
-            fprintf(fp, "Error: Failed to open file for writing\n");
+            log_info("error: failed to open file for writing");
             close_stream(ctx, connection, stream);
             close_connection(ctx, connection);
             return NULL;
@@ -126,45 +74,39 @@ void *handle_connection(void *arg)
 
         char buffer[CHUNK_SIZE];
         while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
-            fprintf(fp, "Received data: %.*s\n", (int)len, buffer);
-            fprintf(fp, "len: %ld\n", len);
-            fflush(fp);
+            log_info("received data: %.*s", (int)len, buffer);
+            log_info("len: %ld", len);
             size_t written = fwrite(buffer, sizeof(char), len, file);
             if (written != len) {
-                fprintf(fp, "Error writing to file\n");
+                log_info("error writing to file");
                 perror("fwrite");
                 fclose(file);
                 exit(EXIT_FAILURE);
             }
-            fflush(file);
         }
         
         fclose(file);
-        fprintf(fp, "File upload completed\n");
-        fflush(fp);
+        log_info("file upload completed");
     } else if (strcmp(control_message, CONTROL_DOWNLOAD) == 0) {
-        fprintf(fp, "Handling file download\n");
-        fflush(fp);
+        log_info("handling file download");
 
         size_t len;
         char file_path[256];
         len = (size_t)recv_data(ctx, connection, stream, (void *)file_path, sizeof(file_path), 0);
         if (len <= 0) {
-            fprintf(fp, "Error: Failed to receive file path\n");
+            log_info("error: failed to receive file path");
             close_stream(ctx, connection, stream);
             close_connection(ctx, connection);
             return NULL;
         }
-        fprintf(fp, "Received file path: %s\n", file_path);
-        fflush(fp);
+        log_info("file path received: %s", file_path);
 
         // file_path as more size then needed, so we need to remove the extra bytes to fopen the file correctly
         file_path[len] = '\0';
 
         FILE *file = fopen(file_path, "r");
         if (!file) {
-            fprintf(fp, "Error: Failed to open file for writing\n");
-            fflush(fp);
+            log_info("error: failed to open file for writing");
             close_stream(ctx, connection, stream);
             close_connection(ctx, connection);
             return NULL;
@@ -175,11 +117,9 @@ void *handle_connection(void *arg)
             send_data(ctx, connection, stream,(void *)buffer, len);
         }
         fclose(file);
-        fprintf(fp, "File download completed\n");
-        fflush(fp);
+        log_info("file download completed");
     } else if (strcmp(control_message, CONTROL_SINGLE) == 0) {
-        fprintf(fp, "Handling single send-receive\n");
-        fflush(fp);
+        log_info("handling single send-receive");
         while (1)
         {
             char buffer[1024];
@@ -204,8 +144,7 @@ void *handle_connection(void *arg)
                     // Check if the entire message has been received
                     if (buffer[total_len] == '\0')
                     {
-                        fprintf(fp, "Received data: %s\n", buffer);
-                        fflush(fp);
+                        log_info("received data: %s", buffer);
                         break;
                     }
                 }
@@ -219,7 +158,7 @@ void *handle_connection(void *arg)
             send_data(ctx, connection, stream, "Hello, client!", 14);
         }
     } else {
-        fprintf(fp, "Error: Unknown control message\n");
+        log_info("error: unknown control message");
     }
 
     return NULL;
@@ -254,22 +193,15 @@ int main(int argc, char *argv[])
             port = atoi(optarg);
             break;
         default:
-            fprintf(fp, "Usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>\n", argv[0]);
+            log_info("usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
-    // Print the parsed options for debugging
-    fprintf(fp, "Certificate Path: %s\n", cert_path);
-    fprintf(fp, "Key Path: %s\n", key_path);
-    fprintf(fp, "IP Address: %s\n", ip_address);
-    fprintf(fp, "Port: %d\n", port);
-    fflush(fp);
-
     // Ensure required options are provided
     if (!cert_path || !key_path || !ip_address || port == 0)
     {
-        fprintf(fp, "Usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>\n", argv[0]);
+        log_info("usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>", argv[0]);
         exit(EXIT_FAILURE);
     }
 
@@ -278,25 +210,22 @@ int main(int argc, char *argv[])
     config_t *config = read_config("config.yaml");
     if (!config)
     {
-        fprintf(fp, "Error: Failed to read configuration file\n");
+        log_info("error: failed to read configuration file");
         exit(EXIT_FAILURE);
     }
 
     context_t ctx = create_quic_context(cert_path, key_path);
-    fprintf(fp, "Created context\n");
+    log_info("context created");
     bind_addr(ctx, ip_address, port);
-    fprintf(fp, "Bound address\n");
+    log_info("bound address");
     set_listen(ctx);
-    fprintf(fp, "Listening\n");
-    fflush(fp);
+    log_info("listening");
 
     while (1)
     {
-        fprintf(fp, "Waiting for connection\n");
-        fflush(fp);
+        log_info("waiting for connection");
         connection_t connection = accept_connection(ctx, 0);
-        fprintf(fp, "Accepted connection\n");
-        fflush(fp);
+        log_info("connection accepted");
 
         // Allocate memory for thread data
         thread_data_t *data = (thread_data_t *)malloc(sizeof(thread_data_t));
@@ -308,12 +237,11 @@ int main(int argc, char *argv[])
         pthread_t thread_id;
         if (pthread_create(&thread_id, NULL, handle_connection, (void *)data) != 0)
         {
-            fprintf(fp, "Error: Failed to create thread\n");
+            log_info("error: failed to create thread");
             free(data);
             continue;
         }
-        fprintf(fp, "Created thread that handle connections\n");
-        fflush(fp);
+        log_info("created thread to handle connection");
         // Detach the thread so that it cleans up after itself
         pthread_detach(thread_id);
     }
