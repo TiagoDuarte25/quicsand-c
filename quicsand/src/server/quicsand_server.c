@@ -29,7 +29,6 @@ char *random_data(int len)
 typedef struct {
     context_t ctx;
     connection_t connection;
-    FILE *fp;
 } thread_data_t;
 
 void send_control_message(context_t ctx, connection_t connection, const char *message) {
@@ -43,17 +42,21 @@ void *handle_connection(void *arg)
     thread_data_t *data = (thread_data_t *)arg;
     context_t ctx = data->ctx;
     connection_t connection = data->connection;
-    FILE *fp = data->fp;
     log_info("handling connection");
 
     stream_t stream = accept_stream(ctx, connection, 0);
+    if (!stream) {
+        log_error("error: %s", quic_error_message(quic_error));
+        close_connection(ctx, connection);
+        return NULL;
+    }
     log_info("stream accepted");
 
     // Receive control message
     char control_message[256];
     ssize_t len = recv_data(ctx, connection, stream, control_message, sizeof(control_message), 0);
     if (len <= 0) {
-        log_info("error: failed to receive control message");
+        log_error("error: %s", quic_error_message(quic_error));
         close_stream(ctx, connection, stream);
         close_connection(ctx, connection);
         return NULL;
@@ -66,7 +69,7 @@ void *handle_connection(void *arg)
         log_info("handling file upload");
         FILE *file = fopen("uploaded_file.txt", "w");
         if (!file) {
-            log_info("error: failed to open file for writing");
+            log_error("error: %s", quic_error_message(quic_error));
             close_stream(ctx, connection, stream);
             close_connection(ctx, connection);
             return NULL;
@@ -78,7 +81,7 @@ void *handle_connection(void *arg)
             log_info("len: %ld", len);
             size_t written = fwrite(buffer, sizeof(char), len, file);
             if (written != len) {
-                log_info("error writing to file");
+                log_error("error writing to file");
                 perror("fwrite");
                 fclose(file);
                 exit(EXIT_FAILURE);
@@ -94,7 +97,7 @@ void *handle_connection(void *arg)
         char file_path[256];
         len = (size_t)recv_data(ctx, connection, stream, (void *)file_path, sizeof(file_path), 0);
         if (len <= 0) {
-            log_info("error: failed to receive file path");
+            log_error("error: %s", quic_error_message(quic_error));
             close_stream(ctx, connection, stream);
             close_connection(ctx, connection);
             return NULL;
@@ -106,7 +109,7 @@ void *handle_connection(void *arg)
 
         FILE *file = fopen(file_path, "r");
         if (!file) {
-            log_info("error: failed to open file for writing");
+            log_error("error: failed to open file for writing");
             close_stream(ctx, connection, stream);
             close_connection(ctx, connection);
             return NULL;
@@ -150,12 +153,17 @@ void *handle_connection(void *arg)
                 }
                 else
                 {
-                    // Handle error or end of data
+                    log_error("error: %s", quic_error_message(quic_error));
                     break;
                 }
             }
-            // send_data(ctx, connection, stream, random_data(200), 200);
-            send_data(ctx, connection, stream, "Hello, client!", 14);
+            char *resp = "Hello, client!";
+            int err = send_data(ctx, connection, stream, resp, strlen(resp));
+            if (err < 0)
+            {
+                log_error("error: %s", quic_error_message(quic_error));
+            }
+            log_info("data sent: %s", resp);
         }
     } else {
         log_info("error: unknown control message");
@@ -173,7 +181,9 @@ int main(int argc, char *argv[])
     int opt;
 
     // FILE *fp = fopen("server.log", "w+");
-    FILE *fp = stdout;
+    // FILE *fp = stdout;
+    // log_add_fp(fp, LOG_INFO);
+    log_set_level(LOG_TRACE);
 
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1)
@@ -205,8 +215,6 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    log_add_fp(fp, LOG_INFO);
-
     config_t *config = read_config("config.yaml");
     if (!config)
     {
@@ -231,7 +239,6 @@ int main(int argc, char *argv[])
         thread_data_t *data = (thread_data_t *)malloc(sizeof(thread_data_t));
         data->ctx = ctx;
         data->connection = connection;
-        data->fp = fp;
 
         // Create a new thread to handle the connection
         pthread_t thread_id;
@@ -245,7 +252,5 @@ int main(int argc, char *argv[])
         // Detach the thread so that it cleans up after itself
         pthread_detach(thread_id);
     }
-
-    fclose(fp);
     return 0;
 }

@@ -246,6 +246,7 @@ void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int 
     char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
     send_data(ctx, connection, stream, data, strlen(data));
+    log_info("data sent: %s", data);
     char response[1024];
     ssize_t len;
     ssize_t total_len = 0;
@@ -357,7 +358,8 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
 
 int main(int argc, char *argv[]) {
   FILE *fp = stdout;
-  log_add_fp(fp, LOG_INFO);
+  // log_add_fp(fp, LOG_INFO);
+  log_set_level(LOG_TRACE);
 
   char *ip_address = NULL;
   char *file_path = NULL;
@@ -399,7 +401,7 @@ int main(int argc, char *argv[]) {
 
   config_t *config = read_config("config.yaml");
   if (!config) {
-      log_info("error: failed to read configuration file");
+      log_error("error: failed to read configuration file");
       fclose(fp);
       return EXIT_FAILURE;
   }
