@@ -28,12 +28,6 @@ MESSAGE(STATUS "Compiler flags: ${CMAKE_C_FLAGS}")
 
 add_definitions(-D_GNU_SOURCE)
 
-# Undefine prevoius definitions
-UNSET(LSQUIC CACHE)
-UNSET(MSQUIC CACHE)
-UNSET(QUICHE CACHE)
-UNSET(NGTCP2 CACHE)
-
 FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
 FILE(GLOB SERVER_SRC "quicsand/src/server/*.c")
 FILE(GLOB SRC "quicsand/src/*.c")
