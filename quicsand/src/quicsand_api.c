@@ -146,43 +146,31 @@ typedef struct {
     UT_hash_handle hh;
 } stream_info_t;
 
-typedef struct stream_node{
-    stream_info_t *stream_info;
-    struct stream_node *prev;
-    struct stream_node *next;
-} stream_node_t;
-
 typedef struct {
     HQUIC connection;
-    stream_node_t *streams;
-    stream_node_t *last_new_stream;
-    stream_node_t *new_stream;
-    size_t stream_count;
+    stream_info_t *last_new_stream;
+    stream_info_t *new_stream;
     pthread_mutex_t lock;
     pthread_cond_t cond;
     int connected;
     int last_receive_count;
     int receive_count;
 
-    UT_hash_handle hh;
-    struct stream_info *h;
-} connection_info_t;
+    uint8_t cid[20];
 
-typedef struct connection_node { 
-    connection_info_t *connection_info;
-    struct connection_node *prev;
-    struct connection_node *next;
-} connection_node_t;
+    UT_hash_handle hh;
+    stream_info_t *h;
+} connection_info_t;
 
 typedef struct {
     struct context *ctx;
-    connection_node_t *connection_node;
+    connection_info_t *connection_info;
 } ctx_conn_t;
 
 typedef struct {
     struct context *ctx;
-    connection_node_t *connection_node;
-    stream_node_t *stream_node;
+    connection_info_t *connection_info;
+    stream_info_t *stream_info;
 } ctx_strm_t;
 
 struct context
@@ -206,14 +194,12 @@ struct context
         } s;
     };
 
-    connection_node_t *connections;
-    size_t connection_count;
-    connection_node_t * last_new_connection;
-    connection_node_t *new_connection;
+    connection_info_t *last_new_connection;
+    connection_info_t *new_connection;
     pthread_mutex_t lock;
     pthread_cond_t cond;
 
-    struct connection_info *h;
+    connection_info_t *h;
 };
 
 #elif LSQUIC
@@ -821,46 +807,6 @@ read_socket (EV_P_ ev_io *w, int revents)
 */
 #elif MSQUIC
 
-stream_node_t* push_stream(stream_node_t *head, stream_info_t *stream_info) {
-    stream_node_t *current = head;
-    while (current->next != NULL) {
-        current = current->next;
-    }
-    current->next = (stream_node_t *)malloc(sizeof(stream_node_t));
-    current->next->stream_info = stream_info;
-    current->next->next = NULL;
-    return current->next;
-}
-
-connection_node_t* push_connection(connection_node_t *head, connection_info_t *connection_info) {
-    connection_node_t *current = head;
-    while (current->next != NULL) {
-        current = current->next;
-    }
-    current->next = (connection_node_t *)malloc(sizeof(connection_node_t));
-    current->next->connection_info = connection_info;
-    current->next->next = NULL;
-    return current->next;
-}
-
-void remove_connection(connection_node_t *head, connection_node_t *node) {
-    connection_node_t *current = head;
-    while (current->next != node) {
-        current = current->next;
-    }
-    current->next = node->next;
-    free(node);
-}
-
-void remove_stream(stream_node_t *head, stream_node_t *node) {
-    stream_node_t *current = head;
-    while (current->next != node) {
-        current = current->next;
-    }
-    current->next = node->next;
-    free(node);
-}
-
 _IRQL_requires_max_(DISPATCH_LEVEL)
     _Function_class_(QUIC_STREAM_CALLBACK)
         QUIC_STATUS
@@ -872,10 +818,8 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 {
     ctx_strm_t *ctx_strm = (ctx_strm_t *)context;
     struct context *ctx = ctx_strm->ctx;
-    connection_node_t *connection_node = ctx_strm->connection_node;
-    connection_info_t *connection_info = connection_node->connection_info;
-    stream_node_t *stream_node = ctx_strm->stream_node;
-    stream_info_t *stream_info = stream_node->stream_info;
+    connection_info_t *connection_info = ctx_strm->connection_info;
+    stream_info_t *stream_info = ctx_strm->stream_info;
     switch (event->Type)
     {
     case QUIC_STREAM_EVENT_START_COMPLETE:
@@ -883,10 +827,6 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // The start of the stream has completed. The app MUST set the callback
         // handler before returning.
         //
-        pthread_mutex_lock(&connection_info->lock);
-        stream_info->established = 1;
-        pthread_cond_signal(&connection_info->cond);
-        pthread_mutex_unlock(&connection_info->lock);
 
         log_trace("[strm][%p] start complete", (void *)stream);
         break;
@@ -954,7 +894,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // Both directions of the stream have been shut down and MsQuic is done
         // with the stream. It can now be safely cleaned up.
         //
-        remove_stream(connection_info->streams, stream_node);
+        HASH_DELETE(hh, connection_info->h, stream_info);
         log_trace("[strm][%p] all done", (void *)stream);
         ctx->msquic->StreamClose(stream);
         break;
@@ -975,8 +915,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 {
     ctx_conn_t *ctx_conn = (ctx_conn_t *)context;
     struct context *ctx = ctx_conn->ctx;
-    connection_node_t *connection_node = ctx_conn->connection_node;
-    connection_info_t *connection_info = connection_node->connection_info;
+    connection_info_t *connection_info = ctx_conn->connection_info;
     switch (event->Type)
     {
     case QUIC_CONNECTION_EVENT_CONNECTED:
@@ -985,7 +924,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         pthread_mutex_lock(&ctx->lock);
         connection_info->connection = connection;
-        ctx->new_connection = connection_node;
+        ctx->new_connection = connection_info;
         pthread_cond_signal(&ctx->cond);
         pthread_mutex_unlock(&ctx->lock);
         log_trace("[conn][%p] connected", (void *)connection);
@@ -1016,7 +955,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // The connection has completed the shutdown process and is ready to be
         // safely cleaned up.
         //
-        remove_connection(ctx->connections, connection_node);
+        HASH_DELETE(hh, ctx->h, connection_info);
         log_trace("[conn][%p] all done", (void *)connection);
         if (!event->SHUTDOWN_COMPLETE.AppCloseInProgress)
         {
@@ -1058,13 +997,11 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         stream_info->recv_buff.total_buffer_length = 0;
         stream_info->recv_buff.buffer_count = 0;
         stream_info->recv_buff.absolute_offset = 0;
-        stream_node_t *stream_node = push_stream(connection_info->streams, stream_info);
         ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
-        ctx_strm->ctx = ctx;
-        ctx_strm->connection_node = connection_node;
-        ctx_strm->stream_node = stream_node;
+        ctx_strm->connection_info = connection_info;
+        ctx_strm->stream_info = stream_info;
         pthread_mutex_lock(&connection_info->lock);
-        connection_info->new_stream = stream_node;
+        connection_info->new_stream = stream_info;
         pthread_cond_signal(&connection_info->cond);
         pthread_mutex_unlock(&connection_info->lock);
         ctx->msquic->SetCallbackHandler(event->PEER_STREAM_STARTED.Stream, (void *)stream_callback, ctx_strm);
@@ -1103,16 +1040,11 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         // pointers allocation
         ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
         connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
-        connection_info->streams = (stream_node_t *)malloc(sizeof(stream_node_t));
-        connection_info->streams->prev = NULL;
-        connection_info->streams->next = NULL;
-        connection_info->stream_count = 0;
+        connection_info->h = NULL;
         connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-
         // set the callback handler
-        connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
-        ctx_conn->connection_node = connection_node;
+        ctx_conn->connection_info = connection_info;
         ctx_conn->ctx = ctx;
         ctx->msquic->SetCallbackHandler(event->NEW_CONNECTION.Connection, (void *)connection_callback, ctx_conn);
         status = ctx->msquic->ConnectionSetConfiguration(event->NEW_CONNECTION.Connection, ctx->configuration);
@@ -1806,12 +1738,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         CertFile.PrivateKeyFile = key_path;
         cred_config.CertificateFile = &CertFile;
     }
-
-    ctx->connections = (connection_node_t *)malloc(sizeof(connection_node_t));
-    ctx->connections->connection_info = NULL;
-    ctx->connections->prev = NULL;
-    ctx->connections->next = NULL;
-    ctx->connection_count = 0;
+    ctx->h = NULL;
     ctx->new_connection = NULL;
     ctx->last_new_connection = NULL;
     ctx->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
@@ -2155,22 +2082,17 @@ connection_t open_connection(context_t context, char* ip, int port) {
 
     connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
     connection_info->connected = 0;
-    connection_info->streams = (stream_node_t *)malloc(sizeof(stream_node_t));
-    connection_info->streams->stream_info = NULL;
-    connection_info->streams->prev = NULL;
-    connection_info->streams->next = NULL;
-    connection_info->stream_count = 0;
     connection_info->last_new_stream = NULL;
     connection_info->new_stream = NULL;
+    connection_info->h = NULL;
     connection_info->last_receive_count = 0;
     connection_info->receive_count = 0;
     connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
-    connection_node_t *connection_node = push_connection(ctx->connections, connection_info);
     ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
     ctx_conn->ctx = ctx;
-    ctx_conn->connection_node = connection_node;
+    ctx_conn->connection_info = connection_info;
     if (QUIC_FAILED(status = ctx->msquic->ConnectionOpen(ctx->registration, connection_callback, ctx_conn, &connection_info->connection)))
     {
         log_error("failed to open connection, 0x%x!", status);
@@ -2194,7 +2116,24 @@ connection_t open_connection(context_t context, char* ip, int port) {
     }
     ctx->last_new_connection = ctx->new_connection;
     pthread_mutex_unlock(&ctx->lock);
-    return (connection_t) ctx->new_connection;
+
+    //get cid from connection
+    int32_t cid_len = sizeof(connection_info->cid);
+    if (QUIC_FAILED(status = ctx->msquic->GetParam(connection_info->connection, QUIC_PARAM_CONN_ORIG_DEST_CID, &cid_len, connection_info->cid))) {
+        log_error("failed to get connection local cid, 0x%x!", status);
+        return NULL;
+    }
+    // Convert binary CID to hexadecimal for logging
+    char cid_hex[2 * cid_len + 1]; // Hex representation + null terminator
+    for (uint32_t i = 0; i < cid_len; i++) {
+        snprintf(&cid_hex[i * 2], 3, "%02x", (unsigned char)connection_info->cid[i]);
+    }
+
+    log_trace("connection established, cid: %s", cid_hex);
+
+    HASH_ADD(hh, ctx->h, connection, sizeof(HQUIC), connection_info);
+
+    return (connection_t) connection_info;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     printf("Opening connection\n");
@@ -2272,8 +2211,7 @@ int close_connection(context_t context, connection_t connection) {
     return 0;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
-    connection_node_t *connection_node = (connection_node_t *)connection;
-    connection_info_t *connection_info = connection_node->connection_info;
+    connection_info_t *connection_info = connection;
     ctx->msquic->ConnectionShutdown(connection_info->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
@@ -2327,8 +2265,7 @@ stream_t open_stream(context_t context, connection_t connection) {
     log_debug("opening stream");
     struct context *ctx = (struct context *)context;
     HQUIC stream;
-    connection_node_t *connection_node = (connection_node_t *)connection;
-    connection_info_t *connection_info = connection_node->connection_info;
+    connection_info_t *connection_info = connection;
     stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
     stream_info->established = 0;
 
@@ -2348,12 +2285,10 @@ stream_t open_stream(context_t context, connection_t connection) {
     stream_info->recv_buff.buffer_count = 0;
     stream_info->recv_buff.absolute_offset = 0;
 
-    stream_node_t *stream_node = push_stream(connection_info->streams, stream_info);
-    connection_info->new_stream = stream_node;
     ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
     ctx_strm->ctx = ctx;
-    ctx_strm->connection_node = connection_node;
-    ctx_strm->stream_node = stream_node;
+    ctx_strm->connection_info = connection_info;
+    ctx_strm->stream_info = stream_info;
     //
     // Create/allocate a new bidirectional stream. The stream is just allocated
     // and no QUIC stream identifier is assigned until it's started.
@@ -2374,13 +2309,7 @@ stream_t open_stream(context_t context, connection_t connection) {
         ctx->msquic->StreamClose(stream);
         return NULL;
     }
-    pthread_mutex_lock(&connection_info->lock);
-    if (stream_info->established == 0)
-    {
-        log_debug("waiting for stream to be established");
-        pthread_cond_wait(&connection_info->cond, &connection_info->lock);
-    }
-    pthread_mutex_unlock(&connection_info->lock);
+    
     uint64_t stream_id;
     uint32_t buffer_len = sizeof(stream_id);
     if (QUIC_FAILED(status = ctx->msquic->GetParam(stream, QUIC_PARAM_STREAM_ID, &buffer_len, &stream_id)))
@@ -2392,12 +2321,13 @@ stream_t open_stream(context_t context, connection_t connection) {
     stream_info->stream = stream;
     stream_info->stream_id = stream_id;
     char data[256];
-    ssize_t len = recv_data(context, connection, (stream_t) connection_info->new_stream, data, 256, 0);
+    ssize_t len = recv_data(context, connection, (stream_t) stream_info, data, 256, 0);
     if (strcmp(data, "STREAM HSK") == 0) {
         log_debug("stream established");
     }
-    connection_info->last_new_stream = stream_node;
-    return (stream_t) stream_node;
+    connection_info->last_new_stream = stream_info;
+    HASH_ADD(hh, connection_info->h, stream, sizeof(HQUIC), stream_info);
+    return (stream_t) stream_info;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     printf("Opening stream\n");
@@ -2410,10 +2340,8 @@ int close_stream(context_t context, connection_t connection, stream_t stream) {
     return 0;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
-    stream_node_t *stream_node = (stream_node_t *)stream;
-    stream_info_t *stream_info = stream_node->stream_info;
-    connection_node_t *connection_node = (connection_node_t *)connection;
-    connection_info_t *connection_info = connection_node->connection_info;
+    stream_info_t *stream_info = stream;
+    connection_info_t *connection_info = connection;
     ctx->msquic->StreamShutdown(stream_info->stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
@@ -2445,10 +2373,8 @@ int send_data(context_t context, connection_t connection, stream_t stream, void*
     log_debug("sending data");
     struct context *ctx = (struct context *)context;
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
-    connection_node_t *connection_node = (connection_node_t *)connection;
-    connection_info_t *connection_info = connection_node->connection_info;
-    stream_node_t *stream_node = (stream_node_t *)stream;
-    stream_info_t *stream_info = stream_node->stream_info;
+    connection_info_t *connection_info = connection;
+    stream_info_t *stream_info = stream;
 
     uint8_t *send_buffer_raw;
     QUIC_BUFFER *send_buffer;
@@ -2554,10 +2480,8 @@ ssize_t recv_data(context_t context, connection_t connection, stream_t stream, v
     return to_read;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
-    connection_node_t *connection_node = (connection_node_t *)connection;
-    connection_info_t *connection_info = connection_node->connection_info;
-    stream_node_t *stream_node = (stream_node_t *)stream;
-    stream_info_t *stream_info = stream_node->stream_info;
+    connection_info_t *connection_info = connection;
+    stream_info_t *stream_info = stream;
 
     pthread_mutex_lock(&stream_info->recv_buff.lock);
 
@@ -2694,6 +2618,7 @@ connection_t accept_connection(context_t context, time_t timeout) {
     #elif MSQUIC
     log_debug("accepting connection");
     struct context *ctx = (struct context *)context;
+    connection_info_t *connection_info; 
 
     // Lock the mutex to wait for a connection
     pthread_mutex_lock(&ctx->lock);
@@ -2713,11 +2638,16 @@ connection_t accept_connection(context_t context, time_t timeout) {
             pthread_cond_timedwait(&ctx->cond, &ctx->lock, &ts);
         }
     }
-    ctx->last_new_connection = ctx->new_connection;
+    connection_info = ctx->new_connection;
     // Unlock the mutex
     pthread_mutex_unlock(&ctx->lock);
+
+    ctx->last_new_connection = connection_info;
+
+    HASH_ADD(hh, ctx->h, connection, sizeof(HQUIC), connection_info);
+
     log_debug("new connection accepted");
-    return (connection_t)ctx->new_connection;
+    return (connection_t)connection_info;
     #elif LSQUIC
     printf("accept_connection\n");
     struct context *ctx = (struct context *)context;
@@ -2750,8 +2680,9 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
     #elif MSQUIC
     log_debug("accepting stream");
     struct context *ctx = (struct context *)context;
-    connection_node_t *connection_node = (connection_node_t *)connection;
-    connection_info_t *connection_info = connection_node->connection_info;
+    connection_info_t *connection_info = connection;
+    stream_info_t *stream_info;
+    
     // Lock the mutex to wait for a connection
     pthread_mutex_lock(&connection_info->lock);
     if (connection_info->new_stream == connection_info->last_new_stream)
@@ -2770,12 +2701,14 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
             pthread_cond_timedwait(&connection_info->cond, &connection_info->lock, &ts);
         }
     }
-    connection_info->last_new_stream = connection_info->new_stream;
-    pthread_mutex_unlock(&connection_info->lock);
-    char* data = "STREAM HSK";
-    send_data(context, (connection_t)connection, (stream_t)connection_info->new_stream, data, 11);
-    log_debug("new stream accepted");
+    stream_info = connection_info->new_stream;
     // Unlock the mutex
+    pthread_mutex_unlock(&connection_info->lock);
+    connection_info->last_new_stream = stream_info;
+    char* data = "STREAM HSK";
+    send_data(context, (connection_t)connection, (stream_t)stream_info, data, 11);
+    HASH_ADD(hh, connection_info->h, stream, sizeof(HQUIC), stream_info);
+    log_debug("new stream accepted");
     return (stream_t)connection_info->new_stream;
     #endif
 }
