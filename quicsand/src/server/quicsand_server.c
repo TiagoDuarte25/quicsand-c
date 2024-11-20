@@ -86,6 +86,9 @@ void *handle_connection(void *arg)
                 fclose(file);
                 exit(EXIT_FAILURE);
             }
+            if (len < CHUNK_SIZE) {
+                break;
+            }
         }
         
         fclose(file);
@@ -168,7 +171,6 @@ void *handle_connection(void *arg)
     } else {
         log_info("error: unknown control message");
     }
-
     return NULL;
 }
 

@@ -317,6 +317,8 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
     char buffer[CHUNK_SIZE];
     size_t bytes_read;
     while ((bytes_read = fread(buffer, sizeof(char), CHUNK_SIZE, file)) > 0) {
+        log_info("Read %zu bytes from file", bytes_read);
+        log_info("Sending: %s", buffer);
         clock_gettime(CLOCK_MONOTONIC, &start);
         send_data(ctx, connection, stream, buffer, bytes_read);
         clock_gettime(CLOCK_MONOTONIC, &end);
@@ -345,14 +347,14 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
     memory_usage = usage_end.ru_maxrss - usage_start.ru_maxrss;
 
     // Log metrics
-    log_info("download time: %.2f ms", total_time);
+    log_info("upload time: %.2f ms", total_time);
     log_info("bandwith: %.2f bytes/sec", bandwidth);
     log_info("cpu time: %.2f sec", cpu_time);
     log_info("memory usage: %.2f KB", memory_usage);
     log_info("total bytes transfered: %zu bytes", total_bytes);
     log_info("number of chunks sent: %zu", num_chunks);
     log_info("average chunk size: %.2f bytes", (double)total_bytes / num_chunks);
-    log_info("file download completed");
+    log_info("file upload completed");
     log_info("end of test");
 }
 
@@ -406,11 +408,15 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
   }
 
-  test_normal_send_receive(fp, config, ip_address, port);
+  // test_normal_send_receive(fp, config, ip_address, port);
   // test_multiple_sends(fp, config, ip_address, port);
-  // test_upload_file(fp, config, ip_address, port, file_path);
+  test_upload_file(fp, config, ip_address, port, file_path);
+  test_upload_file(fp, config, ip_address, port, file_path);
+  test_upload_file(fp, config, ip_address, port, file_path);
+  test_upload_file(fp, config, ip_address, port, file_path);
   // test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
   fclose(fp);
+  getchar();
 }

@@ -120,6 +120,10 @@ struct timeout_args {
 #define UNREFERENCED_PARAMETER(P) (void)(P)
 #endif
 
+#ifndef QUIC_API_ENABLE_PREVIEW_FEATURES
+#define QUIC_API_ENABLE_PREVIEW_FEATURES
+#endif
+
 #ifndef NULL
 #define NULL (void *)0
 #endif
@@ -130,7 +134,7 @@ struct timeout_args {
 typedef struct {
     HQUIC stream;
     uint64_t stream_id;
-    int established;
+    BOOLEAN can_send;
     pthread_mutex_t lock;
     pthread_cond_t cond;
     struct Buffer
@@ -153,8 +157,6 @@ typedef struct {
     pthread_mutex_t lock;
     pthread_cond_t cond;
     int connected;
-    int last_receive_count;
-    int receive_count;
 
     uint8_t cid[20];
 
@@ -835,13 +837,18 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // A previous StreamSend call has completed, and the context is being
         // returned back to the app.
         //
+        pthread_mutex_lock(&stream_info->lock);
+        stream_info->can_send = TRUE;
+        pthread_cond_signal(&stream_info->cond);
+        pthread_mutex_unlock(&stream_info->lock);
         free(event->SEND_COMPLETE.ClientContext);
-        log_trace("[strm][%p] sata sent", (void *)stream);
+        log_trace("[strm][%p] data sent", (void *)stream);
         break;
     case QUIC_STREAM_EVENT_RECEIVE:
         //
         // Data was received from the peer on the stream.
         //
+        log_trace("[strm][%p] data received", (void *)stream);
         // Reallocate memory for the recv_buff.buffers array to accommodate the new buffer
         stream_info->recv_buff.buffers = (QUIC_BUFFER *)realloc(
             stream_info->recv_buff.buffers,
@@ -849,7 +856,6 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         );
         if (stream_info->recv_buff.buffers == NULL) {
             // Handle memory allocation failure
-            pthread_mutex_unlock(&stream_info->recv_buff.lock);
             log_error("failed to reallocate memory for the recv_buff.buffers array");
             return QUIC_STATUS_OUT_OF_MEMORY;
         }
@@ -859,22 +865,18 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         new_buffer->Buffer = (uint8_t *)malloc(event->RECEIVE.TotalBufferLength);
         if (new_buffer->Buffer == NULL) {
             // Handle memory allocation failure
-            pthread_mutex_unlock(&stream_info->recv_buff.lock);
             log_error("failed to allocate memory for the new buffer");
             return QUIC_STATUS_OUT_OF_MEMORY;
         }
+        pthread_mutex_lock(&stream_info->lock);
+        // Update the metadata fields
         memcpy(new_buffer->Buffer, event->RECEIVE.Buffers->Buffer, event->RECEIVE.TotalBufferLength);
         new_buffer->Length = event->RECEIVE.TotalBufferLength;
-        // Update the metadata fields
         stream_info->recv_buff.total_buffer_length += event->RECEIVE.TotalBufferLength;
         stream_info->recv_buff.buffer_count++;
         stream_info->recv_buff.absolute_offset = event->RECEIVE.AbsoluteOffset;
-
-        pthread_mutex_lock(&stream_info->recv_buff.lock);
-        connection_info->receive_count++;
-        pthread_cond_signal(&stream_info->recv_buff.cond);
-        pthread_mutex_unlock(&stream_info->recv_buff.lock);
-        log_trace("[strm][%p] data received\n", (void *)stream);
+        pthread_cond_signal(&stream_info->cond);
+        pthread_mutex_unlock(&stream_info->lock);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         //
@@ -895,8 +897,8 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         // with the stream. It can now be safely cleaned up.
         //
         HASH_DELETE(hh, connection_info->h, stream_info);
+        // ctx->msquic->StreamClose(stream);
         log_trace("[strm][%p] all done", (void *)stream);
-        ctx->msquic->StreamClose(stream);
         break;
     default:
         break;
@@ -981,7 +983,6 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
         //
         stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
         stream_info->stream = event->PEER_STREAM_STARTED.Stream;
-        stream_info->established = 1;
         // Allocate memory for the data buffer
         stream_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
         if (stream_info->recv_buff.buffers == NULL) {
@@ -990,13 +991,14 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
             return QUIC_STATUS_OUT_OF_MEMORY;
         }
 
-        stream_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-        stream_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        stream_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+        stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         stream_info->recv_buff.buffers->Buffer = NULL;
         stream_info->recv_buff.buffers->Length = 0;
         stream_info->recv_buff.total_buffer_length = 0;
         stream_info->recv_buff.buffer_count = 0;
         stream_info->recv_buff.absolute_offset = 0;
+        stream_info->can_send = TRUE;
         ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
         ctx_strm->connection_info = connection_info;
         ctx_strm->stream_info = stream_info;
@@ -1716,6 +1718,8 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     QUIC_SETTINGS settings = {0};
     settings.IdleTimeoutMs = ctx->idle_timeout_ms;
     settings.IsSet.IdleTimeoutMs = TRUE;
+    // settings.IsSet.StreamMultiReceiveEnabled = 1; // Enable Stream Multi Receive
+    // settings.StreamMultiReceiveEnabled = 1;
 
     QUIC_CREDENTIAL_CONFIG cred_config;
     memset(&cred_config, 0, sizeof(cred_config));
@@ -2085,8 +2089,6 @@ connection_t open_connection(context_t context, char* ip, int port) {
     connection_info->last_new_stream = NULL;
     connection_info->new_stream = NULL;
     connection_info->h = NULL;
-    connection_info->last_receive_count = 0;
-    connection_info->receive_count = 0;
     connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -2267,7 +2269,6 @@ stream_t open_stream(context_t context, connection_t connection) {
     HQUIC stream;
     connection_info_t *connection_info = connection;
     stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
-    stream_info->established = 0;
 
     // Allocate memory for the data buffer
     stream_info->recv_buff.buffers = (QUIC_BUFFER *)malloc(sizeof(QUIC_BUFFER));
@@ -2277,13 +2278,14 @@ stream_t open_stream(context_t context, connection_t connection) {
         quic_error = QUIC_ERROR_ALLOCATION_FAILED;
         return NULL;
     }
-    stream_info->recv_buff.lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    stream_info->recv_buff.cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+    stream_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
     stream_info->recv_buff.buffers->Buffer = NULL;
     stream_info->recv_buff.buffers->Length = 0;
     stream_info->recv_buff.total_buffer_length = 0;
     stream_info->recv_buff.buffer_count = 0;
     stream_info->recv_buff.absolute_offset = 0;
+    stream_info->can_send = TRUE;
 
     ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
     ctx_strm->ctx = ctx;
@@ -2399,12 +2401,23 @@ int send_data(context_t context, connection_t connection, stream_t stream, void*
     // the buffer. This indicates this is the last buffer on the stream and the
     // the stream is shut down (in the send direction) immediately after.
     //
-    if (QUIC_FAILED(status = ctx->msquic->StreamSend(stream_info->stream, send_buffer, 1, QUIC_SEND_FLAG_START, send_buffer)))
+    stream_info->can_send = FALSE;
+    if (QUIC_FAILED(status = ctx->msquic->StreamSend(stream_info->stream, send_buffer, 1, QUIC_SEND_FLAG_NONE, send_buffer)))
     {
         log_error("send stream failed, 0x%x!", status);
         free(send_buffer_raw);
         return -1;
     }
+    log_trace("sent %d bytes", len);
+
+    pthread_mutex_lock(&stream_info->lock);
+    if (stream_info->can_send == FALSE) {
+        log_debug("waiting for data to be sent");
+        pthread_cond_wait(&stream_info->cond, &stream_info->lock);
+    }
+    pthread_mutex_unlock(&stream_info->lock);
+    log_debug("sending data done");
+
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
     #endif
@@ -2479,21 +2492,24 @@ ssize_t recv_data(context_t context, connection_t connection, stream_t stream, v
 
     return to_read;
     #elif MSQUIC
+    log_debug("receiving data");
+
     struct context *ctx = (struct context *)context;
     connection_info_t *connection_info = connection;
     stream_info_t *stream_info = stream;
 
-    pthread_mutex_lock(&stream_info->recv_buff.lock);
+    pthread_mutex_lock(&stream_info->lock);
 
     if (stream_info->recv_buff.total_buffer_length == 0) {
         // Wait for data to be available
         if (timeout == 0) {
-            pthread_cond_wait(&stream_info->recv_buff.cond, &stream_info->recv_buff.lock);
+            log_debug("waiting for data");
+            pthread_cond_wait(&stream_info->cond, &stream_info->lock);
         } else {
             struct timespec ts;
             clock_gettime(CLOCK_REALTIME, &ts);
             ts.tv_sec += timeout;
-            int ret = pthread_cond_timedwait(&stream_info->recv_buff.cond, &stream_info->recv_buff.lock, &ts);
+            int ret = pthread_cond_timedwait(&stream_info->cond, &stream_info->lock, &ts);
             if (ret == ETIMEDOUT) {
                 log_debug("timed out");
                 pthread_mutex_unlock(&stream_info->recv_buff.lock);
@@ -2539,7 +2555,7 @@ ssize_t recv_data(context_t context, connection_t connection, stream_t stream, v
     }
 
     stream_info->recv_buff.total_buffer_length -= to_read;
-    pthread_mutex_unlock(&stream_info->recv_buff.lock);
+    pthread_mutex_unlock(&stream_info->lock);
     return to_read;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;

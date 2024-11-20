@@ -240,6 +240,9 @@ ELSEIF("${IMPL}" STREQUAL "msquic")
     # Set libraries
     SET(LIBS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 
+    target_compile_definitions(server PRIVATE QUIC_API_ENABLE_PREVIEW_FEATURES)
+    target_compile_definitions(client PRIVATE QUIC_API_ENABLE_PREVIEW_FEATURES)
+
 ELSEIF("${IMPL}" STREQUAL "quiche")
 
     add_definitions(-DQUICHE)
