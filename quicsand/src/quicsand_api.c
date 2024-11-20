@@ -120,10 +120,6 @@ struct timeout_args {
 #define UNREFERENCED_PARAMETER(P) (void)(P)
 #endif
 
-#ifndef QUIC_API_ENABLE_PREVIEW_FEATURES
-#define QUIC_API_ENABLE_PREVIEW_FEATURES
-#endif
-
 #ifndef NULL
 #define NULL (void *)0
 #endif
@@ -1700,6 +1696,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     if (QUIC_FAILED(status = MsQuicOpen2(&ctx->msquic)))
     {
         log_error("failed to open MsQuic, 0x%x", status);
+        quic_error = QUIC_ERROR_INITIALIZATION_FAILED;
         return NULL;
     }
 
@@ -1709,6 +1706,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     if (QUIC_FAILED(status = ctx->msquic->RegistrationOpen(&ctx->reg_config, &ctx->registration)))
     {
         log_error("failed to open registration, 0x%x", status);
+        quic_error = QUIC_ERROR_INITIALIZATION_FAILED;
         return NULL;
     }
 
@@ -1754,6 +1752,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     if (QUIC_FAILED(status = ctx->msquic->ConfigurationOpen(ctx->registration, &ctx->alpn, 1, &settings, sizeof(settings), NULL, &ctx->configuration)))
     {
         log_error("failed to open configuration, 0x%x", status);
+        quic_error = QUIC_ERROR_INITIALIZATION_FAILED;
         return NULL;
     }
 
@@ -1764,6 +1763,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     if (QUIC_FAILED(status = ctx->msquic->ConfigurationLoadCredential(ctx->configuration, &cred_config)))
     {
         log_error("failed to load credential, 0x%x", status);
+        quic_error = QUIC_ERROR_TLS_ERROR;
         return NULL;
     }
     return (context_t) ctx;
@@ -1898,6 +1898,7 @@ int bind_addr(context_t context, char* ip, int port) {
 
     if (inet_pton(QUIC_ADDRESS_FAMILY_INET, ip, &ctx->s.local_address.Ipv4.sin_addr) <= 0) {
         log_error("failed to parse IP address: %s", strerror(errno));
+        quic_error = QUIC_ERROR_INVALID_IP_ADDRESS;
         return -1;
     }
     ctx->s.local_address.Ipv4.sin_family = QUIC_ADDRESS_FAMILY_INET;
@@ -2098,6 +2099,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     if (QUIC_FAILED(status = ctx->msquic->ConnectionOpen(ctx->registration, connection_callback, ctx_conn, &connection_info->connection)))
     {
         log_error("failed to open connection, 0x%x!", status);
+        quic_error = QUIC_ERROR_CONNECTION_FAILED;
         return NULL;
     }
 
@@ -2107,6 +2109,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     if (QUIC_FAILED(status = ctx->msquic->ConnectionStart(connection_info->connection, ctx->configuration, QUIC_ADDRESS_FAMILY_INET, ip, (uint16_t)port)))
     {
         log_error("failed to start connection, 0x%x!", status);
+        quic_error = QUIC_ERROR_CONNECTION_FAILED;
         return NULL;
     }
     
@@ -2123,6 +2126,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     int32_t cid_len = sizeof(connection_info->cid);
     if (QUIC_FAILED(status = ctx->msquic->GetParam(connection_info->connection, QUIC_PARAM_CONN_ORIG_DEST_CID, &cid_len, connection_info->cid))) {
         log_error("failed to get connection local cid, 0x%x!", status);
+        quic_error = QUIC_ERROR_CONNECTION_FAILED;
         return NULL;
     }
     // Convert binary CID to hexadecimal for logging
@@ -2299,6 +2303,7 @@ stream_t open_stream(context_t context, connection_t connection) {
     if (QUIC_FAILED(status = ctx->msquic->StreamOpen(connection_info->connection, QUIC_STREAM_OPEN_FLAG_NONE, stream_callback, ctx_strm, &stream)))
     {
         log_error("failed to open stream, 0x%x!", status);
+        quic_error = QUIC_ERROR_STREAM_FAILED;
         return NULL;
     }
     //
@@ -2308,6 +2313,7 @@ stream_t open_stream(context_t context, connection_t connection) {
     if (QUIC_FAILED(status = ctx->msquic->StreamStart(stream, QUIC_STREAM_START_FLAG_IMMEDIATE)))
     {
         log_error("failed to start stream, 0x%x!", status);
+        quic_error = QUIC_ERROR_STREAM_FAILED;
         ctx->msquic->StreamClose(stream);
         return NULL;
     }
@@ -2317,6 +2323,7 @@ stream_t open_stream(context_t context, connection_t connection) {
     if (QUIC_FAILED(status = ctx->msquic->GetParam(stream, QUIC_PARAM_STREAM_ID, &buffer_len, &stream_id)))
     {
         log_error("failed to get stream id, 0x%x!", status);
+        quic_error = QUIC_ERROR_STREAM_FAILED;
         return NULL;
     }
     log_debug("[strm][%p] stream id: %llu\n", (void *)stream, (unsigned long long)stream_id);
@@ -2586,12 +2593,14 @@ int set_listen(context_t context) {
     if (QUIC_FAILED(status = ctx->msquic->ListenerOpen(ctx->registration, listener_callback, ctx, &ctx->s.listener)))
     {
         log_error("listener open failed, 0x%x!", status);
+        quic_error = QUIC_ERROR_INITIALIZATION_FAILED;
         return -1;
     }
 
     if (QUIC_FAILED(status = ctx->msquic->ListenerStart(ctx->s.listener, &ctx->alpn, 1, &ctx->s.local_address)))
     {
         log_error("listener start failed, 0x%x!", status);
+        quic_error = QUIC_ERROR_ADDRESS_NOT_AVAILABLE;
         return -1;
     }
     log_debug("listening");

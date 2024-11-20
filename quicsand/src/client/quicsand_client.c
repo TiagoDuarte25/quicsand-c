@@ -411,9 +411,6 @@ int main(int argc, char *argv[]) {
   // test_normal_send_receive(fp, config, ip_address, port);
   // test_multiple_sends(fp, config, ip_address, port);
   test_upload_file(fp, config, ip_address, port, file_path);
-  test_upload_file(fp, config, ip_address, port, file_path);
-  test_upload_file(fp, config, ip_address, port, file_path);
-  test_upload_file(fp, config, ip_address, port, file_path);
   // test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
