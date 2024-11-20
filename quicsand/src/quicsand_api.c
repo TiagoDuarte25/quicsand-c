@@ -1079,8 +1079,10 @@ static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
     quiche_send_info send_info;
 
     while (1) {
+        pthread_mutex_lock(&conn_io->lock);
         ssize_t written = quiche_conn_send(conn_io->conn, out, sizeof(out),
                                            &send_info);
+        pthread_mutex_unlock(&conn_io->lock);
 
         if (written == QUICHE_ERR_DONE) {
             log_trace("done writing");
@@ -1091,11 +1093,11 @@ static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
             log_error("failed to create packet: %zd", written);
             return;
         }
-
+        pthread_mutex_lock(&conn_io->lock);
         ssize_t sent = sendto(conn_io->sock, out, written, 0,
                               (struct sockaddr *) &send_info.to,
                               send_info.to_len);
-
+        pthread_mutex_unlock(&conn_io->lock);
         if (sent != written) {
             log_error("failed to send packet: %zd, expected: %zd, error: %s", sent, written, strerror(errno));
             return;
@@ -1405,6 +1407,7 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
                         stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
                         HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
                         pthread_mutex_lock(&conn_io->lock);
+                        log_warn("conn_io %p", (void *)conn_io);
                         conn_io->new_stream_io = stream_io;
                         pthread_cond_signal(&conn_io->cond);
                         pthread_mutex_unlock(&conn_io->lock);
@@ -2238,6 +2241,7 @@ stream_t open_stream(context_t context, connection_t connection) {
 
         if (quiche_conn_stream_send(conn_io->conn, 4, r, sizeof(r), false, &error_code) < 0) {
             log_error("failed to send message: %" PRIu64 "", error_code);
+            quic_error = QUIC_ERROR_SEND_FAILED;
             return NULL;
         }
         log_debug("open stream message sent");
@@ -2689,14 +2693,14 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
     struct stream_io *stream_io = NULL;
 
     log_debug("accepting stream");
-
     pthread_mutex_lock(&conn_io->lock);
     if (conn_io->last_stream_io == conn_io->new_stream_io)
     {
+        log_debug("waiting for new stream");
         pthread_cond_wait(&conn_io->cond, &conn_io->lock);
-        conn_io->last_stream_io = conn_io->new_stream_io;
-        stream_io = conn_io->new_stream_io;
     }
+    conn_io->last_stream_io = conn_io->new_stream_io;
+    stream_io = conn_io->new_stream_io;
     pthread_mutex_unlock(&conn_io->lock);
 
     log_debug("new stream accepted");

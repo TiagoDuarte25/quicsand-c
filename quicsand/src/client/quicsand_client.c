@@ -293,32 +293,32 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
     getrusage(RUSAGE_SELF, &usage_start);
 
     context_t ctx = create_quic_context(NULL, NULL);
-    log_info("Created context");
-    log_info("Connecting to %s:%d", ip_address, port);
+    log_info("context created");
+    log_info("connecting to %s:%d", ip_address, port);
     connection_t connection = open_connection(ctx, ip_address, port);
-    log_info("Opened connection");
+    log_info("connection opened");
     stream_t stream = open_stream(ctx, connection);
-    log_info("Opened stream");
+    log_info("stream opened");
 
     // Send control message
     const char *control_message = CONTROL_UPLOAD;
     send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
-    log_info("Sent control message: %s", control_message);
+    log_info("control message sent: %s", control_message);
     char ack[256];
     ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
-    log_info("Received ack: %s", ack);
+    log_info("ack received: %s", ack);
 
     FILE *file = fopen(file_path, "r");
     if (!file) {
-        log_info("Error: Failed to open file %s", file_path);
+        log_error("failed to open file %s", file_path);
         return;
     }
 
     char buffer[CHUNK_SIZE];
     size_t bytes_read;
     while ((bytes_read = fread(buffer, sizeof(char), CHUNK_SIZE, file)) > 0) {
-        log_info("Read %zu bytes from file", bytes_read);
-        log_info("Sending: %s", buffer);
+        log_info("read %zu bytes from file", bytes_read);
+        log_info("sending: %s", buffer);
         clock_gettime(CLOCK_MONOTONIC, &start);
         send_data(ctx, connection, stream, buffer, bytes_read);
         clock_gettime(CLOCK_MONOTONIC, &end);
@@ -408,9 +408,9 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
   }
 
-  // test_normal_send_receive(fp, config, ip_address, port);
+  test_normal_send_receive(fp, config, ip_address, port);
   // test_multiple_sends(fp, config, ip_address, port);
-  test_upload_file(fp, config, ip_address, port, file_path);
+  // test_upload_file(fp, config, ip_address, port, file_path);
   // test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
