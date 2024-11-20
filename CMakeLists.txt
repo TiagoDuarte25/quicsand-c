@@ -27,6 +27,10 @@ SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} $ENV{EXTRA_CFLAGS}")
 MESSAGE(STATUS "Compiler flags: ${CMAKE_C_FLAGS}")
 
 add_definitions(-D_GNU_SOURCE)
+remove_definitions(-DLSQUIC)
+remove_definitions(-DMSQUIC)
+remove_definitions(-DQUICHE)
+
 
 FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
 FILE(GLOB SERVER_SRC "quicsand/src/server/*.c")

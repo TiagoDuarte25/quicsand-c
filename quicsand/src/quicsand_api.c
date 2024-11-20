@@ -253,7 +253,6 @@ struct context {
     } peer_addr;
     SSL_CTX *ssl_ctx;
 };
-
 #endif
 
 #ifdef LSQUIC
@@ -800,9 +799,6 @@ read_socket (EV_P_ ev_io *w, int revents)
     process_conns(ctx);
 }
 
-/*
-    auxillary functions
-*/
 #elif MSQUIC
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -1407,7 +1403,6 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
                         stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
                         HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
                         pthread_mutex_lock(&conn_io->lock);
-                        log_warn("conn_io %p", (void *)conn_io);
                         conn_io->new_stream_io = stream_io;
                         pthread_cond_signal(&conn_io->cond);
                         pthread_mutex_unlock(&conn_io->lock);
@@ -2451,16 +2446,14 @@ ssize_t recv_data(context_t context, connection_t connection, stream_t stream, v
             log_error("stream not found");
             return -1;
         }
-        
+        pthread_mutex_lock(&stream_io->lock);
         if (stream_io->recv_buf->len == 0) {
-            if (timeout == 0) {
-                pthread_mutex_lock(&stream_io->lock);
+            if (timeout == 0) {    
                 pthread_cond_wait(&stream_io->cond, &stream_io->lock);
             } else {
                 struct timespec ts;
                 clock_gettime(CLOCK_REALTIME, &ts);
                 ts.tv_sec += timeout;
-                pthread_mutex_lock(&stream_io->lock);
                 int ret = pthread_cond_timedwait(&stream_io->cond, &stream_io->lock, &ts);
                 if (ret == ETIMEDOUT) {
                     log_debug("timed out");

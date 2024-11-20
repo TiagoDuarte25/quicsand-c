@@ -75,10 +75,16 @@ void *handle_connection(void *arg)
             return NULL;
         }
 
-        char buffer[CHUNK_SIZE];
+        char buffer[CHUNK_SIZE + 1];
         while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
+            buffer[len] = '\0';
             log_info("received data: %.*s", (int)len, buffer);
             log_info("len: %ld", len);
+            
+            // check if buffer message is "EOF"
+            if (strcmp(buffer, "EOF") == 0) {
+                break;
+            }
             size_t written = fwrite(buffer, sizeof(char), len, file);
             if (written != len) {
                 log_error("error writing to file");
@@ -86,11 +92,7 @@ void *handle_connection(void *arg)
                 fclose(file);
                 exit(EXIT_FAILURE);
             }
-            if (len < CHUNK_SIZE) {
-                break;
-            }
         }
-        
         fclose(file);
         log_info("file upload completed");
     } else if (strcmp(control_message, CONTROL_DOWNLOAD) == 0) {
