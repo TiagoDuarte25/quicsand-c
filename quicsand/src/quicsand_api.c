@@ -72,6 +72,8 @@ struct conn_io {
     struct stream_io *new_stream_io;
     pthread_mutex_t lock;
     pthread_cond_t cond;
+
+    bool acked;
 };
 
 struct stream_io {
@@ -1089,6 +1091,7 @@ static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
             log_error("failed to create packet: %zd", written);
             return;
         }
+
         pthread_mutex_lock(&conn_io->lock);
         ssize_t sent = sendto(conn_io->sock, out, written, 0,
                               (struct sockaddr *) &send_info.to,
@@ -1492,6 +1495,11 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
             log_error("failed to process packet");
             continue;
         }
+
+        pthread_mutex_lock(&conn_io->lock);
+        conn_io->acked = true;
+        pthread_cond_signal(&conn_io->cond);
+        pthread_mutex_unlock(&conn_io->lock);
 
         log_trace("connection %p: recv %zd bytes", conn_io, done);
     }
@@ -2365,13 +2373,23 @@ int send_data(context_t context, connection_t connection, stream_t stream, void*
 
     if (quiche_conn_is_established(conn_io->conn)) {
         uint64_t error_code;
+        pthread_mutex_lock(&conn_io->lock);
         if (quiche_conn_stream_send(conn_io->conn, stream_io->stream_id, data, len, false, &error_code) < 0) {
             log_error("failed to send message: %" PRIu64 "", error_code);
             quic_error = QUIC_ERROR_SEND_FAILED;
             return -1;
         }
+        conn_io->acked = false;
+        pthread_mutex_unlock(&conn_io->lock);
         flush_egress(ctx->loop, conn_io);
     }
+
+    pthread_mutex_lock(&conn_io->lock);
+    if (!conn_io->acked) {
+        log_debug("waiting for ack");
+        pthread_cond_wait(&conn_io->cond, &conn_io->lock);
+    }
+    pthread_mutex_unlock(&conn_io->lock);
 
     log_debug("data sent");
 

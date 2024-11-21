@@ -325,8 +325,8 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
         total_time += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
         total_bytes += bytes_read;
         num_chunks++;
-        // //clear buffer
-        // memset(buffer, 0, CHUNK_SIZE);
+        //clear buffer
+        memset(buffer, 0, CHUNK_SIZE);
     }
     fclose(file);
     send_data(ctx, connection, stream, (void *)"EOF", 3);
