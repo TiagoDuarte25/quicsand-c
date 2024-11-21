@@ -176,7 +176,7 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     clock_gettime(CLOCK_MONOTONIC, &start);
     getrusage(RUSAGE_SELF, &usage_start);
 
-    char buffer[CHUNK_SIZE];
+    char buffer[CHUNK_SIZE + 1];
     FILE *file = fopen("downloaded_file.txt", "w");
     if (!file) {
         perror("Error opening file");
@@ -184,7 +184,12 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     }
 
     while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
+        log_info("received data: %.*s", (int)len, buffer);
         if (len == 0) {
+            break;
+        }
+        buffer[len] = '\0';
+        if (strcmp(buffer, "EOF") == 0) {
             break;
         }
         fwrite(buffer, sizeof(char), len, file);
@@ -363,7 +368,7 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
 int main(int argc, char *argv[]) {
   FILE *fp = stdout;
   // log_add_fp(fp, LOG_INFO);
-  log_set_level(LOG_TRACE);
+  log_set_level(LOG_DEBUG);
 
   char *ip_address = NULL;
   char *file_path = NULL;
@@ -411,9 +416,8 @@ int main(int argc, char *argv[]) {
   }
 
   // test_normal_send_receive(fp, config, ip_address, port);
-  // test_multiple_sends(fp, config, ip_address, port);
-  test_upload_file(fp, config, ip_address, port, file_path);
-  // test_download_file(fp, config, ip_address, port, file_path);
+  // test_upload_file(fp, config, ip_address, port, file_path);
+  test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
   fclose(fp);

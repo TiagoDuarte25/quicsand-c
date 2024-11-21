@@ -122,8 +122,12 @@ void *handle_connection(void *arg)
 
         char buffer[CHUNK_SIZE];
         while ((len = fread(buffer, sizeof(char), CHUNK_SIZE, file)) > 0) {
+            log_info("read %zu bytes from file", len);
+            log_info("sending: %s", buffer);
             send_data(ctx, connection, stream,(void *)buffer, len);
+            memset(buffer, 0, CHUNK_SIZE);
         }
+        send_data(ctx, connection, stream, (void *)"EOF", 3);
         fclose(file);
         log_info("file download completed");
     } else if (strcmp(control_message, CONTROL_SINGLE) == 0) {
@@ -187,7 +191,7 @@ int main(int argc, char *argv[])
     // FILE *fp = fopen("server.log", "w+");
     // FILE *fp = stdout;
     // log_add_fp(fp, LOG_INFO);
-    log_set_level(LOG_TRACE);
+    log_set_level(LOG_INFO);
 
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1)

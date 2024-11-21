@@ -1368,9 +1368,12 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
             continue;
         }
 
-        log_trace("connection %p: recv %zd bytes", conn_io, done);
+        pthread_mutex_lock(&conn_io->lock);
+        conn_io->acked = true;
+        pthread_cond_signal(&conn_io->cond);
+        pthread_mutex_unlock(&conn_io->lock);
 
-        
+        log_trace("connection %p: recv %zd bytes", conn_io, done);
 
         if (quiche_conn_is_established(conn_io->conn)) {
             uint64_t s = 0;
@@ -1538,6 +1541,7 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
                 log_trace("stream not found");
                 if (strcmp((char *)buf, "stream opened") == 0) {
                     pthread_mutex_lock(&conn_io->lock);
+                    conn_io->new_stream_io = malloc(sizeof(struct stream_io));
                     pthread_cond_signal(&conn_io->cond);
                     pthread_mutex_unlock(&conn_io->lock);
                 }
@@ -2249,24 +2253,21 @@ stream_t open_stream(context_t context, connection_t connection) {
         }
         log_debug("open stream message sent");
         flush_egress(ctx->loop, conn_io);
-
-        stream_io = malloc(sizeof(struct stream_io));
-        if (stream_io == NULL) {
-            log_error("failed to allocate stream IO");
-            quic_error = QUIC_ERROR_ALLOCATION_FAILED;
-            return NULL;
+        
+        log_debug("waiting for new stream");
+        pthread_mutex_lock(&conn_io->lock);
+        while (conn_io->new_stream_io == conn_io->last_stream_io) {
+            pthread_cond_wait(&conn_io->cond, &conn_io->lock);
         }
+        stream_io = conn_io->new_stream_io;
+        pthread_mutex_unlock(&conn_io->lock);
+        conn_io->last_stream_io = stream_io;
         stream_io->stream_id = 4;
         stream_io->recv_buf = malloc(sizeof(struct buffer));
         stream_io->recv_buf->buf = NULL;
         stream_io->recv_buf->len = 0;
         stream_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-        
-        log_debug("waiting for new stream");
-        pthread_mutex_lock(&conn_io->lock);
-        pthread_cond_wait(&conn_io->cond, &conn_io->lock);
-        pthread_mutex_unlock(&conn_io->lock);
 
         HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
     }
@@ -2705,7 +2706,7 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
 
     log_debug("accepting stream");
     pthread_mutex_lock(&conn_io->lock);
-    if (conn_io->last_stream_io == conn_io->new_stream_io)
+    while (conn_io->last_stream_io == conn_io->new_stream_io)
     {
         log_debug("waiting for new stream");
         pthread_cond_wait(&conn_io->cond, &conn_io->lock);
