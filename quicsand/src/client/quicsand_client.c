@@ -368,7 +368,7 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
 int main(int argc, char *argv[]) {
   FILE *fp = stdout;
   // log_add_fp(fp, LOG_INFO);
-  log_set_level(LOG_DEBUG);
+  log_set_level(LOG_TRACE);
 
   char *ip_address = NULL;
   char *file_path = NULL;
@@ -415,9 +415,9 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
   }
 
-  // test_normal_send_receive(fp, config, ip_address, port);
+  test_normal_send_receive(fp, config, ip_address, port);
   // test_upload_file(fp, config, ip_address, port, file_path);
-  test_download_file(fp, config, ip_address, port, file_path);
+  // test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
   fclose(fp);

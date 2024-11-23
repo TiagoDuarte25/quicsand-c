@@ -30,6 +30,7 @@ add_definitions(-D_GNU_SOURCE)
 remove_definitions(-DLSQUIC)
 remove_definitions(-DMSQUIC)
 remove_definitions(-DQUICHE)
+remove_definitions(-DNGTCP2)
 
 
 FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
@@ -145,8 +146,6 @@ if("${IMPL}" STREQUAL "lsquic")
 
     # Add LSQUIC library directories and BoringSSL include directories
     include_directories(${BORINGSSL_DIR}/include)
-    include_directories(${BORINGSSL_DIR}/include/openssl)
-    include_directories(${BORINGSSL_DIR}/include/crypto)
     include_directories(${LSQUIC_DIR}/include)
     include_directories(${LSQUIC_DIR}/src/liblsquic)
 

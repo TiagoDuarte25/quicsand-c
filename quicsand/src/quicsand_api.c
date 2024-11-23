@@ -216,11 +216,51 @@ struct context
 #include <openssl/x509.h>
 #include <openssl/ssl.h>
 #include <fcntl.h>
+#include <limits.h>
 
 #include <ev.h>
 #include <lsquic.h>
 #include <errno.h>
 #include <assert.h>
+
+#include <uthash.h>
+
+struct buffer {
+    uint8_t *buf;
+    size_t sz;
+    size_t off;
+};
+
+
+struct stream_io {
+
+    struct lsquic_stream *stream;
+
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+
+    struct buffer *recv_buf;
+
+    UT_hash_handle hh;
+};
+
+struct conn_io {
+    ev_timer timer;
+    int sock;
+    struct sockaddr_storage peer_addr;
+    socklen_t peer_addr_len;
+
+    struct stream_io *h;
+    struct stream_io *last_stream_io;
+    struct stream_io *new_stream_io;
+
+    struct lsquic_conn *conn;
+
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+
+    UT_hash_handle hh;
+};
 
 struct context {
 
@@ -243,7 +283,7 @@ struct context {
             size_t              sz;         /* Size of bytes read is stored here */
             char                buf[0x100]; /* Read up to this many bytes */
         }   c;
-    };   
+    } u;   
     struct sockaddr_storage local_sas;
     union {
         struct sockaddr sa;
@@ -253,8 +293,14 @@ struct context {
         struct sockaddr sa;
         struct sockaddr_in sin;
     } peer_addr;
+
     SSL_CTX *ssl_ctx;
+
+    struct conn_io *h;
+    struct conn_io *last_conn_io;
+    struct conn_io *new_conn_io;
 };
+
 #endif
 
 #ifdef LSQUIC
@@ -266,7 +312,7 @@ static void process_conns (struct context *);
 static int
 log_buf (void *ctx, const char *buf, size_t len)
 {
-    FILE *out = ctx;
+    FILE *out = stdout;
     fwrite(buf, 1, len, out);
     fflush(out);
     return 0;
@@ -280,21 +326,22 @@ static int load_cert(struct context *ctx, char * cert_path, const char * key_pat
     ctx->ssl_ctx = SSL_CTX_new(TLS_method());
     if (!ctx->ssl_ctx)
     {
-        printf("SSL_CTX_new failed\n");
+        log_error("ssl_ctx_new failed");
         goto end;
     }
+
     SSL_CTX_set_min_proto_version(ctx->ssl_ctx, TLS1_3_VERSION);
     SSL_CTX_set_max_proto_version(ctx->ssl_ctx, TLS1_3_VERSION);
     SSL_CTX_set_default_verify_paths(ctx->ssl_ctx);
     if (1 != SSL_CTX_use_certificate_chain_file(ctx->ssl_ctx, cert_path))
     {
-        printf("SSL_CTX_use_certificate_chain_file failed\n");
+        log_error("ssl_ctx_use_certificate_chain_file failed");
         goto end;
     }
     if (1 != SSL_CTX_use_PrivateKey_file(ctx->ssl_ctx, key_path,
                                                             SSL_FILETYPE_PEM))
     {
-        printf("SSL_CTX_use_PrivateKey_file failed\n");
+        log_error("ssl_ctx_use_PrivateKey_file failed");
         goto end;
     }
     rv = 0;
@@ -316,325 +363,6 @@ get_ssl_ctx (void *peer_ctx, const struct sockaddr *local)
     return ctx->ssl_ctx;
 }
 
-static int
-set_nonblocking (int fd)
-{
-    int flags;
-
-    flags = fcntl(fd, F_GETFL);
-    if (-1 == flags)
-        return -1;
-    flags |= O_NONBLOCK;
-    if (0 != fcntl(fd, F_SETFL, flags))
-        return -1;
-
-    return 0;
-}
-
-
-/* ToS is used to get ECN value */
-static int
-set_ecn (int fd, const struct sockaddr *addr)
-{
-    int on, s;
-
-    on = 1;
-    if (AF_INET == addr->sa_family)
-        s = setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
-    if (s != 0)
-        perror("setsockopt(ecn)");
-
-    return s;
-}
-
-
-/* Set up the socket to return original destination address in ancillary data */
-static int
-set_origdst(int fd, const struct sockaddr *addr)
-{
-    int on, s;
-
-    on = 1;
-    s = setsockopt(fd, IPPROTO_IP, IP_RECVORIGDSTADDR, &on, sizeof(on));
-
-    if (s != 0)
-        perror("setsockopt");
-
-    return s;
-}
-
-static lsquic_conn_ctx_t *
-on_new_conn (void *stream_if_ctx, struct lsquic_conn *conn)
-{
-    printf("new connection\n");
-    struct context *const ctx = stream_if_ctx;
-    ctx->c.conn = conn;
-    printf("created connection");
-    return (void *) ctx;
-}
-
-
-static void
-on_hsk_done (lsquic_conn_t *conn, enum lsquic_hsk_status status)
-{
-    printf("handshake done\n");
-    struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
-
-    switch (status)
-    {
-    case LSQ_HSK_OK:
-        printf("handshake successful, start stdin watcher");
-        break;
-    case LSQ_HSK_RESUMED_OK:
-        printf("handshake successful, start stdin watcher");
-        break;
-    default:
-        printf("handshake failed");
-        break;
-    }
-}
-
-
-static void
-on_conn_closed (struct lsquic_conn *conn)
-{
-    printf("client connection closed -- stop reading from socket");
-    struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
-
-    printf("client connection closed -- stop reading from socket");
-}
-
-
-static lsquic_stream_ctx_t *
-on_new_stream (void *stream_if_ctx, struct lsquic_stream *stream)
-{
-    printf("created new stream, we want to write\n");
-    struct context *ctx = stream_if_ctx;
-    printf("created new stream, we want to write\n");
-    lsquic_stream_wantwrite(stream, 1);
-    /* return tut: we don't have any stream-specific context */
-    return (void *) ctx;
-}
-
-
-/* Echo whatever comes back from server, no verification */
-static void
-on_read_v0 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
-{
-    printf("read from stream\n");
-    struct context *ctx = (struct context *) h;
-    ssize_t nread;
-    unsigned char buf[3];
-
-    nread = lsquic_stream_read(stream, buf, sizeof(buf));
-    if (nread > 0)
-    {
-        fwrite(buf, 1, nread, stdout);
-        fflush(stdout);
-    }
-    else if (nread == 0)
-    {
-        printf("read to end-of-stream: close and read from stdin again\n");
-        lsquic_stream_shutdown(stream, 0);
-    }
-    else
-    {
-        printf("error reading from stream (%s) -- exit loop\n");
-    }
-}
-
-
-static size_t
-readf_v1 (void *ctx, const unsigned char *data, size_t len, int fin)
-{
-    if (len)
-    {
-        fwrite(data, 1, len, stdout);
-        fflush(stdout);
-    }
-    return len;
-}
-
-
-/* Same functionality as on_read_v0(), but use a readf callback */
-static void
-on_read_v1 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
-{
-    struct context *ctx = (struct context *) h;
-    ssize_t nread;
-
-    nread = lsquic_stream_readf(stream, readf_v1, NULL);
-    if (nread == 0)
-    {
-        printf("read to end-of-stream: close and read from stdin again\n");
-        lsquic_stream_shutdown(stream, 0);
-    }
-    else if (nread < 0)
-    {
-        printf("error reading from stream (%s) -- exit loop\n");
-    }
-}
-
-
-/* Alternatively, pass `stream' to lsquic_stream_readf() and call
- * lsquic_stream_get_ctx() to get struct tut *
- */
-struct read_v2_ctx {
-    struct context     *ctx;
-    lsquic_stream_t *stream;
-};
-
-
-static size_t
-readf_v2 (void *ctx, const unsigned char *data, size_t len, int fin)
-{
-    struct read_v2_ctx *v2ctx = ctx;
-    if (len)
-        fwrite(data, 1, len, stdout);
-    if (fin)
-    {
-        fflush(stdout);
-        printf("read to end-of-stream: close and read from stdin again");
-        lsquic_stream_shutdown(v2ctx->stream, 0);
-    }
-    return len;
-}
-
-
-/* A bit different from v1: act on fin.  This version saves an extra on_read()
- * call at the cost of some complexity.
- */
-static void
-on_read_v2 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
-{
-    struct context *ctx = (struct context *) h;
-    ssize_t nread;
-
-    // struct client_read_v2_ctx v2ctx = { ctx, stream, };
-    // nread = lsquic_stream_readf(stream, readf_v2, &v2ctx);
-    if (nread < 0)
-    {
-        printf("error reading from stream (%s) -- exit loop\n");
-    }
-}
-
-
-/* Write out the whole line to stream, shutdown write end, and switch
- * to reading the response.
- */
-static void
-on_write (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
-{
-    lsquic_conn_t *conn;
-    struct context *ctx;
-    ssize_t nw;
-
-    conn = lsquic_stream_conn(stream);
-    ctx = (void *) lsquic_conn_get_ctx(conn);
-
-    nw = lsquic_stream_write(stream, ctx->c.buf, ctx->c.sz);
-    if (nw > 0)
-    {
-        ctx->c.sz -= (size_t) nw;
-        if (ctx->c.sz == 0)
-        {
-            printf("wrote all %zd bytes to stream, switch to reading\n",
-                                                            (size_t) nw);
-            lsquic_stream_shutdown(stream, 1);  /* This flushes as well */
-            lsquic_stream_wantread(stream, 1);
-        }
-        else
-        {
-            memmove(ctx->c.buf, ctx->c.buf + nw, ctx->c.sz);
-            printf("wrote %zd bytes to stream, still have %zd bytes to write\n",
-                                                (size_t) nw, ctx->c.sz);
-        }
-    }
-    else
-    {
-        /* When `on_write()' is called, the library guarantees that at least
-         * something can be written.  If not, that's an error whether 0 or -1
-         * is returned.
-         */
-        printf("stream_write() returned %ld, abort connection\n", (long) nw);
-        lsquic_conn_abort(lsquic_stream_conn(stream));
-    }
-}
-
-
-static void
-on_close (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
-{
-    printf("stream closed\n");
-}
-
-static int
-packets_out_v0 (void *packets_out_ctx, const struct lsquic_out_spec *specs,
-                                                                unsigned count)
-{
-    printf("packets out\n");
-    unsigned n;
-    int fd, s = 0;
-    struct msghdr msg;
-
-    if (0 == count)
-        return 0;
-
-    n = 0;
-    msg.msg_flags      = 0;
-    msg.msg_control    = NULL;
-    msg.msg_controllen = 0;
-    do
-    {
-        fd                 = (int) (uint64_t) specs[n].peer_ctx;
-        msg.msg_name       = (void *) specs[n].dest_sa;
-        msg.msg_namelen    = (AF_INET == specs[n].dest_sa->sa_family ?
-                                            sizeof(struct sockaddr_in) :
-                                            sizeof(struct sockaddr_in6)),
-        msg.msg_iov        = specs[n].iov;
-        msg.msg_iovlen     = specs[n].iovlen;
-        s = sendmsg(fd, &msg, 0);
-        if (s < 0)
-        {
-            printf("sendmsg failed: %s\n", strerror(errno));
-            break;
-        }
-        ++n;
-    }
-    while (n < count);
-
-    if (n < count)
-        printf("could not send all of them\n");    /* TODO */
-
-    if (n > 0)
-        return n;
-    else
-    {
-        assert(s < 0);
-        return -1;
-    }
-}
-
-
-static void (*const on_read[])
-                        (lsquic_stream_t *, lsquic_stream_ctx_t *h) =
-{
-    on_read_v0,
-    on_read_v1,
-    on_read_v2,
-};
-
-static struct lsquic_stream_if callbacks =
-{
-    .on_new_conn        = on_new_conn,
-    .on_hsk_done        = on_hsk_done,
-    .on_conn_closed     = on_conn_closed,
-    .on_new_stream      = on_new_stream,
-    .on_read            = on_read_v0,
-    .on_write           = on_write,
-    .on_close           = on_close,
-};
-
 enum ctl_what
 {
     CW_SENDADDR = 1 << 0,
@@ -646,7 +374,6 @@ static void
 setup_control_msg (struct msghdr *msg, enum ctl_what cw,
         const struct lsquic_out_spec *spec, unsigned char *buf, size_t bufsz)
 {
-    printf("setup control message\n");
     struct cmsghdr *cmsg;
     struct sockaddr_in *local_sa;
     struct sockaddr_in6 *local_sa6;
@@ -678,6 +405,17 @@ setup_control_msg (struct msghdr *msg, enum ctl_what cw,
                 ctl_len += CMSG_SPACE(sizeof(info));
                 memcpy(CMSG_DATA(cmsg), &info, sizeof(info));
             }
+            else
+            {
+                local_sa6 = (struct sockaddr_in6 *) spec->local_sa;
+                memset(&info6, 0, sizeof(info6));
+                info6.ipi6_addr = local_sa6->sin6_addr;
+                cmsg->cmsg_level    = IPPROTO_IPV6;
+                cmsg->cmsg_type     = IPV6_PKTINFO;
+                cmsg->cmsg_len      = CMSG_LEN(sizeof(info6));
+                memcpy(CMSG_DATA(cmsg), &info6, sizeof(info6));
+                ctl_len += CMSG_SPACE(sizeof(info6));
+            }
             cw &= ~CW_SENDADDR;
         }
         else if (cw & CW_ECN)
@@ -691,6 +429,15 @@ setup_control_msg (struct msghdr *msg, enum ctl_what cw,
                 memcpy(CMSG_DATA(cmsg), &tos, sizeof(tos));
                 ctl_len += CMSG_SPACE(sizeof(tos));
             }
+            else
+            {
+                const int tos = spec->ecn;
+                cmsg->cmsg_level = IPPROTO_IPV6;
+                cmsg->cmsg_type  = IPV6_TCLASS;
+                cmsg->cmsg_len   = CMSG_LEN(sizeof(tos));
+                memcpy(CMSG_DATA(cmsg), &tos, sizeof(tos));
+                ctl_len += CMSG_SPACE(sizeof(tos));
+            }
             cw &= ~CW_ECN;
         }
         else
@@ -700,17 +447,682 @@ setup_control_msg (struct msghdr *msg, enum ctl_what cw,
     msg->msg_controllen = ctl_len;
 }
 
+
+/* A simple version of ea_packets_out -- does not use ancillary messages */
+static int
+packets_out_v0 (void *packets_out_ctx, const struct lsquic_out_spec *specs,
+                                                                unsigned count)
+{
+    unsigned n;
+    int fd, s = 0;
+    struct msghdr msg;
+
+    if (0 == count)
+        return 0;
+
+    n = 0;
+    msg.msg_flags      = 0;
+    msg.msg_control    = NULL;
+    msg.msg_controllen = 0;
+    do
+    {
+        fd                 = (int) (uint64_t) specs[n].peer_ctx;
+        msg.msg_name       = (void *) specs[n].dest_sa;
+        msg.msg_namelen    = (AF_INET == specs[n].dest_sa->sa_family ?
+                                            sizeof(struct sockaddr_in) :
+                                            sizeof(struct sockaddr_in6)),
+        msg.msg_iov        = specs[n].iov;
+        msg.msg_iovlen     = specs[n].iovlen;
+        s = sendmsg(fd, &msg, 0);
+        if (s < 0)
+        {
+            log_trace("sendmsg failed: %s", strerror(errno));
+            break;
+        }
+        ++n;
+    }
+    while (n < count);
+
+    if (n < count)
+        log_trace("could not send all of them");    /* TODO */
+
+    if (n > 0)
+        return n;
+    else
+    {
+        assert(s < 0);
+        return -1;
+    }
+}
+
+
+/* A more complicated version of ea_packets_out -- this one sets source IP
+ * address and ECN.
+ */
+static int
+packets_out_v1 (void *packets_out_ctx, const struct lsquic_out_spec *specs,
+                                                                unsigned count)
+{
+    struct context *const ctx = packets_out_ctx;
+    unsigned n;
+    int fd, s = 0;
+    struct msghdr msg;
+    enum ctl_what cw;
+    union {
+        /* cmsg(3) recommends union for proper alignment */
+        unsigned char buf[
+            CMSG_SPACE(MAX(sizeof(struct in_pktinfo),
+                sizeof(struct in6_pktinfo))) + CMSG_SPACE(sizeof(int))
+        ];
+        struct cmsghdr cmsg;
+    } ancil;
+
+    if (0 == count)
+        return 0;
+
+    n = 0;
+    msg.msg_flags = 0;
+    do
+    {
+        fd                 = (int) (uint64_t) specs[n].peer_ctx;
+        msg.msg_name       = (void *) specs[n].dest_sa;
+        msg.msg_namelen    = (AF_INET == specs[n].dest_sa->sa_family ?
+                                            sizeof(struct sockaddr_in) :
+                                            sizeof(struct sockaddr_in6)),
+        msg.msg_iov        = specs[n].iov;
+        msg.msg_iovlen     = specs[n].iovlen;
+
+        /* Set up ancillary message */
+        if (ctx->flags & SERVER)
+            cw = CW_SENDADDR;
+        else
+            cw = 0;
+        if (specs[n].ecn)
+            cw |= CW_ECN;
+        if (cw)
+            setup_control_msg(&msg, cw, &specs[n], ancil.buf,
+                                                    sizeof(ancil.buf));
+        else
+        {
+            msg.msg_control    = NULL;
+            msg.msg_controllen = 0;
+        }
+
+        s = sendmsg(fd, &msg, 0);
+        if (s < 0)
+        {
+            log_trace("sendmsg failed: %s", strerror(errno));
+            break;
+        }
+        ++n;
+    }
+    while (n < count);
+
+    if (n < count)
+        log_trace("could not send all of them");    /* TODO */
+
+    if (n > 0)
+        return n;
+    else
+    {
+        assert(s < 0);
+        return -1;
+    }
+}
+
+
+static int (*const packets_out[]) (void *packets_out_ctx,
+                const struct lsquic_out_spec *specs, unsigned count) =
+{
+    packets_out_v0,
+    packets_out_v1,
+};
+
+static lsquic_conn_ctx_t *
+client_on_new_conn (void *stream_if_ctx, struct lsquic_conn *conn)
+{
+    struct context *const ctx = stream_if_ctx;
+    log_trace("created connection");
+    return (void *) ctx;
+}
+
+
+static void
+client_on_hsk_done (lsquic_conn_t *conn, enum lsquic_hsk_status status)
+{
+    struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
+
+    switch (status)
+    {
+    case LSQ_HSK_OK:
+    case LSQ_HSK_RESUMED_OK:
+        log_trace("handshake successful, start stdin watcher");
+        break;
+    default:
+        log_trace("handshake failed");
+        break;
+    }
+}
+
+
+static void
+client_on_conn_closed (struct lsquic_conn *conn)
+{
+    struct context *const ctx = (void *) lsquic_conn_get_ctx(conn);
+
+    log_trace("client connection closed -- stop reading from socket");
+    ev_io_stop(ctx->loop, &ctx->sock_w);
+}
+
+
+static lsquic_stream_ctx_t *
+client_on_new_stream (void *stream_if_ctx, struct lsquic_stream *stream)
+{
+    struct context *ctx = stream_if_ctx;
+    log_trace("created new stream, we want to write");
+    lsquic_stream_wantwrite(stream, 1);
+    return (void *) ctx;
+}
+
+
+/* Echo whatever comes back from server, no verification */
+static void
+client_on_read_v0 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    struct context *ctx = (struct context *) h;
+    ssize_t nread;
+    unsigned char buf[3];
+
+    nread = lsquic_stream_read(stream, buf, sizeof(buf));
+    if (nread > 0)
+    {
+        fwrite(buf, 1, nread, stdout);
+        fflush(stdout);
+    }
+    else if (nread == 0)
+    {
+        log_trace("read to end-of-stream: close and read from stdin again");
+        lsquic_stream_shutdown(stream, 0);
+    }
+    else
+    {
+        log_trace("error reading from stream (%s) -- exit loop");
+        ev_break(ctx->loop, EVBREAK_ONE);
+    }
+}
+
+
+static size_t
+client_readf_v1 (void *ctx, const unsigned char *data, size_t len, int fin)
+{
+    if (len)
+    {
+        fwrite(data, 1, len, stdout);
+        fflush(stdout);
+    }
+    return len;
+}
+
+
+/* Same functionality as client_on_read_v0(), but use a readf callback */
+static void
+client_on_read_v1 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    struct context *ctx = (struct context *) h;
+    ssize_t nread;
+
+    nread = lsquic_stream_readf(stream, client_readf_v1, NULL);
+    if (nread == 0)
+    {
+        log_trace("read to end-of-stream: close and read from stdin again");
+        lsquic_stream_shutdown(stream, 0);
+        // ev_io_start(ctx->loop, &ctx->u.c.stdin_w);
+    }
+    else if (nread < 0)
+    {
+        log_trace("error reading from stream (%s) -- exit loop");
+        ev_break(ctx->loop, EVBREAK_ONE);
+    }
+}
+
+
+/* Alternatively, pass `stream' to lsquic_stream_readf() and call
+ * lsquic_stream_get_ctx() to get struct context *
+ */
+struct client_read_v2_ctx {
+    struct context     *ctx;
+    lsquic_stream_t *stream;
+};
+
+
+static size_t
+client_readf_v2 (void *ctx, const unsigned char *data, size_t len, int fin)
+{
+    struct client_read_v2_ctx *v2ctx = ctx;
+    if (len)
+        fwrite(data, 1, len, stdout);
+    if (fin)
+    {
+        fflush(stdout);
+        log_trace("read to end-of-stream: close and read from stdin again");
+        lsquic_stream_shutdown(v2ctx->stream, 0);
+        // ev_io_start(v2ctx->ctx->loop, &v2ctx->ctx->u.c.stdin_w);
+    }
+    return len;
+}
+
+
+/* A bit different from v1: act on fin.  This version saves an extra on_read()
+ * call at the cost of some complexity.
+ */
+static void
+client_on_read_v2 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    struct context *ctx = (struct context *) h;
+    ssize_t nread;
+
+    struct client_read_v2_ctx v2ctx = { ctx, stream, };
+    nread = lsquic_stream_readf(stream, client_readf_v2, &v2ctx);
+    if (nread < 0)
+    {
+        log_trace("error reading from stream (%s) -- exit loop");
+        ev_break(ctx->loop, EVBREAK_ONE);
+    }
+}
+
+
+/* Write out the whole line to stream, shutdown write end, and switch
+ * to reading the response.
+ */
+static void
+client_on_write (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    lsquic_conn_t *conn;
+    struct context *ctx;
+    ssize_t nw;
+
+    conn = lsquic_stream_conn(stream);
+    ctx = (void *) lsquic_conn_get_ctx(conn);
+
+    nw = lsquic_stream_write(stream, ctx->u.c.buf, ctx->u.c.sz);
+    if (nw > 0)
+    {
+        ctx->u.c.sz -= (size_t) nw;
+        if (ctx->u.c.sz == 0)
+        {
+            log_trace("wrote all %zd bytes to stream, switch to reading",
+                                                            (size_t) nw);
+            lsquic_stream_shutdown(stream, 1);  /* This flushes as well */
+            lsquic_stream_wantread(stream, 1);
+        }
+        else
+        {
+            memmove(ctx->u.c.buf, ctx->u.c.buf + nw, ctx->u.c.sz);
+            log_trace("wrote %zd bytes to stream, still have %zd bytes to write",
+                                                (size_t) nw, ctx->u.c.sz);
+        }
+    }
+    else
+    {
+        /* When `on_write()' is called, the library guarantees that at least
+         * something can be written.  If not, that's an error whether 0 or -1
+         * is returned.
+         */
+        log_trace("stream_write() returned %ld, abort connection", (long) nw);
+        lsquic_conn_abort(lsquic_stream_conn(stream));
+    }
+}
+
+
+static void
+client_on_close (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    log_trace("stream closed");
+}
+
+
+static void (*const client_on_read[])
+                        (lsquic_stream_t *, lsquic_stream_ctx_t *h) =
+{
+    client_on_read_v0,
+    client_on_read_v1,
+    client_on_read_v2,
+};
+
+
+static struct lsquic_stream_if client_callbacks =
+{
+    .on_new_conn        = client_on_new_conn,
+    .on_hsk_done        = client_on_hsk_done,
+    .on_conn_closed     = client_on_conn_closed,
+    .on_new_stream      = client_on_new_stream,
+    .on_read            = client_on_read_v0,
+    .on_write           = client_on_write,
+    .on_close           = client_on_close,
+};
+
+
+static lsquic_conn_ctx_t *
+server_on_new_conn (void *stream_if_ctx, struct lsquic_conn *conn)
+{
+    struct context *const ctx = stream_if_ctx;
+
+    log_trace("created new connection");
+    return (void *) ctx;     /* Pointer to ctx is the connection context */
+}
+
+
+static void
+server_on_conn_closed (lsquic_conn_t *conn)
+{
+    log_trace("closed connection");
+}
+
+
+struct server_stream_ctx
+{
+    size_t           sc_sz;            /* Number of bytes in tsc_buf */
+    off_t            sc_off;           /* Number of bytes written to stream */
+    unsigned char    sc_buf[0x100];    /* Bytes read in from client */
+};
+
+
+static lsquic_stream_ctx_t *
+server_on_new_stream (void *stream_if_ctx, struct lsquic_stream *stream)
+{
+    struct server_stream_ctx *sc;
+
+    /* Allocate a new buffer per stream.  There is no reason why the echo
+     * server could not process several echo streams at the same time.
+     */
+    sc = malloc(sizeof(*sc));
+    if (!sc)
+    {
+        log_trace("cannot allocate server stream context");
+        lsquic_conn_abort(lsquic_stream_conn(stream));
+        return NULL;
+    }
+
+    sc->sc_sz = 0;
+    sc->sc_off = 0;
+    lsquic_stream_wantread(stream, 1);
+    log_trace("created new echo stream -- want to read");
+    return (void *) sc;
+}
+
+
+static void
+reverse_string (unsigned char *p, size_t len)
+{
+    unsigned char *q, tmp;
+
+    q = p + len - 1;
+    while (p < q)
+    {
+        tmp = *p;
+        *p = *q;
+        *q = tmp;
+        ++p;
+        --q;
+    }
+}
+
+
+/* Read until newline and then echo it back */
+static void
+server_on_read (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    struct server_stream_ctx *const sc = (void *) h;
+    ssize_t nread;
+    unsigned char buf[1];
+
+    nread = lsquic_stream_read(stream, buf, sizeof(buf));
+    if (nread > 0)
+    {
+        sc->sc_buf[ sc->sc_sz ] = buf[0];
+        ++sc->sc_sz;
+        if (buf[0] == (unsigned char) '\n'
+                            || sc->sc_sz == sizeof(sc->sc_buf))
+        {
+            log_trace("read newline or filled buffer, switch to writing");
+            reverse_string(sc->sc_buf,
+                            sc->sc_sz - (buf[0] == (unsigned char) '\n'));
+            lsquic_stream_wantread(stream, 0);
+            lsquic_stream_wantwrite(stream, 1);
+        }
+    }
+    else if (nread == 0)
+    {
+        log_trace("read EOF");
+        lsquic_stream_shutdown(stream, 0);
+        if (sc->sc_sz)
+            lsquic_stream_wantwrite(stream, 1);
+    }
+    else
+    {
+        /* This should not happen */
+        log_trace("error reading from stream (errno: %d) -- abort connection", errno);
+        lsquic_conn_abort(lsquic_stream_conn(stream));
+    }
+}
+
+
+static void
+server_on_write_v0 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    struct server_stream_ctx *const sc = (void *) h;
+    ssize_t nw;
+
+    assert(sc->sc_sz > 0);
+    nw = lsquic_stream_write(stream, sc->sc_buf + sc->sc_off,
+                                            sc->sc_sz - sc->sc_off);
+    if (nw > 0)
+    {
+        sc->sc_off += nw;
+        if (sc->sc_off == sc->sc_sz)
+        {
+            log_trace("wrote all %zd bytes to stream, close stream",
+                                                            (size_t) nw);
+            lsquic_stream_close(stream);
+        }
+        else
+            log_trace("wrote %zd bytes to stream, still have %zd bytes to write",
+                                (size_t) nw, sc->sc_sz - sc->sc_off);
+    }
+    else
+    {
+        /* When `on_write()' is called, the library guarantees that at least
+         * something can be written.  If not, that's an error whether 0 or -1
+         * is returned.
+         */
+        log_trace("stream_write() returned %ld, abort connection", (long) nw);
+        lsquic_conn_abort(lsquic_stream_conn(stream));
+    }
+}
+
+
+static size_t
+sc_read (void *ctx, void *buf, size_t count)
+{
+    struct server_stream_ctx *sc = ctx;
+
+    if (count > sc->sc_sz - sc->sc_off)
+        count = sc->sc_sz - sc->sc_off;
+    memcpy(buf, sc->sc_buf + sc->sc_off, count);
+    sc->sc_off += count;
+    return count;
+}
+
+
+static size_t
+sc_size (void *ctx)
+{
+    struct server_stream_ctx *sc = ctx;
+    return sc->sc_sz - sc->sc_off;
+}
+
+
+/* Same functionality as server_on_write_v0(), but use the "reader"
+ * callbacks.  This is most useful when data comes from a different source
+ * such as file descriptor.
+ */
+static void
+server_on_write_v1 (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    struct server_stream_ctx *const sc = (void *) h;
+    struct lsquic_reader reader = { sc_read, sc_size, sc, };
+    const size_t left = sc->sc_sz;
+    ssize_t nw;
+
+    nw = lsquic_stream_writef(stream, &reader);
+    if (nw > 0 && sc->sc_off == sc->sc_sz)
+    {
+        log_trace("wrote all %zd bytes to stream, close stream", left);
+        lsquic_stream_close(stream);
+    }
+    else if (nw < 0)
+    {
+        log_trace("stream_write() returned %ld, abort connection", (long) nw);
+        lsquic_conn_abort(lsquic_stream_conn(stream));
+    }
+}
+
+
+static void
+server_on_close (struct lsquic_stream *stream, lsquic_stream_ctx_t *h)
+{
+    struct server_stream_ctx *const sc = (void *) h;
+    free(sc);
+    log_trace("stream closed");
+}
+
+
+static void (*const server_on_write[])(lsquic_stream_t *,
+                                                lsquic_stream_ctx_t *) =
+{
+    server_on_write_v0,
+    server_on_write_v1,
+};
+
+
+static struct lsquic_stream_if server_callbacks =
+{
+    .on_new_conn        = server_on_new_conn,
+    .on_conn_closed     = server_on_conn_closed,
+    .on_new_stream      = server_on_new_stream,
+    .on_read            = server_on_read,
+    .on_write           = server_on_write_v0,
+    .on_close           = server_on_close,
+};
+
+
+/* Read one byte at a time -- when user hits enter, send line to server */
+static void
+read_stdin (EV_P_ ev_io *w, int revents)
+{
+    struct context *const ctx = w->data;
+    ssize_t nr;
+
+    assert(ctx->u.c.sz < sizeof(ctx->u.c.buf));
+
+    nr = read(w->fd, ctx->u.c.buf + ctx->u.c.sz, 1);
+    if (nr > 0)
+    {
+        ctx->u.c.sz += nr;
+        if (ctx->u.c.buf[ctx->u.c.sz - 1] == '\n'
+                            || sizeof(ctx->u.c.buf) == ctx->u.c.sz)
+        {
+            log_trace("read up to newline (or filled buffer): make new stream");
+            lsquic_conn_make_stream(ctx->u.c.conn);
+            ev_io_stop(ctx->loop, w);
+            process_conns(ctx);
+        }
+    }
+    else if (nr == 0)
+    {
+        log_trace("read EOF: stop reading from stdin, close connection");
+        ev_io_stop(ctx->loop, w);
+        // ev_io_stop(ctx->loop, &ctx->u.c.stdin_w);
+        lsquic_conn_close(ctx->u.c.conn);
+        process_conns(ctx);
+    }
+    else
+    {
+        log_trace("error reading from stdin: %s", strerror(errno));
+        ev_break(ctx->loop, EVBREAK_ONE);
+    }
+}
+
+
+static int
+set_nonblocking (int fd)
+{
+    int flags;
+
+    flags = fcntl(fd, F_GETFL);
+    if (-1 == flags)
+        return -1;
+    flags |= O_NONBLOCK;
+    if (0 != fcntl(fd, F_SETFL, flags))
+        return -1;
+
+    return 0;
+}
+
+
+/* ToS is used to get ECN value */
+static int
+set_ecn (int fd, const struct sockaddr *sa)
+{
+    int on, s;
+
+    on = 1;
+    if (AF_INET == sa->sa_family)
+        s = setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
+    else
+        s = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
+    if (s != 0)
+        perror("setsockopt(ecn)");
+
+    return s;
+}
+
+
+/* Set up the socket to return original destination address in ancillary data */
+static int
+set_origdst (int fd, const struct sockaddr *sa)
+{
+    int on, s;
+
+    on = 1;
+    if (AF_INET == sa->sa_family)
+        s = setsockopt(fd, IPPROTO_IP,
+#if defined(IP_RECVORIGDSTADDR)
+                                       IP_RECVORIGDSTADDR,
+#else
+                                       IP_PKTINFO,
+#endif
+                                                           &on, sizeof(on));
+    else
+        s = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on));
+
+    if (s != 0)
+        perror("setsockopt");
+
+    return s;
+}
+
+
 static void
 timer_expired (EV_P_ ev_timer *timer, int revents)
 {
-    printf("timer expired\n");
     process_conns(timer->data);
 }
+
 
 static void
 process_conns (struct context *ctx)
 {
-    printf("process connections\n");
     int diff;
     ev_tstamp timeout;
 
@@ -731,41 +1143,74 @@ process_conns (struct context *ctx)
         else
             /* Round up to granularity */
             timeout = (ev_tstamp) LSQUIC_DF_CLOCK_GRANULARITY / 1000000;
-        printf("converted diff %d usec to %.4lf seconds\n", diff, timeout);
+        log_trace("converted diff %d usec to %.4lf seconds", diff, timeout);
         ev_timer_init(&ctx->timer, timer_expired, timeout, 0.);
         ev_timer_start(ctx->loop, &ctx->timer);
     }
 }
 
 
-
-
-
 static void
-proc_ancillary (struct msghdr *msg, struct sockaddr_storage *storage, int *ecn)
+proc_ancillary (struct msghdr *msg, struct sockaddr_storage *storage,
+                                                                    int *ecn)
 {
-    printf("process ancillary\n");
+    const struct in6_pktinfo *in6_pkt;
     struct cmsghdr *cmsg;
+
     for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg))
     {
-        if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type  == IP_ORIGDSTADDR)
+        if (cmsg->cmsg_level == IPPROTO_IP &&
+            cmsg->cmsg_type  ==
+#if defined(IP_RECVORIGDSTADDR)
+                                IP_ORIGDSTADDR
+#else
+                                IP_PKTINFO
+#endif
+                                              )
         {
+#if defined(IP_RECVORIGDSTADDR)
             memcpy(storage, CMSG_DATA(cmsg), sizeof(struct sockaddr_in));
+#else
+            const struct in_pktinfo *in_pkt;
+            in_pkt = (void *) CMSG_DATA(cmsg);
+            ((struct sockaddr_in *) storage)->sin_addr = in_pkt->ipi_addr;
+#endif
+        }
+        else if (cmsg->cmsg_level == IPPROTO_IPV6 &&
+                 cmsg->cmsg_type  == IPV6_PKTINFO)
+        {
+            in6_pkt = (void *) CMSG_DATA(cmsg);
+            ((struct sockaddr_in6 *) storage)->sin6_addr =
+                                                    in6_pkt->ipi6_addr;
+        }
+        else if ((cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS)
+                 || (cmsg->cmsg_level == IPPROTO_IPV6
+                                            && cmsg->cmsg_type == IPV6_TCLASS))
+        {
+            memcpy(ecn, CMSG_DATA(cmsg), sizeof(*ecn));
+            *ecn &= IPTOS_ECN_MASK;
         }
     }
 }
 
-#define DST_MSG_SZ sizeof(struct sockaddr_in)
+
+#if defined(IP_RECVORIGDSTADDR)
+#   define DST_MSG_SZ sizeof(struct sockaddr_in)
+#else
+#   define DST_MSG_SZ sizeof(struct in_pktinfo)
+#endif
 
 #define ECN_SZ CMSG_SPACE(sizeof(int))
 
 /* Amount of space required for incoming ancillary data */
-#define CTL_SZ (CMSG_SPACE(DST_MSG_SZ))
+#define CTL_SZ (CMSG_SPACE(MAX(DST_MSG_SZ, \
+                                    sizeof(struct in6_pktinfo))) + ECN_SZ)
+
 
 static void
 read_socket (EV_P_ ev_io *w, int revents)
 {
-    printf("read socket\n");
+    log_trace("read_socket");
     struct context *const ctx = w->data;
     ssize_t nread;
     int ecn;
@@ -785,7 +1230,7 @@ read_socket (EV_P_ ev_io *w, int revents)
     nread = recvmsg(w->fd, &msg, 0);
     if (-1 == nread) {
         if (!(EAGAIN == errno || EWOULDBLOCK == errno))
-            printf("recvmsg: %s\n", strerror(errno));
+            log_trace("recvmsg: %s", strerror(errno));
         return;
     }
 
@@ -1778,7 +2223,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     }
     return (context_t) ctx;
     #elif LSQUIC
-    printf("Using lsquic\n");
+    log_debug("create context\n");
     struct context *ctx = malloc(sizeof(*ctx));
     memset(ctx, 0, sizeof(*ctx));
     const char *val;
@@ -1793,8 +2238,9 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     lsquic_set_log_level("DEBUG");
 
     if (ctx == NULL) {
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
+        log_error("cannot allocate context");
+        quic_error = QUIC_ERROR_ALLOCATION_FAILED;
+        return NULL;
     }
     if (cert_path != NULL && key_path != NULL) {
         ctx->flags = LSENG_SERVER;
@@ -1804,19 +2250,22 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         ctx->flags = 0;
     }
     else {
-        fprintf(stderr, "Both cert_path and key_path must be provided\n");
-        exit(1);
-        
+        log_error("cert_path and key_path must be both NULL or not NULL");
+        quic_error = QUIC_ERROR_INVALID_ARGUMENT;
+        return NULL;        
     }
 
     if (0 != lsquic_global_init(ctx->flags & LSENG_SERVER ? LSQUIC_GLOBAL_SERVER : LSQUIC_GLOBAL_CLIENT))
     {
-        exit(EXIT_FAILURE);
+        log_error("cannot initialize globals");
+        quic_error = QUIC_ERROR_INITIALIZATION_FAILED;
+        return NULL;
     }
 
     lsquic_engine_init_settings(&ctx->settings, ctx->flags);
-    ctx->settings.es_versions = LSQUIC_DF_VERSIONS;
-    ctx->settings.es_delay_onclose = 1;
+    // ctx->settings.es_versions = LSQUIC_DF_VERSIONS;
+    // ctx->settings.es_delay_onclose = 1;
+    ctx->settings.es_ql_bits = 0;
 
     printf("cert_path: %s\n", cert_path);
     printf("key_path: %s\n", key_path);
@@ -1824,24 +2273,34 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     /* Check settings */
     if (0 != lsquic_engine_check_settings(&ctx->settings, ctx->flags, errbuf, sizeof(errbuf)))
     {
-        printf("invalid settings: %s\n", errbuf);
-        exit(EXIT_FAILURE);
+        log_error("engine settings check failed: %s", errbuf);
+        quic_error = QUIC_ERROR_INVALID_ARGUMENT;
+        return NULL;
     }
 
     /* Initialize callbacks */
     memset(&ctx->eapi, 0, sizeof(ctx->eapi));
     ctx->eapi.ea_packets_out = packets_out_v0;
     ctx->eapi.ea_packets_out_ctx = ctx;
-    ctx->eapi.ea_stream_if = &callbacks;
-    ctx->eapi.ea_stream_if_ctx = ctx;
+    if (ctx->flags & LSENG_SERVER)
+    {
+        ctx->eapi.ea_stream_if = &server_callbacks;
+        ctx->eapi.ea_stream_if_ctx = ctx;
+    }
+    else
+    {
+        ctx->eapi.ea_stream_if = &client_callbacks;
+        ctx->eapi.ea_stream_if_ctx = ctx;
+    }
     ctx->eapi.ea_get_ssl_ctx = get_ssl_ctx;
     ctx->eapi.ea_settings = &ctx->settings;
 
     ctx->engine = lsquic_engine_new(ctx->flags, &ctx->eapi);
     if (!ctx->engine)
     {
-        printf("cannot create engine\n");
-        exit(EXIT_FAILURE);
+        log_error("cannot create engine");
+        quic_error = QUIC_ERROR_INITIALIZATION_FAILED;
+        return NULL;
     }
 
     return (context_t) ctx;
@@ -1924,7 +2383,7 @@ int bind_addr(context_t context, char* ip, int port) {
         ctx->local_addr.sin.sin_port   = htons(port);
     } else {
         perror("inet_pton");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     
     /* Initialize event loop */
@@ -1934,33 +2393,40 @@ int bind_addr(context_t context, char* ip, int port) {
     if (ctx->sock_fd < 0)
     {
         perror("socket");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     if (0 != set_nonblocking(ctx->sock_fd))
     {
         perror("fcntl");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     if (0 != set_ecn(ctx->sock_fd, &ctx->local_addr.sa))
-        exit(EXIT_FAILURE);
+        return -1;
     if (ctx->flags & LSENG_SERVER)
         if (0 != set_origdst(ctx->sock_fd, &ctx->local_addr.sa))
-            exit(EXIT_FAILURE);
+            return -1;
 
-    if (ctx->flags & LSENG_SERVER)
+    ssize_t socklen = sizeof(ctx->local_addr);
+    if (0 != bind(ctx->sock_fd, &ctx->local_addr.sa, socklen))
     {
-        ssize_t socklen = sizeof(ctx->local_addr);
-        if (0 != bind(ctx->sock_fd, &ctx->local_addr.sa, socklen))
-        {
-            perror("bind");
-            exit(EXIT_FAILURE);
-        }
-        memcpy(&ctx->local_sas, &ctx->local_addr, sizeof(ctx->local_addr));
+        perror("bind");
+        return -1;
     }
-    printf("Socket created\n");
+    memcpy(&ctx->local_sas, &ctx->local_addr, sizeof(ctx->local_addr));
 
     ev_io_init(&ctx->sock_w, read_socket, ctx->sock_fd, EV_READ);
     ev_io_start(ctx->loop, &ctx->sock_w);
+
+    ctx->timer.data = ctx;
+    ctx->sock_w.data = ctx;
+
+    log_debug("address bound");
+
+    // Print local address
+    char local_addr_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &ctx->local_addr.sin.sin_addr, local_addr_str, sizeof(local_addr_str));
+    log_warn("Local address: %s:%d\n", local_addr_str, ntohs(ctx->local_addr.sin.sin_port));
+    return 0;
 
     #endif
 }
@@ -2152,7 +2618,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     return (connection_t) connection_info;
     #elif LSQUIC
     struct context *ctx = (struct context *)context;
-    printf("Opening connection\n");
+    log_debug("opening connection");
 
     ctx->local_addr.sin.sin_family = AF_INET;
     ctx->local_addr.sin.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -2162,22 +2628,22 @@ connection_t open_connection(context_t context, char* ip, int port) {
     if (ctx->sock_fd < 0)
     {
         perror("socket");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     if (0 != set_nonblocking(ctx->sock_fd))
     {
         perror("fcntl");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     if (0 != set_ecn(ctx->sock_fd, &ctx->local_addr.sa))
-        exit(EXIT_FAILURE);
+        return NULL;
 
     ctx->local_sas.ss_family = ctx->local_addr.sa.sa_family;
     size_t socklen = sizeof(ctx->local_sas);
     if (0 != bind(ctx->sock_fd, (struct sockaddr *) &ctx->local_sas, socklen))
     {
         perror("bind");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     ev_init(&ctx->timer, timer_expired);
 
@@ -2193,20 +2659,31 @@ connection_t open_connection(context_t context, char* ip, int port) {
         ctx->peer_addr.sin.sin_port   = htons(port);
     }
 
-    printf("Connecting to %s:%d\n", ip, port);
+    // Print local and peer addresses
+    char local_addr_str[INET_ADDRSTRLEN];
+    char peer_addr_str[INET_ADDRSTRLEN];
 
-    ctx->c.conn = lsquic_engine_connect(
+    inet_ntop(AF_INET, &ctx->local_addr.sin.sin_addr, local_addr_str, sizeof(local_addr_str));
+    inet_ntop(AF_INET, &ctx->peer_addr.sin.sin_addr, peer_addr_str, sizeof(peer_addr_str));
+
+    log_warn("local address: %s:%d\n", local_addr_str, ntohs(ctx->local_addr.sin.sin_port));
+    log_warn("peer address: %s:%d\n", peer_addr_str, ntohs(ctx->peer_addr.sin.sin_port));
+
+
+    ctx->u.c.conn = lsquic_engine_connect(
             ctx->engine, N_LSQVER,
             (struct sockaddr *) &ctx->local_sas, &ctx->peer_addr.sa,
             (void *) ctx,  /* Peer ctx */
-            NULL, NULL, 0, NULL, 0, NULL, 0);
-    printf("Connection: %p\n", (void *)ctx->c.conn);
-    if (!ctx->c.conn)
+            (void *) ctx, NULL, 0, NULL, 0, NULL, 0);
+
+    log_trace("connection: %p", (void *)ctx->u.c.conn);
+    if (!ctx->u.c.conn)
     {
-        printf("cannot create connection\n");
-        exit(EXIT_FAILURE);
+        log_error("cannot create connection");
+        quic_error = QUIC_ERROR_CONNECTION_FAILED;
+        return NULL;
     }
-    printf("Connection created\n");
+    log_trace("connection established");
     process_conns(ctx);
     ev_run(ctx->loop, 0);
 
@@ -2214,10 +2691,10 @@ connection_t open_connection(context_t context, char* ip, int port) {
     //                                         ? LSENG_SERVER : 0, &eapi);
     // if (!ctx->engine)
     // {
-    //     printf("cannot create engine\n");LOG
-    //     exit(EXIT_FAILURE);
+    //     printf("cannot create engine\n");log_trace
+    //     return -1;
     // }
-    return (connection_t) &ctx->c.conn;
+    return (connection_t) &ctx->u.c.conn;
     #endif
 }
 
@@ -2601,7 +3078,7 @@ int set_listen(context_t context) {
         log_error("failed to create event loop thread");
         return -1;
     }
-
+    return 0;
     #elif MSQUIC
     log_debug("setting listener");
     struct context *ctx = (struct context *)context;
@@ -2620,8 +3097,12 @@ int set_listen(context_t context) {
         return -1;
     }
     log_debug("listening");
+    return 0;
     #elif LSQUIC
+    log_debug("start listener");
     struct context *ctx = (struct context *)context;
+
+    return 0;
     #endif
 }
 
@@ -2692,9 +3173,8 @@ connection_t accept_connection(context_t context, time_t timeout) {
     #elif LSQUIC
     printf("accept_connection\n");
     struct context *ctx = (struct context *)context;
-    process_conns(ctx);
     ev_run(ctx->loop, 0);
-    return (connection_t) &ctx->c.conn;
+    return (connection_t) &ctx->u.c.conn;
     #endif
 }
 

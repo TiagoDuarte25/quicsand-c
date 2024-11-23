@@ -191,7 +191,7 @@ int main(int argc, char *argv[])
     // FILE *fp = fopen("server.log", "w+");
     // FILE *fp = stdout;
     // log_add_fp(fp, LOG_INFO);
-    log_set_level(LOG_INFO);
+    log_set_level(LOG_TRACE);
 
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1)
