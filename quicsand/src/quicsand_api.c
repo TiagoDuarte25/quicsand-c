@@ -53,6 +53,9 @@ struct connections {
 struct conn_io {
     ev_timer timer;
 
+    int read_fd;
+    int write_fd;
+
     int sock;
 
     uint8_t cid[LOCAL_CONN_ID_LEN];
@@ -246,7 +249,8 @@ struct stream_io {
 
 struct conn_io {
     ev_timer timer;
-    int sock;
+    int write_fd;
+    int read_fd;
     struct sockaddr_storage peer_addr;
     socklen_t peer_addr_len;
 
@@ -1510,7 +1514,6 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
 static void client_timeout_cb(EV_P_ ev_timer *w, int revents);
 static void server_timeout_cb(EV_P_ ev_timer *w, int revents);
 static void client_recv_cb(EV_P_ ev_io *w, int revents);
-static void server_recv_cb(EV_P_ ev_io *w, int revents);
 
 static void debug_log(const char *line, void *argp) {
     fprintf(stderr, "%s\n", line);
@@ -1642,7 +1645,6 @@ static struct conn_io *create_conn(struct context *ctx, uint8_t *scid, size_t sc
         log_error("failed to create connection");
         return NULL;
     }
-
     conn_io->sock = conns->sock;
     conn_io->conn = conn;
 
@@ -1654,19 +1656,151 @@ static struct conn_io *create_conn(struct context *ctx, uint8_t *scid, size_t sc
     timeout_args->ctx = ctx;
     timeout_args->conn_io = conn_io;
     conn_io->timer.data = timeout_args;
-
-    HASH_ADD(hh, conns->h, cid, LOCAL_CONN_ID_LEN, conn_io);
-
     log_trace("created connection %p", (void *)conn_io);
 
     return conn_io;
 }
 
-static void server_recv_cb(EV_P_ ev_io *w, int revents) {
-    struct conn_io *tmp, *conn_io = NULL;
+void *conn_recv_cb(void *timeout_args) {
+    struct timeout_args *args = timeout_args;
+    struct context *ctx = args->ctx;
+    struct connections *conns = ctx->conns;
+    struct conn_io *conn_io = args->conn_io;
+
+    static uint8_t buf[65535];
+    static uint8_t out[MAX_DATAGRAM_SIZE];
+
+    while (1) {
+        struct sockaddr_storage peer_addr = conn_io->peer_addr;
+        socklen_t peer_addr_len = conn_io->peer_addr_len;
+
+        ssize_t r = read(conn_io->read_fd, buf, sizeof(buf));
+
+        if (r < 0) {
+            log_error("failed to read, closing connection: %s", strerror(errno));
+            return NULL;
+        }
+
+        uint8_t type;
+        uint32_t version;
+
+        uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
+        size_t scid_len = sizeof(scid);
+
+        uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
+        size_t dcid_len = sizeof(dcid);
+
+        uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
+        size_t odcid_len = sizeof(odcid);
+
+        uint8_t token[MAX_TOKEN_LEN];
+        size_t token_len = sizeof(token);
+
+        int rc = quiche_header_info(buf, r, LOCAL_CONN_ID_LEN, &version,
+                                    &type, scid, &scid_len, dcid, &dcid_len,
+                                    token, &token_len);
+        if (rc < 0) {
+            log_error("failed to parse header: %d", rc);
+            continue;
+        }
+
+        // HASH_FIND(hh, conns->h, dcid, dcid_len, conn_io);
+
+        if (conn_io == NULL) {
+            log_trace("connection not found, creating one");
+        }
+
+        quiche_recv_info recv_info = {
+            (struct sockaddr *)&peer_addr,
+            peer_addr_len,
+
+            (struct sockaddr *)&conns->local_addr,
+            conns->local_addr_len,
+        };
+        
+        ssize_t done = quiche_conn_recv(conn_io->conn, buf, r, &recv_info);
+        if (done < 0) {
+            log_error("failed to process packet: %zd", done);
+            continue;
+        }
+        
+        pthread_mutex_lock(&conn_io->lock);
+        conn_io->acked = true;
+        pthread_cond_signal(&conn_io->cond);
+        pthread_mutex_unlock(&conn_io->lock);
+
+        log_trace("connection %p: recv %zd bytes", conn_io, done);
+
+        if (quiche_conn_is_established(conn_io->conn)) {
+            uint64_t s = 0;
+            
+            quiche_stream_iter *readable = quiche_conn_readable(conn_io->conn);
+
+            while (quiche_stream_iter_next(readable, &s)) {
+                log_trace("stream %" PRIu64 " is readable", s);
+
+                bool fin = false;
+                uint64_t error_code;
+                ssize_t recv_len = quiche_conn_stream_recv(conn_io->conn, s,
+                                                           buf, sizeof(buf),
+                                                           &fin, &error_code);
+                if (recv_len < 0) {
+                    break;
+                }
+                struct stream_io *stream_io;
+                HASH_FIND(hh, conn_io->h, &s, sizeof(s), stream_io);
+                if (stream_io == NULL) {
+                    log_trace("stream %p not found", (void *)stream_io);
+                    if (strcmp((char *)buf, "open stream") == 0) {
+                        stream_io = malloc(sizeof(struct stream_io));
+                        if (stream_io == NULL) {
+                            log_error("failed to allocate stream IO");
+                            return NULL;
+                        }
+                        stream_io->stream_id = s;
+                        stream_io->recv_buf = malloc(sizeof(struct buffer));
+                        stream_io->recv_buf->buf = NULL;
+                        stream_io->recv_buf->len = 0;
+                        stream_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+                        stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+                        HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
+                        pthread_mutex_lock(&conn_io->lock);
+                        conn_io->new_stream_io = stream_io;
+                        pthread_cond_signal(&conn_io->cond);
+                        pthread_mutex_unlock(&conn_io->lock);
+                        quiche_conn_stream_send(conn_io->conn, s, (uint8_t *)"stream opened", sizeof("stream opened"), false, &error_code);
+                        flush_egress(ctx->loop, conn_io);
+                    }
+                } else {
+                    log_trace("stream %p found", (void *)stream_io);
+                    pthread_mutex_lock(&stream_io->lock);
+                    if (stream_io->recv_buf->buf != NULL) {
+                        // add new bytes to the buffer
+                        stream_io->recv_buf->buf = realloc(stream_io->recv_buf->buf, stream_io->recv_buf->len + recv_len);
+                        memcpy(stream_io->recv_buf->buf + stream_io->recv_buf->len, buf, recv_len);
+                        stream_io->recv_buf->len += recv_len;
+                    } else {
+                        stream_io->recv_buf->buf = malloc(recv_len);
+                        stream_io->recv_buf->len = recv_len;
+                        memcpy(stream_io->recv_buf->buf, buf, recv_len);
+                    }
+                    pthread_cond_signal(&stream_io->cond);
+                    pthread_mutex_unlock(&stream_io->lock);
+                }
+            }
+
+            quiche_stream_iter_free(readable);
+        }
+        flush_egress(ctx->loop, conn_io);
+    }
+}
+
+static void read_socket_cb(EV_P_ ev_io *w, int revents) 
+{
     struct context *ctx = w->data;
     struct connections *conns = ctx->conns;
     struct conn_io *new_conn_io = conns->new_conn_io;
+    struct conn_io *conn_io, *tmp;
 
     static uint8_t buf[65535];
     static uint8_t out[MAX_DATAGRAM_SIZE];
@@ -1715,6 +1849,7 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
         log_trace("Parsed header: version=%u, type=%u, scid_len=%zu, dcid_len=%zu, token_len=%zu",
                version, type, scid_len, dcid_len, token_len);
 
+        
         HASH_FIND(hh, conns->h, dcid, dcid_len, conn_io);
 
         if (conn_io == NULL) {
@@ -1791,95 +1926,29 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
             if (conn_io == NULL) {
                 continue;
             }
+            
+            int pipefd[2];
+            if (pipe(pipefd) < 0) {
+                log_error("failed to create pipe: %s", strerror(errno));
+                return;
+            }
+            conn_io->read_fd = pipefd[0];
+            conn_io->write_fd = pipefd[1];
+            struct timeout_args *timeout_args = malloc(sizeof(struct timeout_args));
+            timeout_args->ctx = ctx;
+            timeout_args->conn_io = conn_io;
+
+            pthread_t read_thread;
+            pthread_create(&read_thread, NULL, conn_recv_cb, timeout_args);
 
             pthread_mutex_lock(&conns->lock);
             conns->new_conn_io = conn_io;
             pthread_cond_signal(&conns->cond);
             pthread_mutex_unlock(&conns->lock);
+
+            HASH_ADD(hh, conns->h, cid, LOCAL_CONN_ID_LEN, conn_io);
         }
-
-        quiche_recv_info recv_info = {
-            (struct sockaddr *)&peer_addr,
-            peer_addr_len,
-
-            (struct sockaddr *)&conns->local_addr,
-            conns->local_addr_len,
-        };
-
-        ssize_t done = quiche_conn_recv(conn_io->conn, buf, read, &recv_info);
-
-        if (done < 0) {
-            log_error("failed to process packet: %zd", done);
-            continue;
-        }
-
-        pthread_mutex_lock(&conn_io->lock);
-        conn_io->acked = true;
-        pthread_cond_signal(&conn_io->cond);
-        pthread_mutex_unlock(&conn_io->lock);
-
-        log_trace("connection %p: recv %zd bytes", conn_io, done);
-
-        if (quiche_conn_is_established(conn_io->conn)) {
-            uint64_t s = 0;
-
-            quiche_stream_iter *readable = quiche_conn_readable(conn_io->conn);
-
-            while (quiche_stream_iter_next(readable, &s)) {
-                log_trace("stream %" PRIu64 " is readable", s);
-
-                bool fin = false;
-                uint64_t error_code;
-                ssize_t recv_len = quiche_conn_stream_recv(conn_io->conn, s,
-                                                           buf, sizeof(buf),
-                                                           &fin, &error_code);
-                if (recv_len < 0) {
-                    break;
-                }
-                struct stream_io *stream_io;
-                HASH_FIND(hh, conn_io->h, &s, sizeof(s), stream_io);
-                if (stream_io == NULL) {
-                    log_trace("stream %p not found", (void *)stream_io);
-                    if (strcmp((char *)buf, "open stream") == 0) {
-                        stream_io = malloc(sizeof(struct stream_io));
-                        if (stream_io == NULL) {
-                            log_error("failed to allocate stream IO");
-                            return;
-                        }
-                        stream_io->stream_id = s;
-                        stream_io->recv_buf = malloc(sizeof(struct buffer));
-                        stream_io->recv_buf->buf = NULL;
-                        stream_io->recv_buf->len = 0;
-                        stream_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-                        stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-                        HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
-                        pthread_mutex_lock(&conn_io->lock);
-                        conn_io->new_stream_io = stream_io;
-                        pthread_cond_signal(&conn_io->cond);
-                        pthread_mutex_unlock(&conn_io->lock);
-                        quiche_conn_stream_send(conn_io->conn, s, (uint8_t *)"stream opened", sizeof("stream opened"), false, &error_code);
-                        flush_egress(loop, conn_io);
-                    }
-                } else {
-                    log_trace("stream %p found", (void *)stream_io);
-                    pthread_mutex_lock(&stream_io->lock);
-                    if (stream_io->recv_buf->buf != NULL) {
-                        // add new bytes to the buffer
-                        stream_io->recv_buf->buf = realloc(stream_io->recv_buf->buf, stream_io->recv_buf->len + recv_len);
-                        memcpy(stream_io->recv_buf->buf + stream_io->recv_buf->len, buf, recv_len);
-                        stream_io->recv_buf->len += recv_len;
-                    } else {
-                        stream_io->recv_buf->buf = malloc(recv_len);
-                        stream_io->recv_buf->len = recv_len;
-                        memcpy(stream_io->recv_buf->buf, buf, recv_len);
-                    }
-                    pthread_cond_signal(&stream_io->cond);
-                    pthread_mutex_unlock(&stream_io->lock);
-                }
-            }
-
-            quiche_stream_iter_free(readable);
-        }
+        write(conn_io->write_fd, buf, read);
     }
 
     HASH_ITER(hh, conns->h, conn_io, tmp) {
@@ -1902,7 +1971,6 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents) {
             free(conn_io);
         }
     }
-    
 }
 
 static void client_recv_cb(EV_P_ ev_io *w, int revents) {
@@ -2512,7 +2580,6 @@ connection_t open_connection(context_t context, char* ip, int port) {
         return NULL;
     }
 
-    printf("after\n");
     conn_io->sock = sock;
     conn_io->conn = conn;
     conn_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
@@ -2523,7 +2590,8 @@ connection_t open_connection(context_t context, char* ip, int port) {
     conn_io->new_stream_io = NULL;
     conn_io->last_stream_io = NULL;
 
-    ctx->loop = ev_default_loop(0);
+    // Create a new event loop
+    ctx->loop = ev_loop_new(EVFLAG_AUTO);
 
     ev_io_init(&ctx->watcher, client_recv_cb, sock, EV_READ);
     ev_io_start(ctx->loop, &ctx->watcher);
@@ -3068,7 +3136,7 @@ int set_listen(context_t context) {
 
     ctx->loop = ev_default_loop(0);
 
-    ev_io_init(&ctx->watcher, server_recv_cb, ctx->conns->sock, EV_READ);
+    ev_io_init(&ctx->watcher, read_socket_cb, ctx->conns->sock, EV_READ);
     ev_io_start(ctx->loop, &ctx->watcher);
     ctx->watcher.data = ctx;
 

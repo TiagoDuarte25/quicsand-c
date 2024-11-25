@@ -161,6 +161,9 @@ if("${IMPL}" STREQUAL "lsquic")
     # Manually set the libraries
     set(LIBS ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} ${BORINGSSL_DIR}/ssl/libssl.so ${BORINGSSL_DIR}/crypto/libcrypto.so ${LSQUIC_DIR}/src/liblsquic/liblsquic.so m yaml z)
 
+    target_compile_definitions(client PRIVATE LSQUIC)
+    target_compile_definitions(server PRIVATE LSQUIC)
+
     IF(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # If using older glibc, need to link with -lrt. See clock_getres(2).
         EXECUTE_PROCESS(
@@ -243,8 +246,8 @@ ELSEIF("${IMPL}" STREQUAL "msquic")
     # Set libraries
     SET(LIBS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 
-    target_compile_definitions(server PRIVATE QUIC_API_ENABLE_PREVIEW_FEATURES)
-    target_compile_definitions(client PRIVATE QUIC_API_ENABLE_PREVIEW_FEATURES)
+    target_compile_definitions(client PRIVATE MSQUIC)
+    target_compile_definitions(server PRIVATE MSQUIC)
 
 ELSEIF("${IMPL}" STREQUAL "quiche")
 
@@ -269,6 +272,9 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
 
     # Set libraries
     SET(LIBS ${QUICHE_DIR}/target/debug/libquiche.a ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} yaml m)
+
+    target_compile_definitions(client PRIVATE QUICHE)
+    target_compile_definitions(server PRIVATE QUICHE)
 
 ELSEIF("${IMPL}" STREQUAL "ngtcp2")
 

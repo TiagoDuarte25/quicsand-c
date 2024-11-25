@@ -227,7 +227,19 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     log_info("end of test");
 }
 
-void test_normal_send_receive(FILE *fp, config_t *config, char *ip_address, int port) {
+struct args {
+  FILE *fp;
+  config_t *config;
+  char *ip_address;
+  int port;
+};
+
+void *test_normal_send_receive(void *args) {
+  struct args *arguments = (struct args *)args;
+  FILE *fp = arguments->fp;
+  config_t *config = arguments->config;
+  char *ip_address = arguments->ip_address;
+  int port = arguments->port;
   log_info("testing normal send/receive communication");
   struct timespec start, end;
   double rtt = 0;
@@ -415,7 +427,23 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
   }
 
-  test_normal_send_receive(fp, config, ip_address, port);
+  #define NUM_THREADS 5
+  pthread_t thread[NUM_THREADS];
+  for (int i = 0; i < NUM_THREADS; i++) {
+    struct args *arguments = (struct args *)malloc(sizeof(struct args));
+    arguments->fp = fp;
+    arguments->config = config;
+    arguments->ip_address = ip_address;
+    arguments->port = port;
+    log_info("creating thread %d", i);
+    pthread_create(&thread[i], NULL, test_normal_send_receive, arguments);
+    sleep(1);
+  }
+  for (int i = 0; i < NUM_THREADS; i++) {
+    pthread_join(thread[i], NULL);
+  }
+
+  // test_normal_send_receive(fp, config, ip_address, port);
   // test_upload_file(fp, config, ip_address, port, file_path);
   // test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
