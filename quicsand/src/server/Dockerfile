@@ -17,7 +17,7 @@ COPY resources/testing_files /app/resources/testing_files
 RUN apt update && \
     apt install -y bash gcc g++ make libc6-dev dpkg-dev cmake git liblttng-ust-dev lttng-tools && \
     apt install -y libyaml-dev libc6-dev-i386 libbpf-dev libnl-3-dev pkg-config llvm clang m4 libpcap-dev && \
-    apt install -y libnuma-dev software-properties-common wget
+    apt install -y libnuma-dev software-properties-common wget libglib2.0-dev rustc cargo
 
 # # Download the Microsoft repository GPG keys
 # RUN wget -q https://packages.microsoft.com/config/ubuntu/18.04/packages-microsoft-prod.deb

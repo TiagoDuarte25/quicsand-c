@@ -232,6 +232,7 @@ struct args {
   config_t *config;
   char *ip_address;
   int port;
+  char *file_path;
 };
 
 void *test_normal_send_receive(void *args) {
@@ -249,26 +250,26 @@ void *test_normal_send_receive(void *args) {
   connection_t connection = open_connection(ctx, ip_address, port);
   log_info("connection opened");
   stream_t stream = open_stream(ctx, connection);
-  log_info("stream opened");
+  log_info("[conn] %p: stream opened", connection);
 
   // Send control message
   const char *control_message = CONTROL_SINGLE;
   send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
-  log_info("control message sent: %s", control_message);
+  log_info("[conn] %p: control message sent: %s", connection, control_message);
   char ack[256];
   ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
-  log_info("ack received: %s", ack);
+  log_info("[conn] %p: ack received: %s", connection, ack);
 
-  for (int i = 0; i < NUM_REPETITIONS; i++) {
+  for (int i = 0; 1 ; i++) {
     char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
     send_data(ctx, connection, stream, data, strlen(data));
-    log_info("data sent: %s", data);
+    log_info("[conn] %p: data sent: %s", connection, data);
     char response[1024];
     ssize_t len;
     ssize_t total_len = 0;
-    while (1) {
-        len = recv_data(ctx, connection, stream, response + total_len, 1024 - total_len, 0);
+    int error = 0;
+    while (len = recv_data(ctx, connection, stream, response + total_len, 1024 - total_len, 0)) {
         if (len > 0) {
             total_len += len;
             // Ensure termination
@@ -280,13 +281,18 @@ void *test_normal_send_receive(void *args) {
 
             // Check if the entire message has been received
             if (response[total_len] == '\0') {
-              log_info("data received: %s", response);
+              log_info("[conn] %p: data received: %s", connection, response);
               break;
             }
         } else {
             // Handle error or end of data
+            log_error("[conn] %p: recv timeout", connection);
+            error = 1;
             break;
         }
+    }
+    if (len < 0 || error) {
+      break;
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
@@ -296,7 +302,13 @@ void *test_normal_send_receive(void *args) {
   log_info("end of test");
 }
 
-void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, const char *file_path) {
+void *test_upload_file(void *args) {
+    struct args *arguments = (struct args *)args;
+    FILE *fp = arguments->fp;
+    config_t *config = arguments->config;
+    char *ip_address = arguments->ip_address;
+    int port = arguments->port;
+    char *file_path = arguments->file_path;
     log_info("Uploading large file: %s", file_path);
     struct timespec start, end;
     struct rusage usage_start, usage_end;
@@ -328,7 +340,7 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
     FILE *file = fopen(file_path, "r");
     if (!file) {
         log_error("failed to open file %s", file_path);
-        return;
+        return NULL;
     }
 
     char buffer[CHUNK_SIZE];
@@ -347,6 +359,7 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
     }
     fclose(file);
     send_data(ctx, connection, stream, (void *)"EOF", 3);
+    log_info("sending EOF");
 
     // End time and resource usage
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -378,9 +391,10 @@ void test_upload_file(FILE *fp, config_t *config, char *ip_address, int port, co
 }
 
 int main(int argc, char *argv[]) {
-  FILE *fp = stdout;
-  // log_add_fp(fp, LOG_INFO);
-  log_set_level(LOG_TRACE);
+  FILE *fp = fopen("client.log", "w+");
+  log_add_fp(fp, LOG_TRACE);
+  // FILE *fp = stdout;
+  // log_set_level(LOG_TRACE);
 
   char *ip_address = NULL;
   char *file_path = NULL;
@@ -427,7 +441,7 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
   }
 
-  #define NUM_THREADS 5
+  #define NUM_THREADS 1
   pthread_t thread[NUM_THREADS];
   for (int i = 0; i < NUM_THREADS; i++) {
     struct args *arguments = (struct args *)malloc(sizeof(struct args));
@@ -435,9 +449,9 @@ int main(int argc, char *argv[]) {
     arguments->config = config;
     arguments->ip_address = ip_address;
     arguments->port = port;
+    arguments->file_path = file_path;
     log_info("creating thread %d", i);
     pthread_create(&thread[i], NULL, test_normal_send_receive, arguments);
-    sleep(1);
   }
   for (int i = 0; i < NUM_THREADS; i++) {
     pthread_join(thread[i], NULL);

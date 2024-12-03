@@ -268,7 +268,16 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
         )
     endif()
 
+    if (NOT EXISTS ${QUICHE_DIR}/target/debug/libquiche.a)
+        message(FATAL_ERROR "Failed to build quiche")
+    endif()
+
     include_directories(${QUICHE_DIR}/quiche/include)
+
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
+    target_link_libraries(server PkgConfig::deps)
+    target_link_libraries(client PkgConfig::deps)
 
     # Set libraries
     SET(LIBS ${QUICHE_DIR}/target/debug/libquiche.a ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} yaml m)

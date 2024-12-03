@@ -1,20 +1,16 @@
-# The number of repetitions for the experiment
-repetitions: 5
+# give me parameters to test my client server application
 
-# The number of seconds to run the experiment
-buffer_size: 1460
+num_clients: 1
 
-# The request size in bytes
-request_size: 20
+num_servers: 1
 
-# Credential validation 
-#       0 -> secure
-#       1 -> unsecure
-unsecure: 1
+topology: "star"
 
-#docker
-#target: "quicsand_server_container"
-#local
-host: "127.0.0.1"
+test_type: "latency"
 
-port: 4567
+certificate: "certificate"
+
+key: "key"
+
+ca: "ca"
+

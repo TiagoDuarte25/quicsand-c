@@ -76,6 +76,7 @@ void *handle_connection(void *arg)
         }
 
         char buffer[CHUNK_SIZE + 1];
+        time_t timeout = 30;
         while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
             buffer[len] = '\0';
             log_info("received data: %.*s", (int)len, buffer);
@@ -132,6 +133,7 @@ void *handle_connection(void *arg)
         log_info("file download completed");
     } else if (strcmp(control_message, CONTROL_SINGLE) == 0) {
         log_info("handling single send-receive");
+        int error = 0;
         while (1)
         {
             char buffer[1024];
@@ -163,8 +165,14 @@ void *handle_connection(void *arg)
                 else
                 {
                     log_error("error: %s", quic_error_message(quic_error));
+                    error = 0;
                     break;
                 }
+            }
+            if (error)
+            {
+                log_error("error: %s", quic_error_message(quic_error));
+                break;
             }
             char *resp = "Hello, client!";
             int err = send_data(ctx, connection, stream, resp, strlen(resp));
@@ -188,10 +196,9 @@ int main(int argc, char *argv[])
     int port = 0;
     int opt;
 
-    // FILE *fp = fopen("server.log", "w+");
-    // FILE *fp = stdout;
-    // log_add_fp(fp, LOG_INFO);
-    log_set_level(LOG_TRACE);
+    FILE *fp = fopen("server.log", "w+");
+    log_add_fp(fp, LOG_TRACE);
+    // log_set_level(LOG_TRACE);
 
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1)
@@ -241,6 +248,11 @@ int main(int argc, char *argv[])
     {
         log_info("waiting for connection");
         connection_t connection = accept_connection(ctx, 0);
+        if (!connection)
+        {
+            log_info("error: %s", quic_error_message(quic_error));
+            continue;
+        }
         log_info("connection accepted");
 
         // Allocate memory for thread data
