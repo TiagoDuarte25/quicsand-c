@@ -66,6 +66,13 @@ if [ ! -d "implementations/$IMPLEMENTATION" ]; then
     usage
 fi
 
+# Check if the cAdvisor container is already running and remove it if necessary
+if docker ps -a --format '{{.Names}}' | grep -q "^cadvisor$"; then
+    echo "Removing existing cAdvisor container..."
+    docker rm -f cadvisor
+fi
+docker run -d --name=cadvisor --network=host --privileged --volume=/:/rootfs:ro --volume=/var/run:/var/run:rw --volume=/sys:/sys:ro --volume=/var/lib/docker/:/var/lib/docker:ro --publish=8080:8080 --detach=true google/cadvisor:latest
+
 cp quicsand/src/client_"$IMPLEMENTATION"/"$IMPLEMENTATION"_build.sh quicsand/src/client/build.sh
 cp quicsand/src/server_"$IMPLEMENTATION"/"$IMPLEMENTATION"_build.sh quicsand/src/server/build.sh
 
@@ -81,6 +88,21 @@ docker stack rm kollaps_example
 
 # Remove kollaps_example containers
 docker ps | grep "kollaps_example" | awk '{print $1}' | xargs -I {} docker rm -f {}
+
+# Check if the cAdvisor container is already running and remove it if necessary
+if docker ps -a --format '{{.Names}}' | grep -q "^cadvisor$"; then
+    echo "Removing existing cAdvisor container..."
+    docker rm -f cadvisor
+fi
+docker run \
+			  --volume=/:/rootfs:ro \
+			  --volume=/var/run:/var/run:ro \
+			  --volume=/sys:/sys:ro \
+			  --volume=/var/lib/docker/:/var/lib/docker:ro \
+			  --publish=8080:8080 \
+			  --detach=true \
+			  --name=cadvisor \
+			  gcr.io/cadvisor/cadvisor:latest
 
 # Pass flags to docker-compose and start the containers
 IMPLEMENTATION="$IMPLEMENTATION" docker compose build
@@ -109,12 +131,6 @@ else
 fi
 
 docker stack deploy -c experiment.yaml kollaps_example
-
-# Run the cAdvisor container
-if docker ps | grep -q "cadvisor"; then
-    docker rm -f cadvisor
-fi
-docker run -d --name=cadvisor --network=host --privileged --volume=/:/rootfs:ro --volume=/var/run:/var/run:rw --volume=/sys:/sys:ro --volume=/var/lib/docker/:/var/lib/docker:ro --publish=8080:8080 --detach=true --restart=always google/cadvisor:latest
 
 # # Check if the experiment is running
 # while ! docker stack ps kollaps_example | grep -q "kollaps_example_dashboard"; do

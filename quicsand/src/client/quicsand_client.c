@@ -233,6 +233,8 @@ struct args {
   char *ip_address;
   int port;
   char *file_path;
+  size_t data_size;
+  double duration;
 };
 
 void *test_normal_send_receive(void *args) {
@@ -297,6 +299,7 @@ void *test_normal_send_receive(void *args) {
     clock_gettime(CLOCK_MONOTONIC, &end);
     rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
   }
+  // close_connection(ctx, connection);
   log_info("rtt: %.2f ms", rtt / NUM_REPETITIONS);
   log_info("normal send/receive completed");
   log_info("end of test");
@@ -361,6 +364,8 @@ void *test_upload_file(void *args) {
     send_data(ctx, connection, stream, (void *)"EOF", 3);
     log_info("sending EOF");
 
+    // close_stream(ctx, connection, stream);
+
     // End time and resource usage
     clock_gettime(CLOCK_MONOTONIC, &end);
     getrusage(RUSAGE_SELF, &usage_end);
@@ -388,6 +393,107 @@ void *test_upload_file(void *args) {
     log_info("average chunk size: %.2f bytes", (double)total_bytes / num_chunks);
     log_info("file upload completed");
     log_info("end of test");
+}
+
+void *test_upload_random_data(void *args) {
+    struct args *arguments = (struct args *)args;
+    config_t *config = arguments->config;
+    char *ip_address = arguments->ip_address;
+    int port = arguments->port;
+    size_t data_size = arguments->data_size; // Size of random data to send
+    double duration = arguments->duration; // Duration of the test in seconds
+    log_info("Uploading random data of size: %zu bytes for duration: %.2f seconds", data_size, duration);
+    struct timespec start, end, current, start_prog, end_prog;
+    struct rusage usage_start, usage_end;
+    double total_time = 0;
+    double bandwidth, cpu_time, memory_usage;
+    size_t total_bytes = 0;
+    size_t num_chunks = 0;
+
+    // Start time and resource usage
+    clock_gettime(CLOCK_MONOTONIC, &start_prog);
+    getrusage(RUSAGE_SELF, &usage_start);
+
+    context_t ctx = create_quic_context(NULL, NULL);
+    log_info("context created");
+    log_info("connecting to %s:%d", ip_address, port);
+    connection_t connection = open_connection(ctx, ip_address, port);
+    log_info("connection opened");
+    stream_t stream = open_stream(ctx, connection);
+    log_info("stream opened");
+
+    // Send control message
+    const char *control_message = CONTROL_UPLOAD;
+    send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+    log_info("control message sent: %s", control_message);
+    char ack[256];
+    ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
+    log_info("ack received: %s", ack);
+
+    // Allocate buffer for random data
+    char *buffer = malloc(data_size);
+    if (!buffer) {
+        log_error("failed to allocate buffer");
+        return NULL;
+    }
+
+    // Seed the random number generator
+    srand(time(NULL));
+
+    // Fill buffer with random data
+    for (size_t i = 0; i < data_size; i++) {
+        buffer[i] = rand() % 256;
+    }
+
+    log_info("start hour: %d", start.tv_sec);
+
+    // Send random data for the specified duration
+    clock_gettime(CLOCK_MONOTONIC, &current);
+    while ((current.tv_sec - start_prog.tv_sec) + (current.tv_nsec - start_prog.tv_nsec) / 1e9 < duration) {
+        log_info("sending random data chunk");
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        if (send_data(ctx, connection, stream, buffer, data_size) < 0) {
+            log_error("failed to send data");
+            break;
+        }
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        total_bytes += data_size;
+        num_chunks++;
+        clock_gettime(CLOCK_MONOTONIC, &current);
+    }
+
+    free(buffer);
+    send_data(ctx, connection, stream, (void *)"EOF", 3);
+    log_info("sending EOF");
+
+    // End time and resource usage
+    clock_gettime(CLOCK_MONOTONIC, &end_prog);
+    getrusage(RUSAGE_SELF, &usage_end);
+
+    total_time = (end_prog.tv_sec - start_prog.tv_sec) + (end_prog.tv_nsec - start_prog.tv_nsec) / 1e9;
+
+    // Calculate bandwidth in bytes per second
+    bandwidth = (total_bytes / total_time);
+
+    // Calculate CPU time in seconds
+    cpu_time = (usage_end.ru_utime.tv_sec - usage_start.ru_utime.tv_sec) +
+               (usage_end.ru_utime.tv_usec - usage_start.ru_utime.tv_usec) / 1e6;
+
+    // Calculate memory usage in kilobytes
+    memory_usage = usage_end.ru_maxrss - usage_start.ru_maxrss;
+
+    // Log metrics
+    log_info("upload time: %.2f ms", total_time);
+    log_info("bandwidth: %.2f bytes/sec", bandwidth);
+    log_info("cpu time: %.2f sec", cpu_time);
+    log_info("memory usage: %.2f KB", memory_usage);
+    log_info("total bytes transferred: %zu bytes", total_bytes);
+    log_info("number of chunks sent: %zu", num_chunks);
+    log_info("average chunk size: %.2f bytes", (double)total_bytes / num_chunks);
+    log_info("random data upload completed");
+    log_info("end of test");
+
+    return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -450,8 +556,10 @@ int main(int argc, char *argv[]) {
     arguments->ip_address = ip_address;
     arguments->port = port;
     arguments->file_path = file_path;
+    arguments->data_size = 1024;
+    arguments->duration = 60;
     log_info("creating thread %d", i);
-    pthread_create(&thread[i], NULL, test_normal_send_receive, arguments);
+    pthread_create(&thread[i], NULL, test_upload_random_data, arguments);
   }
   for (int i = 0; i < NUM_THREADS; i++) {
     pthread_join(thread[i], NULL);

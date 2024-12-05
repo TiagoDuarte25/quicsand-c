@@ -23,11 +23,11 @@
 	</bridges>
     <links>
 		<!-- definition of the links, the "network" should match the name of an existing container network -->
-		<link origin="client1" dest="s1" latency="10" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
-		<link origin="client2" dest="s1" latency="5" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
-		<link origin="client3" dest="s1" latency="5" upload="10Mbps" download="10Mbps" network="kollaps_network"/>
-		<link origin="s1" dest="s2" latency="10" upload="50Mbps" download="50Mbps" network="kollaps_network"/>
-		<link origin="s2" dest="server" latency="5" upload="100Mbps" download="100Mbps" network="kollaps_network"/>
+		<link origin="client1" dest="s1" latency="10" upload="5Mbps" download="5Mbps" network="kollaps_network"/>
+		<link origin="client2" dest="s1" latency="10" upload="5Mbps" download="5Mbps" network="kollaps_network"/>
+		<link origin="client3" dest="s1" latency="10" upload="5Mbps" download="5Mbps" network="kollaps_network"/>
+		<link origin="s1" dest="s2" latency="10" upload="5Mbps" download="5Mbps" network="kollaps_network"/>
+		<link origin="s2" dest="server" latency="10" upload="5Mbps" download="5Mbps" network="kollaps_network"/>
 	</links>
 	<dynamic>
 		<!-- schedulle the dynamics of the experiment. These apply to services and links, see documentation for more details.

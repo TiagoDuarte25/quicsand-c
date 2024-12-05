@@ -82,8 +82,9 @@ void *handle_connection(void *arg)
             log_info("received data: %.*s", (int)len, buffer);
             log_info("len: %ld", len);
             
-            // check if buffer message is "EOF"
-            if (strcmp(buffer, "EOF") == 0) {
+            // check if the contains EOF some where in the buffer
+            if (strstr(buffer, "EOF") != NULL) {
+                fwrite(buffer, sizeof(char), len - 3, file);
                 break;
             }
             size_t written = fwrite(buffer, sizeof(char), len, file);
