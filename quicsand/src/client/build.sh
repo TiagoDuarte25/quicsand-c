@@ -14,8 +14,6 @@ apt-get install -y libc6-dev-i386 libbpf-dev libnl-3-dev
 # Install additional packages for xdp-tools
 apt-get install -y pkg-config llvm clang m4 libpcap-dev
 
-apt-get install -y libglib2.0-dev
-
 mkdir -p /tools
 cd /tools
 git clone https://github.com/xdp-project/xdp-tools.git

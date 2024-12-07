@@ -129,6 +129,7 @@ struct timeout_args {
 #include <ev.h>
 #include <time.h>
 #include <uthash.h>
+#include <glib.h>
 
 #ifndef UNREFERENCED_PARAMETER
 #define UNREFERENCED_PARAMETER(P) (void)(P)
@@ -159,8 +160,9 @@ typedef struct {
 
 typedef struct {
     HQUIC connection;
-    stream_info_t *last_new_stream;
-    stream_info_t *new_stream;
+    GQueue *stream_queue;
+    GMutex queue_mutex;
+    GCond queue_cond;
     pthread_mutex_t lock;
     pthread_cond_t cond;
     int connected;
@@ -203,8 +205,9 @@ struct context
         } s;
     };
 
-    connection_info_t *last_new_connection;
-    connection_info_t *new_connection;
+    GQueue *conn_queue;
+    GMutex queue_mutex;
+    GCond queue_cond;
     pthread_mutex_t lock;
     pthread_cond_t cond;
 
@@ -1368,7 +1371,7 @@ connection_callback(
         log_trace("[conn][%p] connected", (void *)connection);
         pthread_mutex_lock(&ctx->lock);
         connection_info->connection = connection;
-        ctx->new_connection = connection_info;
+        connection_info->connected = 1;
         pthread_cond_signal(&ctx->cond);
         pthread_mutex_unlock(&ctx->lock);
         break;
@@ -1410,11 +1413,14 @@ connection_callback(
         stream_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         stream_info->can_send = TRUE;
+        g_mutex_lock(&connection_info->queue_mutex);
+        g_queue_push_tail(connection_info->stream_queue, stream_info);
+        g_cond_signal(&connection_info->queue_cond);
+        g_mutex_unlock(&connection_info->queue_mutex);
         ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
         ctx_strm->connection_info = connection_info;
         ctx_strm->stream_info = stream_info;
         pthread_mutex_lock(&connection_info->lock);
-        connection_info->new_stream = stream_info;
         pthread_cond_signal(&connection_info->cond);
         pthread_mutex_unlock(&connection_info->lock);
         ctx->msquic->SetCallbackHandler(event->PEER_STREAM_STARTED.Stream, (void *)stream_callback, ctx_strm);
@@ -1488,6 +1494,13 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         connection_info->h = NULL;
         connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        g_mutex_lock(&ctx->queue_mutex);
+        g_queue_push_tail(ctx->conn_queue, connection_info);
+        g_cond_signal(&ctx->queue_cond);
+        g_mutex_unlock(&ctx->queue_mutex);
+        connection_info->stream_queue = g_queue_new();
+        g_mutex_init(&connection_info->queue_mutex);
+        g_cond_init(&connection_info->queue_cond);
         // set the callback handler
         ctx_conn->connection_info = connection_info;
         ctx_conn->ctx = ctx;
@@ -2236,8 +2249,11 @@ context_t create_quic_context(char *cert_path, char *key_path) {
 
         quiche_enable_debug_logging(debug_log, NULL);
 
+        // quiche_config_set_application_protos(ctx->config,
+        //                                     (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
+        // I want ALPN that use h3
         quiche_config_set_application_protos(ctx->config,
-                                            (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
+                                            (uint8_t *)"\x05hq-29\x05hq-28\x05hq-27", 15);
         // quiche_config_set_max_idle_timeout(ctx->config, 10000000);
         quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
@@ -2270,7 +2286,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     #elif MSQUIC
     struct context *ctx = (struct context *)malloc(sizeof(struct context));
     ctx->reg_config = (QUIC_REGISTRATION_CONFIG){"quicsand", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
-    ctx->alpn = (QUIC_BUFFER){sizeof("quicsand") - 1, (uint8_t *)"quicsand"};
+    ctx->alpn = (QUIC_BUFFER){sizeof("wq-vvv-NN") - 1, (uint8_t *)"wq-vvv-NN"};
     ctx->idle_timeout_ms = 0;
 
     QUIC_STATUS status = QUIC_STATUS_SUCCESS;
@@ -2325,8 +2341,9 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         cred_config.CertificateFile = &CertFile;
     }
     ctx->h = NULL;
-    ctx->new_connection = NULL;
-    ctx->last_new_connection = NULL;
+    ctx->conn_queue = g_queue_new();
+    g_mutex_init(&ctx->queue_mutex);
+    g_cond_init(&ctx->queue_cond);
     ctx->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     ctx->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -2692,9 +2709,10 @@ connection_t open_connection(context_t context, char* ip, int port) {
 
     connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
     connection_info->connected = 0;
-    connection_info->last_new_stream = NULL;
-    connection_info->new_stream = NULL;
     connection_info->h = NULL;
+    connection_info->stream_queue = g_queue_new();
+    g_mutex_init(&connection_info->queue_mutex);
+    g_cond_init(&connection_info->queue_cond);
     connection_info->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     connection_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
@@ -2719,12 +2737,11 @@ connection_t open_connection(context_t context, char* ip, int port) {
     }
     
     pthread_mutex_lock(&ctx->lock);
-    if (ctx->last_new_connection == ctx->new_connection)
+    if (!connection_info->connected)
     {
         log_debug("waiting for connection to be established");
         pthread_cond_wait(&ctx->cond, &ctx->lock);
     }
-    ctx->last_new_connection = ctx->new_connection;
     pthread_mutex_unlock(&ctx->lock);
 
     //get cid from connection
@@ -2964,7 +2981,6 @@ stream_t open_stream(context_t context, connection_t connection) {
     if (strcmp(data, "STREAM HSK") == 0) {
         log_debug("stream established");
     }
-    connection_info->last_new_stream = stream_info;
     HASH_ADD(hh, connection_info->h, stream, sizeof(HQUIC), stream_info);
     return (stream_t) stream_info;
     #elif LSQUIC
@@ -3277,33 +3293,26 @@ connection_t accept_connection(context_t context, time_t timeout) {
     #elif MSQUIC
     log_debug("accepting connection");
     struct context *ctx = (struct context *)context;
-    connection_info_t *connection_info; 
+    connection_info_t *connection_info = NULL; 
 
     // Lock the mutex to wait for a connection
-    pthread_mutex_lock(&ctx->lock);
-    if (ctx->new_connection == ctx->last_new_connection)
-    {
-        if (timeout == 0)
-        {
-            // Wait indefinitely
-            pthread_cond_wait(&ctx->cond, &ctx->lock);
-        }
-        else
-        {
-            // Wait with a timeout (convert time_t to timespec)
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += timeout;
-            pthread_cond_timedwait(&ctx->cond, &ctx->lock, &ts);
-            pthread_mutex_unlock(&ctx->lock);
-            return NULL;
-        }
+    g_mutex_lock(&ctx->queue_mutex);
+    while (g_queue_is_empty(ctx->conn_queue)) {
+        log_debug("waiting for new connection");
+        g_cond_wait(&ctx->queue_cond, &ctx->queue_mutex);
     }
-    connection_info = ctx->new_connection;
-    // Unlock the mutex
-    pthread_mutex_unlock(&ctx->lock);
+    connection_info = g_queue_pop_head(ctx->conn_queue);
+    g_mutex_unlock(&ctx->queue_mutex);
 
-    ctx->last_new_connection = connection_info;
+    log_warn("connection received");
+
+    // Wait for the connection to be established
+    pthread_mutex_lock(&connection_info->lock);
+    if (!connection_info->connected) {
+        log_debug("waiting for connection to be established");
+        pthread_cond_wait(&connection_info->cond, &connection_info->lock);
+    }
+    pthread_mutex_unlock(&connection_info->lock);
 
     HASH_ADD(hh, ctx->h, connection, sizeof(HQUIC), connection_info);
 
@@ -3339,35 +3348,23 @@ stream_t accept_stream(context_t context, connection_t connection, time_t timeou
     log_debug("accepting stream");
     struct context *ctx = (struct context *)context;
     connection_info_t *connection_info = connection;
-    stream_info_t *stream_info;
+    stream_info_t *stream_info = NULL;
     
     // Lock the mutex to wait for a connection
-    pthread_mutex_lock(&connection_info->lock);
-    if (connection_info->new_stream == connection_info->last_new_stream)
-    {
-        if (timeout == 0)
-        {
-            // Wait indefinitely
-            pthread_cond_wait(&connection_info->cond, &connection_info->lock);
-        }
-        else
-        {
-            // Wait with a timeout (convert time_t to timespec)
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += timeout;
-            pthread_cond_timedwait(&connection_info->cond, &connection_info->lock, &ts);
-        }
+    g_mutex_lock(&connection_info->queue_mutex);
+    while (g_queue_is_empty(connection_info->stream_queue)) {
+        log_debug("waiting for new stream");
+        g_cond_wait(&connection_info->queue_cond, &connection_info->queue_mutex);
     }
-    stream_info = connection_info->new_stream;
-    // Unlock the mutex
-    pthread_mutex_unlock(&connection_info->lock);
-    connection_info->last_new_stream = stream_info;
+    stream_info = g_queue_pop_head(connection_info->stream_queue);
+    g_mutex_unlock(&connection_info->queue_mutex);
+
     char* data = "STREAM HSK";
     send_data(context, (connection_t)connection, (stream_t)stream_info, data, 11);
     HASH_ADD(hh, connection_info->h, stream, sizeof(HQUIC), stream_info);
+
     log_debug("new stream accepted");
-    return (stream_t)connection_info->new_stream;
+    return (stream_t)stream_info;
     #endif
 }
 

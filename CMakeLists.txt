@@ -243,6 +243,11 @@ ELSEIF("${IMPL}" STREQUAL "msquic")
     # Add msquic
     INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/msquic/src/inc)
 
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
+    target_link_libraries(server PkgConfig::deps)
+    target_link_libraries(client PkgConfig::deps)
+
     # Set libraries
     SET(LIBS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so yaml bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY})
 

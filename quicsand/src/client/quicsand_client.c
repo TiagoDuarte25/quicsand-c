@@ -557,7 +557,7 @@ int main(int argc, char *argv[]) {
     arguments->port = port;
     arguments->file_path = file_path;
     arguments->data_size = 1024;
-    arguments->duration = 60;
+    arguments->duration = 30;
     log_info("creating thread %d", i);
     pthread_create(&thread[i], NULL, test_upload_random_data, arguments);
   }

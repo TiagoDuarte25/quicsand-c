@@ -75,9 +75,9 @@ void *handle_connection(void *arg)
             return NULL;
         }
 
-        char buffer[CHUNK_SIZE + 1];
+        char buffer[60000 + 1];
         time_t timeout = 30;
-        while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
+        while ((len = recv_data(ctx, connection, stream, buffer, 60000, 0)) > 0) {
             buffer[len] = '\0';
             log_info("received data: %.*s", (int)len, buffer);
             log_info("len: %ld", len);
