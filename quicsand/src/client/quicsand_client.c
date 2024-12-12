@@ -12,7 +12,6 @@
 #include <thpool.h>
 
 #include "quicsand_api.h"
-#include "utils.h"
 #include "log.h"
 #include <bits/time.h>
 // #include <linux/time.h>
@@ -397,6 +396,7 @@ void *test_upload_file(void *args) {
 
 void *test_upload_random_data(void *args) {
     struct args *arguments = (struct args *)args;
+    FILE *fp = arguments->fp;
     config_t *config = arguments->config;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
@@ -418,8 +418,16 @@ void *test_upload_random_data(void *args) {
     log_info("context created");
     log_info("connecting to %s:%d", ip_address, port);
     connection_t connection = open_connection(ctx, ip_address, port);
+    if (!connection) {
+        log_error("failed to open connection");
+        return NULL;
+    }
     log_info("connection opened");
     stream_t stream = open_stream(ctx, connection);
+    if (!stream) {
+        log_error("failed to open stream");
+        return NULL;
+    }
     log_info("stream opened");
 
     // Send control message
@@ -497,10 +505,22 @@ void *test_upload_random_data(void *args) {
 }
 
 int main(int argc, char *argv[]) {
+  // Open the log file
   FILE *fp = fopen("client.log", "w+");
-  log_add_fp(fp, LOG_TRACE);
+  if (!fp) {
+      perror("Failed to open log file");
+      return 1;
+  }
+
+  // Add file callback with LOG_TRACE level
+  if (log_add_fp(fp, LOG_TRACE) != 0) {
+      fprintf(fp, "Failed to add file callback\n");
+      return 1;
+  }
+
+  // Set global log level to LOG_TRACE
+  log_set_level(LOG_TRACE);
   // FILE *fp = stdout;
-  // log_set_level(LOG_TRACE);
 
   char *ip_address = NULL;
   char *file_path = NULL;
@@ -533,6 +553,9 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
   }
 
+  log_info("ip_address: %s", ip_address);
+  log_info("port: %d", port);
+
   log_info("client starting");
   if (file_path != NULL) {
       log_info("file_path: %s", file_path);
@@ -540,12 +563,13 @@ int main(int argc, char *argv[]) {
       log_info("file_path: (none)");
   }
 
-  config_t *config = read_config("config.yaml");
-  if (!config) {
-      log_error("error: failed to read configuration file");
-      fclose(fp);
-      return EXIT_FAILURE;
-  }
+  // config_t *config = read_config("config.yaml");
+  // if (!config) {
+  //     log_error("error: failed to read configuration file");
+  //     fclose(fp);
+  //     return EXIT_FAILURE;
+  // }
+  config_t *config = NULL;
 
   #define NUM_THREADS 1
   pthread_t thread[NUM_THREADS];

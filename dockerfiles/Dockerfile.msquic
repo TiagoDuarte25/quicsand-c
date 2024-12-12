@@ -1,0 +1,37 @@
+# FILE: Dockerfile.msquic
+FROM ubuntu:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install necessary dependencies
+RUN apt update && \
+    apt install -y bash gcc g++ make libc6-dev dpkg-dev cmake git liblttng-ust-dev lttng-tools && \
+    apt install -y libc6-dev-i386 libbpf-dev libnl-3-dev llvm clang m4 libpcap-dev && \
+    apt install -y libnuma-dev software-properties-common wget pkg-config
+
+# Install PowerShell and other dependencies
+RUN wget -q https://packages.microsoft.com/config/ubuntu/18.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb && \
+    dpkg -i packages-microsoft-prod.deb && \
+    apt-get update && \
+    add-apt-repository universe && \
+    apt-get install -y powershell && \
+    apt-get remove -y libicu57 && \
+    wget http://security.ubuntu.com/ubuntu/pool/main/i/icu/libicu55_55.1-7ubuntu0.5_amd64.deb && \
+    dpkg -i libicu55_55.1-7ubuntu0.5_amd64.deb && \
+    wget http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.0.0_1.0.2g-1ubuntu4.20_amd64.deb && \
+    dpkg -i libssl1.0.0_1.0.2g-1ubuntu4.20_amd64.deb && \
+    apt-add-repository "deb http://mirrors.kernel.org/ubuntu noble main" -y && \
+    apt-get install -y libxdp1 libbpf1 libnl-3-200 libnl-route-3-200 libnl-genl-3-200 && \
+    apt-get --no-install-recommends -y install libxdp-dev libbpf-dev libnl-3-dev libnl-genl-3-dev libnl-route-3-dev
+
+# Clone and build msquic
+RUN git clone https://github.com/microsoft/msquic.git /msquic && \
+    cd /msquic && \
+    git submodule update --init && \
+    mkdir build && \
+    cd build && \
+    cmake -G "Unix Makefiles" .. && \
+    cmake --build .
+
+# Set environment variables for msquic
+ENV MSQUIC_DIR=/msquic

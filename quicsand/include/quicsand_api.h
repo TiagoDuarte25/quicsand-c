@@ -8,6 +8,7 @@
 typedef void *context_t;
 typedef void *connection_t;
 typedef void *stream_t;
+typedef void *config_t;
 
 enum mode_t
 {

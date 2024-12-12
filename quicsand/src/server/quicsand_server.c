@@ -11,7 +11,6 @@
 #include <time.h>
 #include <log.h>
 #include "quicsand_api.h"
-#include "utils.h"
 
 #define CHUNK_SIZE 1024
 
@@ -61,6 +60,7 @@ void *handle_connection(void *arg)
         close_connection(ctx, connection);
         return NULL;
     }
+    log_info("len: %ld", len);
     log_info("control message received: %s", control_message);
     send_data(ctx, connection, stream, control_message, len);
 
@@ -197,9 +197,32 @@ int main(int argc, char *argv[])
     int port = 0;
     int opt;
 
+    // Open the log file
     FILE *fp = fopen("server.log", "w+");
-    log_add_fp(fp, LOG_TRACE);
-    // log_set_level(LOG_TRACE);
+    if (!fp) {
+        perror("Failed to open log file");
+        return 1;
+    }
+
+    // Add file callback with LOG_TRACE level
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
+        fprintf(fp, "Failed to add file callback\n");
+        return 1;
+    }
+
+    // Set global log level to LOG_TRACE
+    log_set_level(LOG_TRACE);
+
+    // check defined implementation
+
+    #if MSQUIC
+    log_info("using msquic implementation");
+    #elif QUICHE
+    log_info("using quiche implementation");
+    #else
+    log_info("using default implementation");
+    return 1;
+    #endif
 
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1)
@@ -231,12 +254,13 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    config_t *config = read_config("config.yaml");
-    if (!config)
-    {
-        log_info("error: failed to read configuration file");
-        exit(EXIT_FAILURE);
-    }
+    // config_t *config = read_config("config.yaml");
+    // if (!config)
+    // {
+    //     log_info("error: failed to read configuration file");
+    //     exit(EXIT_FAILURE);
+    // }
+    config_t *config = NULL;
 
     context_t ctx = create_quic_context(cert_path, key_path);
     log_info("context created");

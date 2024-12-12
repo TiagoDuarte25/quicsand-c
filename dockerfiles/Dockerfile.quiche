@@ -1,0 +1,18 @@
+# FILE: Dockerfile.quiche
+FROM ubuntu:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install necessary dependencies
+RUN apt update && \
+    apt install -y bash gcc g++ make libc6-dev dpkg-dev cmake git liblttng-ust-dev lttng-tools && \
+    apt install -y libyaml-dev libc6-dev-i386 libbpf-dev libnl-3-dev pkg-config llvm clang m4 libpcap-dev && \
+    apt install -y libnuma-dev software-properties-common wget rustc cargo
+
+# Clone and build quiche
+RUN git clone --recursive https://github.com/cloudflare/quiche /quiche && \
+    cd /quiche && \
+    cargo build --release --features ffi
+
+# Set environment variables for quiche
+ENV QUICHE_DIR=/quiche
