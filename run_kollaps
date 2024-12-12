@@ -2,9 +2,10 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [-i <implementation>] [-t <topology>]" 1>&2
+    echo "Usage: $0 [-i <implementation>] [-m <mode>]" 1>&2
     echo "Options:" 1>&2
     echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
+    echo "  -m, --mode <mode>                       Specify the mode (debug or test)" 1>&2
     exit 1
 }
 
@@ -113,8 +114,12 @@ get_logs() {
     done
 }
 
+# Default values for optional arguments
+IMPLEMENTATION="msquic"
+MODE="debug"
+
 # Parse command-line arguments
-while [[ "$#" -le 1 ]]; do
+while [[ "$#" -eq 0 ]]; do
     usage
 done
 
@@ -123,6 +128,10 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         -i|--implementation)
             IMPLEMENTATION="$2"
+            shift
+            ;;
+        -m|--mode)
+            MODE="$2"
             shift
             ;;
         -h|--help)
@@ -142,40 +151,70 @@ if [ ! -d "implementations/$IMPLEMENTATION" ]; then
     usage
 fi
 
+if [ "$MODE" == "debug" ]; then
+
+    prepare_environment
+    run_test resources/topologies/low_bandwidth.xml
+
+elif [ "$MODE" == "test" ]; then
+
+    # Test 1: Low bandwidth
+    prepare_environment
+    run_test resources/topologies/low_bandwidth.xml
+    sleep 35
+    get_logs "low_bandwidth"
+
+    # Test 2: High bandwidth
+    prepare_environment
+    run_test resources/topologies/high_bandwidth.xml
+    sleep 35
+    get_logs "high_bandwidth"
+
+    # Test 3: High latency
+    prepare_environment
+    run_test resources/topologies/high_latency.xml
+    sleep 35
+    get_logs "high_latency"
+
+else
+    echo "Error: Invalid mode specified."
+    usage
+fi
+
 # DEBUG
 
 # prepare_environment
 
 # run_test resources/topologies/low_bandwidth.xml
 
-# TESTS
+# TESTS 
 
 # Test 1: Low bandwidth
 
-prepare_environment
+# prepare_environment
 
-run_test resources/topologies/low_bandwidth.xml
+# run_test resources/topologies/low_bandwidth.xml
 
-sleep 35
+# sleep 35
 
-get_logs "low_bandwidth"
+# get_logs "low_bandwidth"
 
-# Test 2: High bandwidth
+# # Test 2: High bandwidth
 
-prepare_environment
+# prepare_environment
 
-run_test resources/topologies/high_bandwidth.xml
+# run_test resources/topologies/high_bandwidth.xml
 
-sleep 35
+# sleep 35
 
-get_logs "high_bandwidth"
+# get_logs "high_bandwidth"
 
-# Test 3: High latency
+# # Test 3: High latency
 
-prepare_environment
+# prepare_environment
 
-run_test resources/topologies/high_latency.xml
+# run_test resources/topologies/high_latency.xml
 
-sleep 35
+# sleep 35
 
-get_logs "high_latency"
+# get_logs "high_latency"

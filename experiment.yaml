@@ -2,29 +2,29 @@ version: "3.3"
 services:
   bootstrapper:
     image: kollaps:2.0
-    command: ["-s", "d0958dfc-5125-4166-a2e6-416d0c971a3e"]
+    command: ["-s", "df688c5e-b502-4973-8de4-741182ce1f6e"]
     deploy:
       mode: global
     environment:
-      KOLLAPS_UUID: 'd0958dfc-5125-4166-a2e6-416d0c971a3e'
+      KOLLAPS_UUID: 'df688c5e-b502-4973-8de4-741182ce1f6e'
       KOLLAPS_ORCHESTRATOR: swarm
       NUMBER_OF_GODS: 1
       POOL_PERIOD: 0.05
       MAX_FLOW_AGE: 2
     labels:
-      bootd0958dfc-5125-4166-a2e6-416d0c971a3e: "true"
+      bootdf688c5e-b502-4973-8de4-741182ce1f6e: "true"
     volumes:
       - '/lib/modules:/lib/modules/'
       - '/usr/src:/usr/src/'
       - '/sys/:/sys/'
-      - '/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/topologies/high_latency.xml:/topology.xml'
+      - '/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/topologies/low_bandwidth.xml:/topology.xml'
       - type: bind
         source: /var/run/docker.sock
         target: /var/run/docker.sock
     networks:
       - KollapsNet
 
-  dashboard-d0958dfc-5125-4166-a2e6-416d0c971a3e:
+  dashboard-df688c5e-b502-4973-8de4-741182ce1f6e:
     image: kollaps/dashboard:1.0
     ports:
       - "8088:8088"
@@ -32,71 +32,71 @@ services:
     deploy:
       replicas: 1
     environment:
-      KOLLAPS_UUID: 'd0958dfc-5125-4166-a2e6-416d0c971a3e'
+      KOLLAPS_UUID: 'df688c5e-b502-4973-8de4-741182ce1f6e'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet
       - outside
 
-  client1-d0958dfc-5125-4166-a2e6-416d0c971a3e:
+  client1-df688c5e-b502-4973-8de4-741182ce1f6e:
     image: quicsand
     entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
     command: ['server','1']
     hostname: client1
     labels:
-      d0958dfc-5125-4166-a2e6-416d0c971a3e: "true"
+      df688c5e-b502-4973-8de4-741182ce1f6e: "true"
     deploy:
       replicas: 1
       endpoint_mode: dnsrr
     environment:
-      KOLLAPS_UUID: 'd0958dfc-5125-4166-a2e6-416d0c971a3e'
+      KOLLAPS_UUID: 'df688c5e-b502-4973-8de4-741182ce1f6e'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet
 
-  client2-d0958dfc-5125-4166-a2e6-416d0c971a3e:
+  client2-df688c5e-b502-4973-8de4-741182ce1f6e:
     image: quicsand
     entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
     command: ['server','1']
     hostname: client2
     labels:
-      d0958dfc-5125-4166-a2e6-416d0c971a3e: "true"
+      df688c5e-b502-4973-8de4-741182ce1f6e: "true"
     deploy:
       replicas: 1
       endpoint_mode: dnsrr
     environment:
-      KOLLAPS_UUID: 'd0958dfc-5125-4166-a2e6-416d0c971a3e'
+      KOLLAPS_UUID: 'df688c5e-b502-4973-8de4-741182ce1f6e'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet
 
-  client3-d0958dfc-5125-4166-a2e6-416d0c971a3e:
+  client3-df688c5e-b502-4973-8de4-741182ce1f6e:
     image: quicsand
     entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
     command: ['server','1']
     hostname: client3
     labels:
-      d0958dfc-5125-4166-a2e6-416d0c971a3e: "true"
+      df688c5e-b502-4973-8de4-741182ce1f6e: "true"
     deploy:
       replicas: 1
       endpoint_mode: dnsrr
     environment:
-      KOLLAPS_UUID: 'd0958dfc-5125-4166-a2e6-416d0c971a3e'
+      KOLLAPS_UUID: 'df688c5e-b502-4973-8de4-741182ce1f6e'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet
 
-  server-d0958dfc-5125-4166-a2e6-416d0c971a3e:
+  server-df688c5e-b502-4973-8de4-741182ce1f6e:
     image: quicsand
     entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
     hostname: server
     labels:
-      d0958dfc-5125-4166-a2e6-416d0c971a3e: "true"
+      df688c5e-b502-4973-8de4-741182ce1f6e: "true"
     deploy:
       replicas: 1
       endpoint_mode: dnsrr
     environment:
-      KOLLAPS_UUID: 'd0958dfc-5125-4166-a2e6-416d0c971a3e'
+      KOLLAPS_UUID: 'df688c5e-b502-4973-8de4-741182ce1f6e'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet

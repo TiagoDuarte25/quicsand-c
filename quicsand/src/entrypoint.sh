@@ -12,21 +12,17 @@ if [ "$#" -eq 0 ]; then
 else
     echo 'Starting client container...' >> /tmp/log
 
-    server_ip=$(getent hosts server | awk '{ print $1 }')
-
-    echo "Server IP address: $server_ip" >> /tmp/log
-
     trap 'exit 0' INT
 
     sleep 2
    
-    echo $1 >> /tmp/log
+    echo "${*: -2}" >> /tmp/log
 
     echo "Launched!" >> /tmp/log
-    host_id="$2"
+    host_id="${*: -1}"
 
     #obtain the service identifier
-    service="$1-$KOLLAPS_UUID"
+    service="${*: -2:1}-$KOLLAPS_UUID"
 
     echo ID $host_id >> /tmp/log
     echo Service $service >> /tmp/log
