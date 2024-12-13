@@ -138,41 +138,20 @@ void *handle_connection(void *arg)
         while (1)
         {
             char buffer[1024];
-            ssize_t len;
-            ssize_t total_len = 0;
-            while (1)
+            ssize_t len = recv_data(ctx, connection, stream, buffer, sizeof(buffer), 0);
+            if (len > 0)
             {
-                len = recv_data(ctx, connection, stream, buffer + total_len, sizeof(buffer) - total_len, 0);
-                if (len > 0)
-                {
-                    total_len += len;
-                    // Ensure termination
-                    if (total_len < 1024)
-                    {
-                        buffer[total_len] = '\0';
-                    }
-                    else
-                    {
-                        buffer[1024 - 1] = '\0';
-                    }
-
-                    // Check if the entire message has been received
-                    if (buffer[total_len] == '\0')
-                    {
-                        log_info("received data: %s", buffer);
-                        break;
-                    }
-                }
-                else
-                {
-                    log_error("error: %s", quic_error_message(quic_error));
-                    error = 0;
-                    break;
-                }
+                log_debug("received data: %.*s", (int)len, buffer);
+                log_debug("len: %ld", len);
+                // if (strstr(buffer, "EOF") != NULL)
+                // {
+                //     // break;
+                // }
             }
-            if (error)
+            else
             {
                 log_error("error: %s", quic_error_message(quic_error));
+                error = 0;
                 break;
             }
             char *resp = "Hello, client!";
@@ -180,8 +159,9 @@ void *handle_connection(void *arg)
             if (err < 0)
             {
                 log_error("error: %s", quic_error_message(quic_error));
+                break;
             }
-            log_info("data sent: %s", resp);
+            log_debug("data sent: %s", resp);
         }
     } else {
         log_info("error: unknown control message");
@@ -212,17 +192,6 @@ int main(int argc, char *argv[])
 
     // Set global log level to LOG_TRACE
     log_set_level(LOG_TRACE);
-
-    // check defined implementation
-
-    #if MSQUIC
-    log_info("using msquic implementation");
-    #elif QUICHE
-    log_info("using quiche implementation");
-    #else
-    log_info("using default implementation");
-    return 1;
-    #endif
 
     // Parse command-line arguments
     while ((opt = getopt(argc, argv, "c:k:i:p:")) != -1)

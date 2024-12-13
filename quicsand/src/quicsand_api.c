@@ -1601,6 +1601,7 @@ int close_connection(context_t context, connection_t connection) {
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
     connection_info_t *connection_info = connection;
+    
     ctx->msquic->ConnectionShutdown(connection_info->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
     // pthread_mutex_lock(&ctx->lock);
     // if (connection_info) {
@@ -1925,6 +1926,12 @@ ssize_t recv_data(context_t context, connection_t connection, stream_t stream, v
                 return -1; // Indicate timeout
             }
         }
+    }
+
+    if (stream_info->stream == NULL) {
+        log_error("stream is closed");
+        pthread_mutex_unlock(&stream_info->lock);
+        return -1;
     }
 
     // Calculate the amount of data to read

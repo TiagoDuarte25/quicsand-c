@@ -85,6 +85,8 @@ find_library(THREAD_POOL_LIBRARY NAMES thpool PATHS ${THREAD_POOL_DIR} NO_DEFAUL
 
 if("${IMPL}" STREQUAL "msquic")
 
+    add_definitions(-DMSQUIC)
+
     if(BUILD_IN_DOCKER)
         set(MSQUIC_DIR /msquic)
     else()
@@ -108,6 +110,8 @@ if("${IMPL}" STREQUAL "msquic")
 
 
 ELSEIF("${IMPL}" STREQUAL "quiche")
+
+    add_definitions(-DQUICHE)
 
     if(BUILD_IN_DOCKER)
         set(QUICHE_DIR /quiche)
