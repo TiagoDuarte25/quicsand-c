@@ -30,15 +30,8 @@ option(BUILD_IN_DOCKER "Build in Docker container" OFF)
 
 add_definitions(-D_GNU_SOURCE)
 
-
-FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
-FILE(GLOB SERVER_SRC "quicsand/src/server/*.c")
 FILE(GLOB SRC "quicsand/src/*.c")
-INCLUDE_DIRECTORIES(quicsand/include)
-
-# Create executables targets
-ADD_EXECUTABLE(client ${SRC} ${CLIENT_SRC})
-ADD_EXECUTABLE(server ${SRC} ${SERVER_SRC})
+include_directories(quicsand/include)
 
 set(THREAD_POOL_DIR ${CMAKE_BINARY_DIR}/C-Thread-Pool)
 set(LIBEV_DIR ${CMAKE_BINARY_DIR}/libev)
@@ -96,18 +89,10 @@ if("${IMPL}" STREQUAL "msquic")
     # Add msquic include directories
     include_directories(${MSQUIC_DIR}/src/inc)
 
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
-    target_link_libraries(server PkgConfig::GLIB)
-    target_link_libraries(client PkgConfig::GLIB)
-    
-
     # Set libraries
     SET(LIBS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} m)
 
-    target_compile_definitions(client PRIVATE MSQUIC)
-    target_compile_definitions(server PRIVATE MSQUIC)
-
+    set(DEF MSQUIC)
 
 ELSEIF("${IMPL}" STREQUAL "quiche")
 
@@ -124,25 +109,30 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
 
     include_directories(${QUICHE_DIR}/quiche/include)
 
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
-    target_link_libraries(server PkgConfig::deps)
-    target_link_libraries(client PkgConfig::deps)
-
     # Set libraries
     SET(LIBS ${QUICHE_LIB_DIR} ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} m)
 
-    target_compile_definitions(client PRIVATE QUICHE)
-    target_compile_definitions(server PRIVATE QUICHE)
+    set(DEF QUICHE)
 
 ELSE()
     message(FATAL_ERROR "IMPL must be either msquic or quiche")
 ENDIF()
-    
-TARGET_INCLUDE_DIRECTORIES(server PRIVATE quicsand/include)
-TARGET_LINK_LIBRARIES(server ${LIBS})
-SET_TARGET_PROPERTIES(server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-TARGET_INCLUDE_DIRECTORIES(client PRIVATE quicsand/include)
-TARGET_LINK_LIBRARIES(client ${LIBS})
-SET_TARGET_PROPERTIES(client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
+
+# Include both client and server source files
+file(GLOB CLIENT_SOURCES quicsand/src/client/*.c)
+file(GLOB SERVER_SOURCES quicsand/src/server/*.c)
+set(APP_SOURCES ${CLIENT_SOURCES} ${SERVER_SOURCES})
+foreach(testsourcefile ${APP_SOURCES})
+    # Cut off the file extension and directory path
+    get_filename_component(testname ${testsourcefile} NAME_WE)
+    add_executable( ${testname} ${SRC} ${testsourcefile} )
+    # Make sure YourLib is linked to each app
+    target_include_directories(${testname} PRIVATE quicsand/include)
+    target_link_libraries(${testname} ${LIBS})
+    target_link_libraries(${testname} PkgConfig::deps)
+    target_compile_definitions(${testname} PRIVATE ${DEF})
+    set_target_properties(${testname} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endforeach(testsourcefile ${APP_SOURCES})

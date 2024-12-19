@@ -14,27 +14,10 @@
 
 #define CHUNK_SIZE 1024
 
-char *random_data(int len)
-{
-    char *data = (char *)malloc(len);
-    for (int i = 0; i < len - 1; i++)
-    {
-        data[i] = 'A' + (rand() % 26);
-    }
-    data[len - 1] = '\0';
-    return data;
-}
-
 typedef struct {
     context_t ctx;
     connection_t connection;
 } thread_data_t;
-
-void send_control_message(context_t ctx, connection_t connection, const char *message) {
-    stream_t stream = open_stream(ctx, connection);
-    send_data(ctx, connection, stream, (void *)message, strlen(message) + 1); // +1 to include null terminator
-    close_stream(ctx, connection, stream);
-}
 
 void *handle_connection(void *arg)
 {
@@ -43,8 +26,8 @@ void *handle_connection(void *arg)
     connection_t connection = data->connection;
     log_info("handling connection");
 
-    stream_t stream = accept_stream(ctx, connection, 0);
-    if (!stream) {
+    int stream_fd = accept_stream(ctx, connection, 0);
+    if (!stream_fd) {
         log_error("error: %s", quic_error_message(quic_error));
         close_connection(ctx, connection);
         return NULL;
@@ -53,16 +36,16 @@ void *handle_connection(void *arg)
 
     // Receive control message
     char control_message[256];
-    ssize_t len = recv_data(ctx, connection, stream, control_message, sizeof(control_message), 0);
+    int len = read(stream_fd, control_message, sizeof(control_message));
     if (len <= 0) {
         log_error("error: %s", quic_error_message(quic_error));
-        close_stream(ctx, connection, stream);
+        close_stream(ctx, connection, stream_fd);
         close_connection(ctx, connection);
         return NULL;
     }
     log_info("len: %ld", len);
-    log_info("control message received: %s", control_message);
-    send_data(ctx, connection, stream, control_message, len);
+    log_info("control message received: %.*s", len, control_message);
+    write(stream_fd, control_message, len);
 
     // Handle control message
     if (strcmp(control_message, CONTROL_UPLOAD) == 0) {
@@ -70,14 +53,14 @@ void *handle_connection(void *arg)
         FILE *file = fopen("uploaded_file.txt", "w");
         if (!file) {
             log_error("error: %s", quic_error_message(quic_error));
-            close_stream(ctx, connection, stream);
+            close_stream(ctx, connection, stream_fd);
             close_connection(ctx, connection);
             return NULL;
         }
 
-        char buffer[60000 + 1];
+        char buffer[65536];
         time_t timeout = 30;
-        while ((len = recv_data(ctx, connection, stream, buffer, 60000, 0)) > 0) {
+        while ((len = read(stream_fd, buffer, sizeof(buffer))) > 0) {
             buffer[len] = '\0';
             log_info("received data: %.*s", (int)len, buffer);
             log_info("len: %ld", len);
@@ -102,10 +85,10 @@ void *handle_connection(void *arg)
 
         size_t len;
         char file_path[256];
-        len = (size_t)recv_data(ctx, connection, stream, (void *)file_path, sizeof(file_path), 0);
+        len = read(stream_fd, file_path, sizeof(file_path));
         if (len <= 0) {
             log_error("error: %s", quic_error_message(quic_error));
-            close_stream(ctx, connection, stream);
+            close_stream(ctx, connection, stream_fd);
             close_connection(ctx, connection);
             return NULL;
         }
@@ -117,7 +100,7 @@ void *handle_connection(void *arg)
         FILE *file = fopen(file_path, "r");
         if (!file) {
             log_error("error: failed to open file for writing");
-            close_stream(ctx, connection, stream);
+            close_stream(ctx, connection, stream_fd);
             close_connection(ctx, connection);
             return NULL;
         }
@@ -126,10 +109,10 @@ void *handle_connection(void *arg)
         while ((len = fread(buffer, sizeof(char), CHUNK_SIZE, file)) > 0) {
             log_info("read %zu bytes from file", len);
             log_info("sending: %s", buffer);
-            send_data(ctx, connection, stream,(void *)buffer, len);
+            write(stream_fd, buffer, len);
             memset(buffer, 0, CHUNK_SIZE);
         }
-        send_data(ctx, connection, stream, (void *)"EOF", 3);
+        write(stream_fd, "EOF", 3);
         fclose(file);
         log_info("file download completed");
     } else if (strcmp(control_message, CONTROL_SINGLE) == 0) {
@@ -138,7 +121,7 @@ void *handle_connection(void *arg)
         while (1)
         {
             char buffer[1024];
-            ssize_t len = recv_data(ctx, connection, stream, buffer, sizeof(buffer), 0);
+            int len = read(stream_fd, buffer, sizeof(buffer));
             if (len > 0)
             {
                 log_debug("received data: %.*s", (int)len, buffer);
@@ -155,7 +138,7 @@ void *handle_connection(void *arg)
                 break;
             }
             char *resp = "Hello, client!";
-            int err = send_data(ctx, connection, stream, resp, strlen(resp));
+            int err = write(stream_fd, resp, strlen(resp) + 1);
             if (err < 0)
             {
                 log_error("error: %s", quic_error_message(quic_error));

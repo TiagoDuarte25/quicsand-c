@@ -7,8 +7,8 @@
 
 typedef void *context_t;
 typedef void *connection_t;
-typedef void *stream_t;
 typedef void *config_t;
+typedef void *stream_t;
 
 enum mode_t
 {
@@ -63,15 +63,13 @@ int bind_addr(context_t context, char* ip, int port);
 // client functions
 connection_t open_connection(context_t context, char* ip, int port);
 int close_connection(context_t context, connection_t connection);
-stream_t open_stream(context_t context, connection_t connection);
-int close_stream(context_t context, connection_t connection, stream_t stream);
-int send_data(context_t context, connection_t connection, stream_t stream, void* data, int len);
-ssize_t recv_data(context_t context, connection_t connection, stream_t stream, void* buf, ssize_t n_bytes, time_t timeout);
+int open_stream(context_t context, connection_t connection);
+int close_stream(context_t context, connection_t connection, int stream);
 
 // server functions
 int set_listen(context_t context);
 connection_t accept_connection(context_t context, time_t timeout);
-stream_t accept_stream(context_t context, connection_t connection, time_t timeout);
+int accept_stream(context_t context, connection_t connection, time_t timeout);
 
 // common functions
 int print_context(context_t context);
