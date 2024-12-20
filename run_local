@@ -37,6 +37,7 @@ while [[ "$#" -le 1 ]]; do
 done
 
 NUM_CLIENTS=1
+TEST="simple"
 
 # Parse command-line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -47,6 +48,10 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         -h|--help)
             usage
+            ;;
+        -t|--test)
+            TEST="$2"
+            shift
             ;;
         -n|--num-clients)
             NUM_CLIENTS="$2"
@@ -63,7 +68,7 @@ done
 # rm -rf build
 echo "Building $IMPLEMENTATION implementation"
 
-if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ] || [ "$IMPLEMENTATION" == "quiche" ] || [ "$IMPLEMENTATION" == "ngtcp2" ]; then
+if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ]; then
     cmake -S . -B build -DIMPL=$IMPLEMENTATION
 else
     echo "Error: Unknown implementation $IMPLEMENTATION"
@@ -77,10 +82,25 @@ make
 cp -r ../quicsand/config.yaml bin/
 cp -r ../quicsand/certs bin/
 
-gnome-terminal -- bash -c "cd bin; ./server -c "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem" -k "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem" -i "0.0.0.0" -p 4567; exec bash"
+if [ $TEST == "simple" ]; then
+    gnome-terminal -- bash -c "cd bin; ./quicsand_server -c "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem" -k "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem" -i "0.0.0.0" -p 4567; exec bash"
 
-sleep 2
+    sleep 2
 
-for i in $(seq 1 $NUM_CLIENTS); do
-    gnome-terminal -- bash -c "cd bin; ./client -i 127.0.0.1 -p 4567 -f /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt; exec bash"
-done
+    for i in $(seq 1 $NUM_CLIENTS); do
+        gnome-terminal -- bash -c "cd bin; ./quicsand_client -i 127.0.0.1 -p 4567 -f /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt; exec bash"
+    done
+elif [ $TEST == "ms" ]; then
+    gnome-terminal -- bash -c "cd bin; ./quicsand_server_ms -c "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem" -k "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem" -i "0.0.0.0" -p 4567; exec bash"
+
+    sleep 2
+
+    for i in $(seq 1 $NUM_CLIENTS); do
+        gnome-terminal -- bash -c "cd bin; ./quicsand_client_ms -i 127.0.0.1 -p 4567 -f /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt; exec bash"
+    done
+else
+    echo "Error: Unknown test $TEST"
+    usage
+fi
+
+

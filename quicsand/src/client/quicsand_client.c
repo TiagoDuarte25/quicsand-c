@@ -14,7 +14,6 @@
 #include "quicsand_api.h"
 #include "log.h"
 #include <bits/time.h>
-// #include <linux/time.h>
 
 #define LOGS_FORMAT "[%s] %f %s"
 #define TTFB "TTFB"
@@ -25,123 +24,6 @@
 
 // #define LOG_USE_COLOR
 
-char *random_data(int len)
-{
-  char *data = (char *)malloc(len);
-  for (int i = 0; i < len - 1; i++)
-  {
-      data[i] = 'A' + (rand() % 26);
-  }
-  data[len - 1] = '\0';
-  return data;
-}
-
-typedef struct
-{
-  context_t ctx;
-  char *ip;
-  int port;
-  connection_t connection;
-} task_open_connection_t;
-
-typedef struct qs_stream_node
-{
-  stream_t stream;
-  struct qs_stream_node *next;
-} qs_stream_node_t;
-
-typedef struct qs_connection_node {
-  connection_t connection;
-  struct qs_stream_node *streams;
-  struct qs_connection_node *next;
-} qs_connection_node_t;
-
-typedef struct qs_context {
-  context_t ctx;
-  qs_connection_node_t *connections;
-} qs_context_t;
-
-qs_connection_node_t* qs_push_connection(qs_connection_node_t *head, connection_t connection) {
-  qs_connection_node_t *current = head;
-  while (current->next != NULL) {
-      current = current->next;
-  }
-  current->next = (qs_connection_node_t *)malloc(sizeof(qs_connection_node_t));
-  current->connection = connection;
-  current->streams = NULL;
-  current->next->next = NULL;
-  return current->next;
-}
-
-qs_stream_node_t* qs_push_stream(qs_stream_node_t *head, stream_t stream) {
-  qs_stream_node_t *current = head;
-  while (current->next != NULL) {
-      current = current->next;
-  }
-  current->next = (qs_stream_node_t *)malloc(sizeof(qs_stream_node_t));
-  current->next->stream = stream;
-  current->next->next = NULL;
-  return current->next;
-}
-
-void qs_remove_connection(qs_connection_node_t *head, qs_connection_node_t *node) {
-  qs_connection_node_t *current = head;
-  while (current->next != node) {
-      current = current->next;
-  }
-  current->next = node->next;
-  free(node);
-}
-
-void qs_remove_stream(qs_stream_node_t *head, qs_stream_node_t *node) {
-  qs_stream_node_t *current = head;
-  while (current->next != node) {
-      current = current->next;
-  }
-  current->next = node->next;
-  free(node);
-}
-
-void open_connection_task(void *arg)
-{
-    task_open_connection_t *task = (task_open_connection_t *)arg;
-    task->connection = open_connection(task->ctx, task->ip, task->port);
-}
-
-void test_multiple_sends(FILE *fp, config_t *config, char *ip_address, int port) {
-  log_info("testing multiple sends");
-  struct timespec start, end;
-  double rtt = 0;
-  double handshake = 0;
-  double cpu = 0;
-  qs_context_t *qs = (qs_context_t *)malloc(sizeof(qs_context_t));
-  qs->ctx = create_quic_context(NULL, NULL);
-  qs->connections = (qs_connection_node_t *)malloc(sizeof(qs_connection_node_t));
-  qs->connections->next = NULL;
-  for (int i = 0; i < 2; i++) {
-    connection_t connection = open_connection(qs->ctx, ip_address, port);
-    qs_push_connection(qs->connections, connection);
-  }
-  qs_connection_node_t *current = qs->connections;
-  while (current->next != NULL) {
-    connection_t connection = current->connection;
-    stream_t stream = open_stream(qs->ctx, connection);
-    for (int i = 0; i < NUM_REPETITIONS; i++) {
-      clock_gettime(CLOCK_MONOTONIC, &start);
-      char *data = random_data(200);
-      send_data(qs->ctx, connection, stream, data, strlen(data));
-      clock_gettime(CLOCK_MONOTONIC, &end);
-      rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
-    }
-    close_stream(qs->ctx, connection, stream);
-    close_connection(qs->ctx, connection);
-    current = current->next;
-  }
-  rtt /= NUM_REPETITIONS;
-  log_info("rtt: %.2f ms", rtt);
-  log_info("end of test");
-}
-
 void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, const char *file_path) {
     log_info("testing file download");
     struct timespec start, end;
@@ -151,19 +33,19 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
     log_info("client connecting to %s:%d", ip_address, port);
     connection_t connection = open_connection(ctx, ip_address, port);
     log_info("connection opened");
-    stream_t stream = open_stream(ctx, connection);
+    int stream_fd = open_stream(ctx, connection);
     log_info("stream opened");
 
     // Send control message
     const char *control_message = CONTROL_DOWNLOAD;
-    send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+    write(stream_fd, control_message, strlen(control_message) + 1);
     log_info("control message sent: %s", control_message);
     char ack[256];
-    ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
-    log_info("ack received: %s", ack);
+    int len = read(stream_fd, ack, sizeof(ack));
+    log_info("ack received: %.*s", len, ack);
 
     // send another message with a file path request
-    send_data(ctx, connection, stream, (void *)file_path, strlen(file_path) + 1);
+    write(stream_fd, file_path, strlen(file_path) + 1);
     log_info("file path sent: %s", file_path);
 
     struct rusage usage_start, usage_end;
@@ -182,7 +64,7 @@ void test_download_file(FILE *fp, config_t *config, char *ip_address, int port, 
         exit(EXIT_FAILURE);
     }
 
-    while ((len = recv_data(ctx, connection, stream, buffer, CHUNK_SIZE, 0)) > 0) {
+    while ((len = read(stream_fd, buffer, sizeof(buffer))) > 0) {
         log_info("received data: %.*s", (int)len, buffer);
         if (len == 0) {
             break;
@@ -250,27 +132,27 @@ void *test_normal_send_receive(void *args) {
   log_info("client connecting to %s:%d", ip_address, port);
   connection_t connection = open_connection(ctx, ip_address, port);
   log_info("connection opened");
-  stream_t stream = open_stream(ctx, connection);
-  log_info("[conn] %p: stream opened", connection);
+  int stream_fd = open_stream(ctx, connection);
+  log_info("[conn] %p: stream %d opened", connection, stream_fd);
 
   // Send control message
   const char *control_message = CONTROL_SINGLE;
-  send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+  write(stream_fd, control_message, strlen(control_message) + 1);
   log_info("[conn] %p: control message sent: %s", connection, control_message);
   char ack[256];
-  ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
-  log_info("[conn] %p: ack received: %s", connection, ack);
+  int len = read(stream_fd, ack, sizeof(ack));
+  log_info("[conn] %p: ack received: %.*s", connection, len, ack);
 
   for (int i = 0; i < 100 ; i++) {
     char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
-    send_data(ctx, connection, stream, data, strlen(data));
+    write(stream_fd, data, strlen(data) + 1);
     log_info("[conn] %p: data sent: %s", connection, data);
     char response[1024];
     ssize_t len;
     ssize_t total_len = 0;
     int error = 0;
-    while (len = recv_data(ctx, connection, stream, response + total_len, 1024 - total_len, 0)) {
+    while (len = read(stream_fd, response + total_len, sizeof(response) - total_len)) {
         if (len > 0) {
             total_len += len;
             // Ensure termination
@@ -299,11 +181,8 @@ void *test_normal_send_receive(void *args) {
     rtt += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
   }
 
-  send_data(ctx, connection, stream, (void *)"EOF", 3);
-
   close_connection(ctx, connection);
 
-  // close_connection(ctx, connection);
   log_info("rtt: %.2f ms", rtt / NUM_REPETITIONS);
   log_info("normal send/receive completed");
   log_info("end of test");
@@ -333,16 +212,16 @@ void *test_upload_file(void *args) {
     log_info("connecting to %s:%d", ip_address, port);
     connection_t connection = open_connection(ctx, ip_address, port);
     log_info("connection opened");
-    stream_t stream = open_stream(ctx, connection);
+    int stream_fd = open_stream(ctx, connection);
     log_info("stream opened");
 
     // Send control message
     const char *control_message = CONTROL_UPLOAD;
-    send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+    write(stream_fd, control_message, strlen(control_message) + 1);
     log_info("control message sent: %s", control_message);
     char ack[256];
-    ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
-    log_info("ack received: %s", ack);
+    int len = read(stream_fd, ack, sizeof(ack));
+    log_info("ack received: %.*s", len, ack);
 
     FILE *file = fopen(file_path, "r");
     if (!file) {
@@ -356,7 +235,7 @@ void *test_upload_file(void *args) {
         log_info("read %zu bytes from file", bytes_read);
         log_info("sending: %s", buffer);
         clock_gettime(CLOCK_MONOTONIC, &start);
-        send_data(ctx, connection, stream, buffer, bytes_read);
+        write(stream_fd, buffer, bytes_read);
         clock_gettime(CLOCK_MONOTONIC, &end);
         total_time += ((end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9) * 1e3;
         total_bytes += bytes_read;
@@ -365,7 +244,7 @@ void *test_upload_file(void *args) {
         memset(buffer, 0, CHUNK_SIZE);
     }
     fclose(file);
-    send_data(ctx, connection, stream, (void *)"EOF", 3);
+    write(stream_fd, "EOF", 3);
     log_info("sending EOF");
 
     // close_stream(ctx, connection, stream);
@@ -428,20 +307,19 @@ void *test_upload_random_data(void *args) {
         return NULL;
     }
     log_info("connection opened");
-    stream_t stream = open_stream(ctx, connection);
-    if (!stream) {
+    int stream_fd = open_stream(ctx, connection);
+    if (!stream_fd) {
         log_error("failed to open stream");
         return NULL;
     }
     log_info("stream opened");
-
     // Send control message
     const char *control_message = CONTROL_UPLOAD;
-    send_data(ctx, connection, stream, (void *)control_message, strlen(control_message) + 1);
+    write(stream_fd, control_message, strlen(control_message) + 1);
     log_info("control message sent: %s", control_message);
     char ack[256];
-    ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
-    log_info("ack received: %s", ack);
+    int len = read(stream_fd, ack, sizeof(ack));
+    log_info("ack received: %.*s", len, ack);
 
     // Allocate buffer for random data
     char *buffer = malloc(data_size);
@@ -465,10 +343,7 @@ void *test_upload_random_data(void *args) {
     while ((current.tv_sec - start_prog.tv_sec) + (current.tv_nsec - start_prog.tv_nsec) / 1e9 < duration) {
         log_info("sending random data chunk");
         clock_gettime(CLOCK_MONOTONIC, &start);
-        if (send_data(ctx, connection, stream, buffer, data_size) < 0) {
-            log_error("failed to send data");
-            break;
-        }
+        write(stream_fd, buffer, data_size);
         clock_gettime(CLOCK_MONOTONIC, &end);
         total_bytes += data_size;
         num_chunks++;
@@ -476,8 +351,10 @@ void *test_upload_random_data(void *args) {
     }
 
     free(buffer);
-    send_data(ctx, connection, stream, (void *)"EOF", 3);
+    write(stream_fd, "EOF", 3);
     log_info("sending EOF");
+
+    // close(stream_fd);
 
     // End time and resource usage
     clock_gettime(CLOCK_MONOTONIC, &end_prog);
@@ -568,12 +445,6 @@ int main(int argc, char *argv[]) {
       log_info("file_path: (none)");
   }
 
-  // config_t *config = read_config("config.yaml");
-  // if (!config) {
-  //     log_error("error: failed to read configuration file");
-  //     fclose(fp);
-  //     return EXIT_FAILURE;
-  // }
   config_t *config = NULL;
 
   #define NUM_THREADS 1
@@ -586,9 +457,9 @@ int main(int argc, char *argv[]) {
     arguments->port = port;
     arguments->file_path = file_path;
     arguments->data_size = 1024;
-    arguments->duration = 30;
+    arguments->duration = 180;
     log_info("creating thread %d", i);
-    pthread_create(&thread[i], NULL, test_normal_send_receive, arguments);
+    pthread_create(&thread[i], NULL, test_upload_random_data, arguments);
   }
   for (int i = 0; i < NUM_THREADS; i++) {
     pthread_join(thread[i], NULL);

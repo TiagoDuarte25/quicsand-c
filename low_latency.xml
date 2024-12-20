@@ -1,0 +1,46 @@
+<?xml version="1.0" ?>
+<experiment boot="kollaps:2.0">
+    <services>
+        <service name="dashboard" image="kollaps/dashboard:1.0" supervisor="true" port="8088"/>
+        <service name="client1" image="quicsand" command="['server','1']"/>
+        <service name="client2" image="quicsand" command="['server','1']"/>
+        <service name="client3" image="quicsand" command="['server','1']"/>
+        <service name="client4" image="quicsand" command="['server','1']"/>
+        <service name="client5" image="quicsand" command="['server','1']"/>
+        <service name="client6" image="quicsand" command="['server','1']"/>
+        <service name="client7" image="quicsand" command="['server','1']"/>
+        <service name="client8" image="quicsand" command="['server','1']"/>
+        <service name="client9" image="quicsand" command="['server','1']"/>
+        <service name="client10" image="quicsand" command="['server','1']"/>
+        <service name="server" image="quicsand" share="false"/>
+    </services>
+    <bridges>
+        <bridge name="s1"/>
+    </bridges>
+    <links>
+        <link origin="client1" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client2" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client3" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client4" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client5" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client6" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client7" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client8" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client9" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="client10" dest="s1" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+        <link origin="s1" dest="server" latency="10" upload="500Mbps" download="500Mbps" network="quicsand_network"/>
+    </links>
+    <dynamic>
+        <schedule name="client1" time="1.0" action="join"/>
+        <schedule name="client2" time="1.0" action="join"/>
+        <schedule name="client3" time="1.0" action="join"/>
+        <schedule name="client4" time="1.0" action="join"/>
+        <schedule name="client5" time="1.0" action="join"/>
+        <schedule name="client6" time="1.0" action="join"/>
+        <schedule name="client7" time="1.0" action="join"/>
+        <schedule name="client8" time="1.0" action="join"/>
+        <schedule name="client9" time="1.0" action="join"/>
+        <schedule name="client10" time="1.0" action="join"/>
+        <schedule name="server" time="0.0" action="join" amount="1"/>
+    </dynamic>
+</experiment>

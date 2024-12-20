@@ -154,7 +154,7 @@ fi
 if [ "$MODE" == "debug" ]; then
 
     prepare_environment
-    run_test resources/topologies/low_bandwidth.xml
+    run_test low_latency.xml
 
 elif [ "$MODE" == "test" ]; then
 
