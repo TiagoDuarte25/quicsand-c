@@ -7,8 +7,9 @@ usage() {
     echo "Usage: $0 [-i <implementation>]" 1>&2
     echo "Options:" 1>&2
     echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic or quiche or ngtcp2)" 1>&2
-    echo "  -h, --help                             Display this help message" 1>&2
     echo "  -n, --num-clients <num_clients>        Specify the number of clients" 1>&2
+    echo "  -t, --test <test>                      Specify the test to run (simple or ms)" 1>&2
+    echo "  -h, --help                             Display this help message" 1>&2
     exit 1
 }
 
@@ -68,7 +69,7 @@ done
 # rm -rf build
 echo "Building $IMPLEMENTATION implementation"
 
-if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ]; then
+if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "quiche" ]; then
     cmake -S . -B build -DIMPL=$IMPLEMENTATION
 else
     echo "Error: Unknown implementation $IMPLEMENTATION"

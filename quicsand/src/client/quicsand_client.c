@@ -143,7 +143,7 @@ void *test_normal_send_receive(void *args) {
   int len = read(stream_fd, ack, sizeof(ack));
   log_info("[conn] %p: ack received: %.*s", connection, len, ack);
 
-  for (int i = 0; i < 100 ; i++) {
+  for (int i = 0; 1; i++) {
     char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
     write(stream_fd, data, strlen(data) + 1);
@@ -343,7 +343,10 @@ void *test_upload_random_data(void *args) {
     while ((current.tv_sec - start_prog.tv_sec) + (current.tv_nsec - start_prog.tv_nsec) / 1e9 < duration) {
         log_info("sending random data chunk");
         clock_gettime(CLOCK_MONOTONIC, &start);
-        write(stream_fd, buffer, data_size);
+        if (write(stream_fd, buffer, data_size) <= 0) {
+            log_error("failed to write to stream");
+            break;
+        }
         clock_gettime(CLOCK_MONOTONIC, &end);
         total_bytes += data_size;
         num_chunks++;
@@ -354,7 +357,7 @@ void *test_upload_random_data(void *args) {
     write(stream_fd, "EOF", 3);
     log_info("sending EOF");
 
-    // close(stream_fd);
+    close(stream_fd);
 
     // End time and resource usage
     clock_gettime(CLOCK_MONOTONIC, &end_prog);
@@ -457,17 +460,14 @@ int main(int argc, char *argv[]) {
     arguments->port = port;
     arguments->file_path = file_path;
     arguments->data_size = 1024;
-    arguments->duration = 180;
+    arguments->duration = 1;
     log_info("creating thread %d", i);
-    pthread_create(&thread[i], NULL, test_upload_random_data, arguments);
+    pthread_create(&thread[i], NULL, test_normal_send_receive, arguments);
   }
   for (int i = 0; i < NUM_THREADS; i++) {
     pthread_join(thread[i], NULL);
   }
-
-  // test_normal_send_receive(fp, config, ip_address, port);
-  // test_upload_file(fp, config, ip_address, port, file_path);
-  // test_download_file(fp, config, ip_address, port, file_path);
+  
   free(ip_address);
   free(file_path);
   fclose(fp);
