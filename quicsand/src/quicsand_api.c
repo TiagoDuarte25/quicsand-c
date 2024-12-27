@@ -485,7 +485,7 @@ static void server_timeout_cb(EV_P_ ev_timer *w, int revents);
 static void client_recv_cb(EV_P_ ev_io *w, int revents);
 
 static void debug_log(const char *line, void *argp) {
-    fprintf(stderr, "%s\n", line);
+    fprintf(argp, "%s\n", line);
 }
 
 static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
@@ -1204,7 +1204,15 @@ context_t create_quic_context(char *cert_path, char *key_path) {
             quiche_config_verify_peer(ctx->config, false);
         }
 
-        quiche_enable_debug_logging(debug_log, NULL);
+        FILE *fp;
+        if(cert_path && key_path) {
+            fp = fopen("server_debug_logging.log", "w");
+        } else {
+            fp = fopen("server_debug_logging.log", "w");
+        }
+
+        quiche_enable_debug_logging(debug_log, fp);
+        
 
         // quiche_config_set_application_protos(ctx->config,
         //                                     (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);

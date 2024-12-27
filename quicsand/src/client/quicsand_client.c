@@ -261,7 +261,7 @@ void *test_normal_send_receive(void *args) {
   ssize_t len = recv_data(ctx, connection, stream, ack, sizeof(ack), 0);
   log_info("[conn] %p: ack received: %s", connection, ack);
 
-  for (int i = 0; 1 ; i++) {
+  for (int i = 0; i < 10 ; i++) {
     char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
     send_data(ctx, connection, stream, data, strlen(data));
@@ -583,7 +583,7 @@ int main(int argc, char *argv[]) {
     arguments->data_size = 1024;
     arguments->duration = 30;
     log_info("creating thread %d", i);
-    pthread_create(&thread[i], NULL, test_upload_random_data, arguments);
+    pthread_create(&thread[i], NULL, test_normal_send_receive, arguments);
   }
   for (int i = 0; i < NUM_THREADS; i++) {
     pthread_join(thread[i], NULL);
