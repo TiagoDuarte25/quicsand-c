@@ -1,24 +1,6 @@
-#define _POSIX_C_SOURCE 200809L
-#include <arpa/inet.h> // inet_addr()
-#include <sys/times.h>
-#include <sys/resource.h>
-#include <pthread.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <netdb.h>
-#include <stdio.h>
-#include <time.h>
-#include <thpool.h>
-
 #include "quicsand_api.h"
 #include "log.h"
-#include <bits/time.h>
 
-#define LOGS_FORMAT "[%s] %f %s"
-#define TTFB "TTFB"
-#define HANDSHAKE "HDSK"
-#define CPU "CPU"
 #define NUM_REPETITIONS 10
 #define CHUNK_SIZE 1024
 
@@ -460,9 +442,9 @@ int main(int argc, char *argv[]) {
     arguments->port = port;
     arguments->file_path = file_path;
     arguments->data_size = 1024;
-    arguments->duration = 1;
+    arguments->duration = 10;
     log_info("creating thread %d", i);
-    pthread_create(&thread[i], NULL, test_normal_send_receive, arguments);
+    pthread_create(&thread[i], NULL, test_upload_random_data, arguments);
   }
   for (int i = 0; i < NUM_THREADS; i++) {
     pthread_join(thread[i], NULL);

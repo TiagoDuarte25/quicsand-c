@@ -1,9 +1,15 @@
 #ifndef QUICSAN_API_H
 #define QUICSAN_API_H
 
-#include <time.h>
-#include <stdio.h>
+#define _POSIX_C_SOURCE 200809L
+#include <arpa/inet.h> // inet_addr()
+#include <sys/resource.h>
+#include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <time.h>
 
 typedef void *context_t;
 typedef void *connection_t;
