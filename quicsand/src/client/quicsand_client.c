@@ -467,7 +467,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < NUM_THREADS; i++) {
     pthread_join(thread[i], NULL);
   }
-  
+
   free(ip_address);
   free(file_path);
   fclose(fp);

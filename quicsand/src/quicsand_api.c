@@ -506,7 +506,7 @@ void* accept_unix_socket(void * args);
 void* connect_unix_socket(void * args);
 
 static void debug_log(const char *line, void *argp) {
-    fprintf(stderr, "%s\n", line);
+    fprintf(argp, "%s\n", line);
 }
 
 static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
@@ -656,69 +656,7 @@ static void *conn_recv_cb(void *timeout_args) {
     struct conn_io *conn_io = args->conn_io;
 
     uint8_t buf[65535];
-    uint8_t out[MAX_DATAGRAM_SIZE];
-
     while (1) {
-        struct sockaddr_storage peer_addr = conn_io->peer_addr;
-        socklen_t peer_addr_len = conn_io->peer_addr_len;
-
-        ssize_t length;
-        // Read the packet data
-        if (read(conn_io->read_fd, &length, sizeof(length)) < 0) {
-            log_error("[conn] [%p] failed to read: %s", conn_io, strerror(errno));
-            continue;
-        }
-
-        ssize_t r = read(conn_io->read_fd, buf, length);
-
-        if (r < 0) {
-            log_error("[conn] [%p] failed to read: %s", conn_io, strerror(errno));
-            continue;
-        }
-
-        uint8_t type;
-        uint32_t version;
-
-        uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
-        size_t scid_len = sizeof(scid);
-
-        uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
-        size_t dcid_len = sizeof(dcid);
-
-        uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
-        size_t odcid_len = sizeof(odcid);
-
-        uint8_t token[MAX_TOKEN_LEN];
-        size_t token_len = sizeof(token);
-
-        int rc = quiche_header_info(buf, r, LOCAL_CONN_ID_LEN, &version,
-                                    &type, scid, &scid_len, dcid, &dcid_len,
-                                    token, &token_len);
-        if (rc < 0) {
-            log_error("[conn] [%p] failed to parse header: %d", conn_io, rc);
-            continue;
-        }
-
-        log_trace("[conn] [%p] parsed header: version=%u, type=%u, scid_len=%zu, dcid_len=%zu, token_len=%zu",
-               conn_io, version, type, scid_len, dcid_len, token_len);
-
-        quiche_recv_info recv_info = {
-            (struct sockaddr *)&conn_io->peer_addr,
-            conn_io->peer_addr_len,
-
-            (struct sockaddr *)&conns->local_addr,
-            conns->local_addr_len,
-        };
-        
-        ssize_t done = quiche_conn_recv(conn_io->conn, buf, r, &recv_info);
-        if (done < 0) {
-            log_error("[conn] [%p] failed to process packet: %zd", conn_io, done);
-            continue;
-        }
-
-
-        log_trace("[conn] [%p] connection: recv %zd bytes", conn_io, done);
-
         if (quiche_conn_is_established(conn_io->conn)) {
             uint64_t s = 0;
             
@@ -828,7 +766,6 @@ static void *conn_recv_cb(void *timeout_args) {
                         g_queue_push_tail(conn_io->stream_io_queue, stream_io);
                         g_cond_signal(&conn_io->queue_cond);
                         g_mutex_unlock(&conn_io->queue_mutex);
-                        flush_egress(ctx->loop, conn_io);
                     }
                 } else {
                     log_trace("[conn] [%p] stream %p found", conn_io, (void *)stream_io);
@@ -836,10 +773,8 @@ static void *conn_recv_cb(void *timeout_args) {
                     log_warn("wrote %d bytes to stream %p", recv_len, (void *)stream_io);
                 }
             }
-
             quiche_stream_iter_free(readable);
         }
-        flush_egress(ctx->loop, conn_io);
     }
 }
 
@@ -930,7 +865,6 @@ static void read_socket_cb(EV_P_ ev_io *w, int revents)
 
             if (token_len == 0) {
                 log_trace("[conn] [%p] stateless retry", conn_io);
-                log_warn("peer_addr %s:%d", inet_ntoa(((struct sockaddr_in *)&peer_addr)->sin_addr), ntohs(((struct sockaddr_in *)&peer_addr)->sin_port));
                 mint_token(dcid, dcid_len, &peer_addr, peer_addr_len,
                            token, &token_len);
 
@@ -976,45 +910,41 @@ static void read_socket_cb(EV_P_ ev_io *w, int revents)
             if (conn_io == NULL) {
                 continue;
             }
-            
-            int pipefd[2];
-            if (pipe(pipefd) < 0) {
-                log_error("[conn] [%p] failed to create pipe: %s", conn_io, strerror(errno));
-                return;
-            }
-            conn_io->read_fd = pipefd[0];
-            conn_io->write_fd = pipefd[1];
-
-            struct timeout_args *timeout_args = malloc(sizeof(struct timeout_args));
-            timeout_args->ctx = ctx;
-            timeout_args->conn_io = conn_io;
 
             g_mutex_lock(&ctx->queue_mutex);
             g_queue_push_tail(ctx->conn_io_queue, conn_io);
             g_cond_signal(&ctx->queue_cond);
             g_mutex_unlock(&ctx->queue_mutex);
 
-            pthread_t thread_id;
-            struct timeout_args *args = malloc(sizeof(struct timeout_args));
-            args->ctx = ctx;
-            args->conn_io = conn_io;
-            if (pthread_create(&thread_id, NULL, conn_recv_cb, args) != 0) {
-                log_error("[conn] [%p] failed to create event loop thread", conn_io);
-                return;
-            }
-            pthread_detach(thread_id);
+            // pthread_t thread_id;
+            // struct timeout_args *args = malloc(sizeof(struct timeout_args));
+            // args->ctx = ctx;
+            // args->conn_io = conn_io;
+            // if (pthread_create(&thread_id, NULL, conn_recv_cb, args) != 0) {
+            //     log_error("[conn] [%p] failed to create event loop thread", conn_io);
+            //     return;
+            // }
+            // pthread_detach(thread_id);
 
             HASH_ADD(hh, conns->h, cid, LOCAL_CONN_ID_LEN, conn_io);
         } 
-        log_trace("[conn] [%p] connection: write %zd", conn_io, read);
-        if (write(conn_io->write_fd, &read, sizeof(read)) < 0) {
-            log_error("[conn] [%p] failed to write packet length: %s", conn_io, strerror(errno));
-            return;
+        quiche_recv_info recv_info = {
+            (struct sockaddr *)&peer_addr,
+            peer_addr_len,
+
+            (struct sockaddr *)&conns->local_addr,
+            conns->local_addr_len,
+        };
+
+        log_warn("drop after this");
+        ssize_t done = quiche_conn_recv(conn_io->conn, buf, read, &recv_info);
+        if (done < 0) {
+            log_error("[conn] [%p] failed to process packet: %zd", conn_io, done);
+            continue;
         }
-        if (write(conn_io->write_fd, buf, read) < 0) {
-            log_error("[conn] [%p] failed to write packet: %s", conn_io, strerror(errno));
-            return;
-        }
+        log_warn("drop before this");
+        log_trace("[conn] [%p] recv %zd bytes", conn_io, done);
+        flush_egress(ctx->loop, conn_io);
     }
 }
 
@@ -1295,13 +1225,22 @@ context_t create_quic_context(char *cert_path, char *key_path) {
             quiche_config_verify_peer(ctx->config, false);
         }
 
-        quiche_enable_debug_logging(debug_log, NULL);
+        FILE *fp;
 
-        // quiche_config_set_application_protos(ctx->config,
-        //                                     (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
-        // I want ALPN that use h3
+        if (cert_path && key_path) {
+            fp = fopen("server_debug_logging.log", "w");
+        }
+        else {
+            fp = fopen("client_debug_logging.log", "w");
+        }
+        
+        quiche_enable_debug_logging(debug_log, fp);
+        // quiche_enable_debug_logging(debug_log, stdout);
+
         quiche_config_set_application_protos(ctx->config,
-                                            (uint8_t *)"\x05hq-29\x05hq-28\x05hq-27", 15);
+                                            (uint8_t *) "\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
+        // quiche_config_set_application_protos(ctx->config,
+        //                                     (uint8_t *)"\x05hq-29\x05hq-28\x05hq-27", 15);
         // quiche_config_set_max_idle_timeout(ctx->config, 10000000);
         quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
@@ -1566,7 +1505,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     memcpy(&conn_io->peer_addr, peer->ai_addr, peer->ai_addrlen);
     conn_io->peer_addr_len = peer->ai_addrlen;
     conn_io->h = NULL;
-    conn_io->stream_count = 0;
+    conn_io->stream_count = 4;
     conn_io->stream_io_queue = g_queue_new();
     g_mutex_init(&conn_io->queue_mutex);
     g_cond_init(&conn_io->queue_cond);
@@ -1601,6 +1540,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
             return NULL;
         }
     }
+    flush_egress(ctx->loop, conn_io);
     
     log_debug("connection established");
 
@@ -1972,7 +1912,7 @@ connection_t accept_connection(context_t context, time_t timeout) {
     }
     conn_io = g_queue_pop_head(ctx->conn_io_queue);
     g_mutex_unlock(&ctx->queue_mutex);
-    conn_io->stream_count = 0;
+    conn_io->stream_count = 4;
 
     while (!quiche_conn_is_established(conn_io->conn))
     {
