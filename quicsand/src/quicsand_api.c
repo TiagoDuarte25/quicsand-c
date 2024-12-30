@@ -1140,11 +1140,11 @@ void * stream_write(void *arg) {
     char buffer[65536];
     while (1) {
         log_trace("stream_write: reading from unix socket %d", stream_io->a_fd);
-        int to_read;
-        while ((to_read = quiche_conn_stream_capacity(conn_io->conn, stream_io->stream_id)) == 0 ) {
-            continue;
-        }
-        int len = read(stream_io->a_fd, buffer, to_read);
+        // int to_read;
+        // while ((to_read = quiche_conn_stream_capacity(conn_io->conn, stream_io->stream_id)) == 0 ) {
+        //     continue;
+        // }
+        int len = read(stream_io->a_fd, buffer, sizeof(buffer));
         if (len < 0) {
             log_error("failed to read from unix socket: %s", strerror(errno));
             return NULL;
@@ -1209,8 +1209,8 @@ context_t create_quic_context(char *cert_path, char *key_path) {
             fp = fopen("client_debug_logging.log", "w");
         }
         
-        quiche_enable_debug_logging(debug_log, fp);
-        // quiche_enable_debug_logging(debug_log, stdout);
+        // quiche_enable_debug_logging(debug_log, fp);
+        quiche_enable_debug_logging(debug_log, stdout);
 
         quiche_config_set_application_protos(ctx->config,
                                             (uint8_t *) "\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
