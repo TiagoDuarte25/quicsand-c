@@ -1,61 +1,28 @@
 #!/bin/bash
 
+trap 'tmux kill-session -t quicsand_session' SIGINT
+
 rm -rf quicsand/bin/*
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [-i <implementation>]" 1>&2
+    echo "Usage: $0 [-c <config_file>]" 1>&2
     echo "Options:" 1>&2
-    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic or quiche or ngtcp2)" 1>&2
-    echo "  -h, --help                             Display this help message" 1>&2
-    echo "  -n, --num-clients <num_clients>        Specify the number of clients" 1>&2
+    echo "  -c, --config <config_file>   Specify the YAML configuration file" 1>&2
+    echo "  -h, --help                   Display this help message" 1>&2
     exit 1
 }
 
-parse_yaml() {
-   local prefix=$2
-   local s='[[:space:]]*' w='[a-zA-Z0-9_]*' fs=$(echo @|tr @ '\034')
-   sed -ne "s|^\($s\)\($w\)$s:$s\"\(.*\)\"$s\$|\1$fs\2$fs\3|p" \
-        -e "s|^\($s\)\($w\)$s:$s\(.*\)$s\$|\1$fs\2$fs\3|p"  $1 |
-   awk -F$fs '{
-      indent = length($1)/2;
-      vname[indent] = $2;
-      for (i in vname) {if (i > indent) {delete vname[i]}}
-      if (length($3) > 0) {
-         vn=""; for (i=0; i<indent; i++) {vn=(vn)(vname[i])("_")}
-         printf("%s%s%s=\"%s\"\n", "'$prefix'",vn, $2, $3);
-      }
-   }'
-}
-
-# parse config.yaml file
-eval $(parse_yaml quicsand/config.yaml)
-
 # Parse command-line arguments
-while [[ "$#" -le 1 ]]; do
-    usage
-done
-
-NUM_CLIENTS=1
-TEST="simple"
-
-# Parse command-line arguments
+CONFIG_FILE=""
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        -i|--implementation)
-            IMPLEMENTATION="$2"
+        -c|--config)
+            CONFIG_FILE="$2"
             shift
             ;;
         -h|--help)
             usage
-            ;;
-        -t|--test)
-            TEST="$2"
-            shift
-            ;;
-        -n|--num-clients)
-            NUM_CLIENTS="$2"
-            shift
             ;;
         *)
             echo "Error: Unknown option $1"
@@ -65,42 +32,126 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-# rm -rf build
-echo "Building $IMPLEMENTATION implementation"
-
-if [ "$IMPLEMENTATION" == "msquic" ] || [ "$IMPLEMENTATION" == "lsquic" ]; then
-    cmake -S . -B build -DIMPL=$IMPLEMENTATION
-else
-    echo "Error: Unknown implementation $IMPLEMENTATION"
+if [ -z "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file is required"
     usage
 fi
 
+# Function to run client and server
+run_client_server() {
+    local TEST_NAME=$1
+    local TEST_TYPE=$2
+    local DURATION=$3
+    local DATA_SIZE=$4
+    local FILE_PATH=$5
+    local FACTOR=$6
+
+    # Trim any extra spaces or quotes from TEST_TYPE
+    TEST_TYPE=$(echo "$TEST_TYPE" | xargs)
+
+    # Define log file names
+    local SERVER_LOG="${TEST_NAME}_server.log"
+    local CLIENT_LOG="${TEST_NAME}_client.log"
+
+    # Start a new tmux session
+    tmux new-session -d -s quicsand_session
+
+    # Start the server in a new tmux window
+    case $TEST_TYPE in
+        request-response)
+            echo "starting request-response server..."
+            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            ;;
+        streaming)
+            echo "starting streaming server..."
+            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            ;;
+        upload)
+            echo "starting upload server..."
+            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            ;;
+        download)
+            echo "starting download server..."
+            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            ;;
+        *)
+            echo "Error: Unknown test type $TEST_TYPE"
+            tmux kill-session -t quicsand_session
+            return
+            ;;
+    esac
+    gnome-terminal -- tmux attach-session -t quicsand_session:1
+
+    # Give the server some time to start
+    sleep 5
+
+    # Start the client in a new tmux window based on the test type
+    case $TEST_TYPE in
+        request-response)
+            echo "starting request-response client..."
+            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
+            ;;
+        streaming)
+            echo "starting streaming client..."
+            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
+            ;;
+        upload)
+            echo "starting upload client..."
+            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
+            ;;
+        download)
+            echo "starting download client..."
+            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
+            ;;
+        *)
+            echo "Error: Unknown test type $TEST_TYPE"
+            tmux kill-session -t quicsand_session
+            return
+            ;;
+    esac
+    gnome-terminal -- tmux attach-session -t quicsand_session:2
+
+    # # check if the client is still running
+    # while true; do
+    #     if ! tmux list-sessions | grep -q quicsand_session; then
+    #         break
+    #     fi
+    #     sleep 1
+    # done
+
+    DURATION=$((DURATION + 5))
+    sleep $DURATION
+
+    # Stop the tmux session
+    echo "Stopping processes..."
+    tmux kill-session -t quicsand_session
+
+    sleep 5
+}
+
+# Read the YAML file and execute the tests
+IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
+NUM_CLIENTS=$(yq '.configs.globalVariables.num_clients' $CONFIG_FILE)
+NUM_SERVERS=$(yq '.configs.globalVariables.num_servers' $CONFIG_FILE)
+TESTS=$(yq '.configs.tests' $CONFIG_FILE)
+NUM_TESTS=$(echo "$TESTS" | yq 'length' -)
+
+# Build the implementation
+echo "Building $IMPLEMENTATION implementation"
+cmake -B build -DIMPL=$IMPLEMENTATION
+
 cd build
-
 make
-
 cp -r ../quicsand/config.yaml bin/
 cp -r ../quicsand/certs bin/
 
-if [ $TEST == "simple" ]; then
-    gnome-terminal -- bash -c "cd bin; ./quicsand_server -c "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem" -k "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem" -i "0.0.0.0" -p 4567; exec bash"
-
-    sleep 2
-
-    for i in $(seq 1 $NUM_CLIENTS); do
-        gnome-terminal -- bash -c "cd bin; ./quicsand_client -i 127.0.0.1 -p 4567 -f /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt; exec bash"
-    done
-elif [ $TEST == "ms" ]; then
-    gnome-terminal -- bash -c "cd bin; ./quicsand_server_ms -c "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem" -k "/home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem" -i "0.0.0.0" -p 4567; exec bash"
-
-    sleep 2
-
-    for i in $(seq 1 $NUM_CLIENTS); do
-        gnome-terminal -- bash -c "cd bin; ./quicsand_client_ms -i 127.0.0.1 -p 4567 -f /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/file.txt; exec bash"
-    done
-else
-    echo "Error: Unknown test $TEST"
-    usage
-fi
-
-
+# Execute the tests
+for i in $(seq 0 $(($NUM_TESTS - 1))); do
+    TEST_NAME=$(echo "$TESTS" | yq ".[$i].name" -)
+    TEST_TYPE=$(echo "$TESTS" | yq ".[$i].type" -)
+    DURATION=$(echo "$TESTS" | yq ".[$i].duration" -)
+    DATA_SIZE=$(echo "$TESTS" | yq ".[$i].data_size" -)
+    FILE_PATH=$(echo "$TESTS" | yq ".[$i].file_path" -)
+    FACTOR=$(echo "$TESTS" | yq ".[$i].factor" -)
+    run_client_server "$TEST_NAME" "$TEST_TYPE" "$DURATION" "$DATA_SIZE" "$FILE_PATH" "$FACTOR"
+done
