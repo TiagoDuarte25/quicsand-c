@@ -77,8 +77,16 @@ void * request_response_test(void *args) {
         log_debug("data sent: %s", data);
 
         // receive data from the server
-        int len = read(stream_fd, buffer, sizeof(buffer));
-        log_debug("data received: %.*s", len, buffer);
+        int len;
+        while ((len = read(stream_fd, buffer, sizeof(buffer))) > 0) {
+            log_debug("data received: %.*s", len, buffer);
+        }
+        if (len < 0) {
+                log_error("error: %s", quic_error_message(quic_error));
+        }
+        if (len == 0) {
+            log_debug("stream closed by server");
+        }
 
         // calculate round-trip time
         clock_gettime(CLOCK_MONOTONIC, &rtt_end);
@@ -167,15 +175,11 @@ int main(int argc, char *argv[]) {
       return 1;
   }
 
-  // Add file callback with LOG_TRACE level
+  // Add file callback with the level
   if (log_add_fp(fp, LOG_INFO) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }
-
-  // Set global log level to LOG_TRACE
-  log_set_level(LOG_INFO);
-  // FILE *fp = stdout;
 
   // Check if required arguments are provided
   if (ip_address == NULL || port == 0) {

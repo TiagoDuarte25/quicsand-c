@@ -36,6 +36,11 @@ include_directories(quicsand/include)
 set(THREAD_POOL_DIR ${CMAKE_BINARY_DIR}/C-Thread-Pool)
 set(LIBEV_DIR ${CMAKE_BINARY_DIR}/libev)
 
+if(NOT DEFINED IMPL)
+    message(FATAL_ERROR "IMPL variable is not set. Please set it to either 'msquic' or 'quiche'.")
+endif()
+message(STATUS "IMPL: ${IMPL}")
+
 # Clone and build C-Thread-Pool
 if(NOT EXISTS ${THREAD_POOL_DIR})
 execute_process(

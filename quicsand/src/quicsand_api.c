@@ -145,7 +145,7 @@ struct timeout_args {
 #define NULL (void *)0
 #endif
 
-#define MAX_STREAMS 50
+#define MAX_STREAMS 20000
 #define MAX_CONNECTIONS 50
 
 typedef struct {

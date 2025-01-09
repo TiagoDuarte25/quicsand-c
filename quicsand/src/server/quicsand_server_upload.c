@@ -12,23 +12,6 @@
 #include <log.h>
 #include "quicsand_api.h"
 
-#define CHUNK_SIZE 1024
-
-char* reverse_string(char *str)
-{
-    char *start = str;
-    char *end = start + strlen(str) - 1;
-    while (end > start)
-    {
-        char temp = *start;
-        *start = *end;
-        *end = temp;
-        ++start;
-        --end;
-    }
-    return str;
-}
-
 typedef struct {
     context_t ctx;
     connection_t connection;
@@ -59,10 +42,8 @@ void* handle_stream(void * arg) {
         close(stream_fd);
         return NULL;
     }
-    log_warn("stream_fd: %d", stream_fd);
     char buffer[65536];
     while (1) {
-        log_warn("entering loop");
         // receive data from the client
         int len = read(stream_fd, buffer, sizeof(buffer));
         log_debug("len: %d", len);
@@ -176,14 +157,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Add file callback with LOG_TRACE level
+    // Add file callback with the level
     if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
-
-    // Set global log level to LOG_TRACE
-    log_set_level(LOG_INFO);
 
     // Ensure required options are provided
     if (!cert_path || !key_path || !ip_address || port == 0)

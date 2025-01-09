@@ -24,48 +24,52 @@ struct args {
   double duration;
 };
 
-void *upload_file(void *args) {
+void *download_file(void *args) {
     struct args *arguments = (struct args *)args;
     FILE *fp = arguments->fp;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
     char *file_path = arguments->file_path;
-    size_t data_size = arguments->data_size;
 
-    log_info("starting file upload");
+    log_info("starting file download");
 
     context_t ctx = create_quic_context(NULL, NULL);
     log_debug("context created");
     connection_t connection = open_connection(ctx, ip_address, port);
     log_debug("connection opened");
 
-    FILE *file = fopen(file_path, "r");
+    // open a new stream
+    int stream_fd = open_stream(ctx, connection);
+    log_debug("stream opened");
+
+    write(stream_fd, file_path, strlen(file_path) + 1);
+
+    // get the file name from the path in the last part of the path
+    char *file_name = strrchr(file_path, '/');
+    if (file_name == NULL) {
+        file_name = file_path;
+    } else {
+        file_name++;
+    }
+
+    FILE *file = fopen(file_name, "w");
     if (!file) {
-        log_error("failed to open file: %s", file_path);
+        log_error("failed to open file: %s", file_name);
         return NULL;
     }
 
     static char buffer[65536];
     size_t bytes_read;
-
-    // open a new stream
-    int stream_fd = open_stream(ctx, connection);
-    log_debug("stream opened");
-
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        // send data to the server
-        write(stream_fd, buffer, bytes_read);
-        log_debug("data sent: %zu bytes", bytes_read);
-        usleep(20);
+    while ((bytes_read = read(stream_fd, buffer, sizeof(buffer))) > 0) {
+        fwrite(buffer, sizeof(char), bytes_read, file);
+        log_debug("data written to file");
     }
+    fclose(file);
 
     //close the stream
     close(stream_fd);
-    fclose(file);
 
-    // close_connection(ctx, connection);
-
-    log_info("file upload completed");
+    log_info("file download completed");
 
     getchar();
 
@@ -125,7 +129,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_INFO) != 0) {
+  if (log_add_fp(fp, LOG_DEBUG) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }
@@ -144,9 +148,7 @@ int main(int argc, char *argv[]) {
   arguments->ip_address = ip_address;
   arguments->port = port;
   arguments->file_path = file_path;
-  arguments->duration = duration;
-  arguments->data_size = data_size;
-  upload_file(arguments);
+  download_file(arguments);
 
   free(ip_address);
   free(file_path);

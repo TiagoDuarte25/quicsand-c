@@ -130,7 +130,7 @@ run_client_server() {
 }
 
 # Read the YAML file and execute the tests
-IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE)
+IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
 NUM_CLIENTS=$(yq '.configs.globalVariables.num_clients' $CONFIG_FILE)
 NUM_SERVERS=$(yq '.configs.globalVariables.num_servers' $CONFIG_FILE)
 TESTS=$(yq '.configs.tests' $CONFIG_FILE)
@@ -138,6 +138,7 @@ NUM_TESTS=$(echo "$TESTS" | yq 'length' -)
 
 # Build the implementation
 echo "Building $IMPLEMENTATION implementation"
+cmake -B build -DIMPL=$IMPLEMENTATION
 
 cd build
 make

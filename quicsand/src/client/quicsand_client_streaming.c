@@ -24,50 +24,43 @@ struct args {
   double duration;
 };
 
-void *upload_file(void *args) {
+void *stream_data(void *args) {
     struct args *arguments = (struct args *)args;
     FILE *fp = arguments->fp;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
-    char *file_path = arguments->file_path;
-    size_t data_size = arguments->data_size;
 
-    log_info("starting file upload");
+    log_info("starting streaming client");
 
     context_t ctx = create_quic_context(NULL, NULL);
     log_debug("context created");
     connection_t connection = open_connection(ctx, ip_address, port);
     log_debug("connection opened");
 
-    FILE *file = fopen(file_path, "r");
-    if (!file) {
-        log_error("failed to open file: %s", file_path);
-        return NULL;
-    }
-
-    static char buffer[65536];
-    size_t bytes_read;
-
     // open a new stream
     int stream_fd = open_stream(ctx, connection);
     log_debug("stream opened");
 
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        // send data to the server
-        write(stream_fd, buffer, bytes_read);
-        log_debug("data sent: %zu bytes", bytes_read);
-        usleep(20);
+    // Send the "request" string
+    const char *request = "request";
+    write(stream_fd, request, strlen(request));
+    log_debug("sent request: %s", request);
+
+    // Receive streaming data
+    static char buffer[65536];
+    size_t bytes_received;
+    while ((bytes_received = read(stream_fd, buffer, sizeof(buffer))) > 0) {
+        log_debug("received data: %zu bytes", bytes_received);
     }
 
-    //close the stream
+    // Close the stream
     close(stream_fd);
-    fclose(file);
+    log_info("stream closed");
 
-    // close_connection(ctx, connection);
+    // Close the connection
+    close_connection(ctx, connection);
 
-    log_info("file upload completed");
-
-    getchar();
+    log_info("streaming client completed");
 
     return NULL;
 }
@@ -146,7 +139,7 @@ int main(int argc, char *argv[]) {
   arguments->file_path = file_path;
   arguments->duration = duration;
   arguments->data_size = data_size;
-  upload_file(arguments);
+  stream_data(arguments);
 
   free(ip_address);
   free(file_path);
