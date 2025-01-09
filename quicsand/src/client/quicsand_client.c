@@ -1,24 +1,6 @@
-#define _POSIX_C_SOURCE 200809L
-#include <arpa/inet.h> // inet_addr()
-#include <sys/times.h>
-#include <sys/resource.h>
-#include <pthread.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <netdb.h>
-#include <stdio.h>
-#include <time.h>
-#include <thpool.h>
-
 #include "quicsand_api.h"
 #include "log.h"
-#include <bits/time.h>
 
-#define LOGS_FORMAT "[%s] %f %s"
-#define TTFB "TTFB"
-#define HANDSHAKE "HDSK"
-#define CPU "CPU"
 #define NUM_REPETITIONS 10
 #define CHUNK_SIZE 1024
 
@@ -143,7 +125,7 @@ void *test_normal_send_receive(void *args) {
   int len = read(stream_fd, ack, sizeof(ack));
   log_info("[conn] %p: ack received: %.*s", connection, len, ack);
 
-  for (int i = 0; i < 100 ; i++) {
+  for (int i = 0; 1; i++) {
     char *data = "Hello, server!";
     clock_gettime(CLOCK_MONOTONIC, &start);
     write(stream_fd, data, strlen(data) + 1);
@@ -343,7 +325,10 @@ void *test_upload_random_data(void *args) {
     while ((current.tv_sec - start_prog.tv_sec) + (current.tv_nsec - start_prog.tv_nsec) / 1e9 < duration) {
         log_info("sending random data chunk");
         clock_gettime(CLOCK_MONOTONIC, &start);
-        write(stream_fd, buffer, data_size);
+        if (write(stream_fd, buffer, data_size) <= 0) {
+            log_error("failed to write to stream");
+            break;
+        }
         clock_gettime(CLOCK_MONOTONIC, &end);
         total_bytes += data_size;
         num_chunks++;
@@ -354,7 +339,7 @@ void *test_upload_random_data(void *args) {
     write(stream_fd, "EOF", 3);
     log_info("sending EOF");
 
-    // close(stream_fd);
+    close(stream_fd);
 
     // End time and resource usage
     clock_gettime(CLOCK_MONOTONIC, &end_prog);
@@ -387,43 +372,38 @@ void *test_upload_random_data(void *args) {
 }
 
 int main(int argc, char *argv[]) {
-  // Open the log file
-  FILE *fp = fopen("client.log", "w+");
-  if (!fp) {
-      perror("Failed to open log file");
-      return 1;
-  }
-
-  // Add file callback with LOG_TRACE level
-  if (log_add_fp(fp, LOG_TRACE) != 0) {
-      fprintf(fp, "Failed to add file callback\n");
-      return 1;
-  }
-
-  // Set global log level to LOG_TRACE
-  log_set_level(LOG_TRACE);
-  // FILE *fp = stdout;
 
   char *ip_address = NULL;
   char *file_path = NULL;
+  char* log_file = NULL;
   int port = 0;
+  int duration = 0;
+  int data_size = 0;
   int opt;
 
   // Parse command-line arguments
-  while ((opt = getopt(argc, argv, "i:p:f:")) != -1) {
+  while ((opt = getopt(argc, argv, "i:p:f:l:s:d")) != -1) {
       switch (opt) {
-          case 'i':
+            case 'i':
             ip_address = strdup(optarg);
             break;
-          case 'p':
+            case 'p':
             port = atoi(optarg);
             break;
-          case 'f':
+            case 'f':
             file_path = strdup(optarg);
+            break;
+            case 'l':
+            log_file = strdup(optarg);
+            break;
+            case 's':
+            data_size = atoi(optarg);
+            break;
+            case 'd':
+            duration = atoi(optarg);
             break;
           default:
             log_info("usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
-            fclose(fp);
             exit(EXIT_FAILURE);
       }
   }
@@ -431,9 +411,25 @@ int main(int argc, char *argv[]) {
   // Check if required arguments are provided
   if (ip_address == NULL || port == 0) {
       log_info("usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
-      fclose(fp);
       return EXIT_FAILURE;
   }
+
+  // Open the log file
+  FILE *fp = fopen(log_file, "w+");
+  if (!fp) {
+      perror("Failed to open log file");
+      return 1;
+  }
+
+  // Add file callback with LOG_TRACE level
+  if (log_add_fp(fp, LOG_INFO) != 0) {
+      fprintf(fp, "Failed to add file callback\n");
+      return 1;
+  }
+
+  // Set global log level to LOG_TRACE
+  log_set_level(LOG_INFO);
+  // FILE *fp = stdout;
 
   log_info("ip_address: %s", ip_address);
   log_info("port: %d", port);
@@ -456,8 +452,8 @@ int main(int argc, char *argv[]) {
     arguments->ip_address = ip_address;
     arguments->port = port;
     arguments->file_path = file_path;
-    arguments->data_size = 1024;
-    arguments->duration = 180;
+    arguments->data_size = data_size;
+    arguments->duration = duration;
     log_info("creating thread %d", i);
     pthread_create(&thread[i], NULL, test_upload_random_data, arguments);
   }
@@ -465,11 +461,7 @@ int main(int argc, char *argv[]) {
     pthread_join(thread[i], NULL);
   }
 
-  // test_normal_send_receive(fp, config, ip_address, port);
-  // test_upload_file(fp, config, ip_address, port, file_path);
-  // test_download_file(fp, config, ip_address, port, file_path);
   free(ip_address);
   free(file_path);
-  fclose(fp);
   getchar();
 }

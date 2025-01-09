@@ -23,6 +23,9 @@ quic_error_code_t quic_error = QUIC_SUCCESS;
 #include <pthread.h>
 #include <glib.h>
 
+#include <sys/socket.h>
+#include <sys/un.h>
+
 #include <ev.h>
 #include <quiche.h>
 
@@ -44,18 +47,10 @@ struct connections {
     struct conn_io *h;
 
     quiche_config *config;
-
-    struct conn_io *last_conn_io;
-    struct conn_io *new_conn_io;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
 };
 
 struct conn_io {
     ev_timer timer;
-
-    int read_fd;
-    int write_fd;
 
     int sock;
 
@@ -72,16 +67,15 @@ struct conn_io {
     UT_hash_handle hh;
 
     struct stream_io *h;
-    struct stream_io *last_stream_io;
-    struct stream_io *new_stream_io;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
 
     GQueue *stream_io_queue;
     GMutex queue_mutex;
     GCond queue_cond;
 
-    bool acked;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+
+    int stream_count;
 };
 
 struct stream_io {
@@ -89,10 +83,13 @@ struct stream_io {
 
     struct buffer *recv_buf;
 
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
-
     UT_hash_handle hh;
+
+    pthread_t w_thread;
+    int c_fd;
+    int s_fd;
+    int a_fd;
+    struct sockaddr_un addr;
 };
 
 struct buffer {
@@ -112,6 +109,12 @@ struct context
     GQueue *conn_io_queue;
     GMutex queue_mutex;
     GCond queue_cond;
+};
+
+struct stream_ctx {
+    struct context *ctx;
+    struct conn_io *conn_io;
+    struct stream_io *stream_io;
 };
 
 struct timeout_args {
@@ -142,7 +145,7 @@ struct timeout_args {
 #define NULL (void *)0
 #endif
 
-#define MAX_STREAMS 50
+#define MAX_STREAMS 20000
 #define MAX_CONNECTIONS 50
 
 typedef struct {
@@ -155,6 +158,11 @@ typedef struct {
     int s_fd;
     int a_fd;
     struct sockaddr_un addr;
+    int buffer_count;
+
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    int ready; 
 } stream_info_t;
 
 typedef struct {
@@ -232,7 +240,6 @@ void* connect_unix_socket(void * args) {
 }
 
 void * stream_write(void *arg) {
-    log_warn("stream_write: started");
     ctx_strm_t *ctx_strm = (ctx_strm_t *)arg;
     stream_info_t *stream_info = ctx_strm->stream_info;
     struct context *ctx = ctx_strm->ctx;
@@ -240,27 +247,40 @@ void * stream_write(void *arg) {
     while (1) {
         log_trace("stream_write: reading from unix socket %d", stream_info->a_fd);
         int len = read(stream_info->a_fd, buffer, sizeof(buffer));
+        log_trace("stream_write: read %d bytes", len);
         if (len < 0) {
             log_error("failed to read from unix socket: %s", strerror(errno));
             return NULL;
         }
         if (len == 0) {
-            log_warn("stream_write: read 0 bytes");
+            log_trace("stream_write: EOF");
+            pthread_mutex_lock(&stream_info->mutex);
             ctx->msquic->StreamShutdown(stream_info->stream, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0);
-            break;
+            pthread_mutex_unlock(&stream_info->mutex);
+            return NULL;
         }
-        log_warn("stream_write: read %d bytes", len);
         
         QUIC_BUFFER *send_buffer = malloc(sizeof(QUIC_BUFFER) + sizeof(buffer));
         send_buffer->Buffer = buffer;
         send_buffer->Length = len;
-
+        
+        stream_info->buffer_count++;
+        stream_info->ready = 0;
+        pthread_mutex_lock(&stream_info->mutex);
         QUIC_STATUS status = ctx->msquic->StreamSend(stream_info->stream, send_buffer, 1, QUIC_SEND_FLAG_NONE, send_buffer);
+        pthread_mutex_unlock(&stream_info->mutex);
         if (QUIC_FAILED(status)) {
             log_error("send stream failed, 0x%x!", status);
             return NULL;
         }
+        
+        if (stream_info->ready == 0) {
+            pthread_mutex_lock(&stream_info->mutex);
+            pthread_cond_wait(&stream_info->cond, &stream_info->mutex);
+            pthread_mutex_unlock(&stream_info->mutex);
+        }
         log_trace("stream_write: sent %d bytes", len);
+        free(send_buffer);
     }
 }
 
@@ -285,7 +305,15 @@ stream_callback(
     case QUIC_STREAM_EVENT_RECEIVE:
         log_trace("[strm][%p] data received", (void *)stream);
         // write to the unix socket if can't send block until it can
-        while (write(stream_info->a_fd, event->RECEIVE.Buffers->Buffer, event->RECEIVE.TotalBufferLength) < 0) {
+        int val;
+        pthread_mutex_lock(&stream_info->mutex);
+        if (event->RECEIVE.BufferCount == 0) {
+            log_trace("no data to write");
+            pthread_mutex_unlock(&stream_info->mutex);
+            break;
+        }
+        while ((val = write(stream_info->a_fd, event->RECEIVE.Buffers->Buffer, event->RECEIVE.TotalBufferLength)) < 0) {
+            log_trace("val: %d");
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 log_debug("waiting for data to be sent");
                 continue;
@@ -294,32 +322,58 @@ stream_callback(
                 continue;
             }
         }
+        pthread_mutex_unlock(&stream_info->mutex);
+        log_trace("val: %d", val);
         break;  
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
+        pthread_mutex_lock(&stream_info->mutex);
+        stream_info->ready = 1;
+        pthread_cond_signal(&stream_info->cond);
+        pthread_mutex_unlock(&stream_info->mutex);
         log_trace("[strm][%p] data sent", (void *)stream);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
+        pthread_mutex_lock(&stream_info->mutex);
         log_trace("[strm][%p] peer shut down", (void *)stream);
-        close(stream_info->c_fd);
-        ctx->msquic->StreamClose(stream);
+        pthread_mutex_unlock(&stream_info->mutex);
+        shutdown(stream_info->a_fd, SHUT_WR);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
+        pthread_mutex_lock(&stream_info->mutex);
         ctx->msquic->StreamShutdown(stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
         log_trace("[strm][%p] peer aborted", (void *)stream);
+        pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
+        pthread_mutex_lock(&stream_info->mutex);
         log_trace("[strm][%p] peer receive aborted", (void *)stream);
         ctx->msquic->StreamClose(stream);
+        pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
+        pthread_mutex_lock(&stream_info->mutex);
         log_trace("[strm][%p] send shutdown complete", (void *)stream);
-        ctx->msquic->StreamClose(stream);
+        // ctx->msquic->StreamClose(stream);
+        pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
         log_trace("[strm] all done");
         HASH_DELETE(hh, connection_info->h, stream_info);
-        close(stream_info->a_fd);
-        close(stream_info->s_fd);
+        if (stream_info->a_fd >= 0) {
+            shutdown(stream_info->a_fd, SHUT_RDWR);
+            close(stream_info->a_fd);
+            stream_info->a_fd = -1;
+        }
+        if (stream_info->c_fd >= 0) {
+            shutdown(stream_info->c_fd, SHUT_RDWR);
+            close(stream_info->c_fd);
+            stream_info->c_fd = -1;
+        }
+        if (stream_info->s_fd >= 0) {
+            shutdown(stream_info->s_fd, SHUT_RDWR);
+            close(stream_info->s_fd);
+            stream_info->s_fd = -1;
+        }
         free(stream_info);
         break;
     case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:
@@ -391,14 +445,84 @@ connection_callback(
         stream_info->s_fd = -1;
         stream_info->c_fd = -1;
         stream_info->a_fd = -1;
-        g_mutex_lock(&connection_info->queue_mutex);
-        g_queue_push_tail(connection_info->stream_queue, stream_info);
-        g_cond_signal(&connection_info->queue_cond);
-        g_mutex_unlock(&connection_info->queue_mutex);
+
+        stream_info->buffer_count = 0;
+
+        stream_info->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+        stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        stream_info->ready = 0;
+
+        int s_fd, c_fd;
+        if ((s_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            log_error("failed to create unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        log_trace("server socket created");
+
+        if ((c_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            log_error("failed to create unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        struct sockaddr_un addr;
+
+        addr.sun_family = AF_UNIX;
+        char * path = "/tmp/quicsand-sockets/";
+        char * sun_path = malloc(strlen(path) + 10);
+        sprintf(sun_path, "%s%d", path, s_fd);
+        strcpy(addr.sun_path, sun_path);
+
+        // Create directory if it does not exist
+        if (mkdir(path, 0777) && errno != EEXIST) {
+            log_error("failed to create directory: %s", strerror(errno));
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            free(sun_path);
+            close(c_fd);
+            close(s_fd);
+            return -1;
+        }
+
+        // Remove existing socket file if it exists
+        unlink(addr.sun_path);
+
+        if (bind(s_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0) {
+            log_error("failed to bind unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        if (listen(s_fd, 1) < 0) {
+            log_error("failed to listen on unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        stream_info->s_fd = s_fd;
+        stream_info->c_fd = c_fd;
+        stream_info->addr = addr;
+
+        pthread_t accept_thread, connect_thread;
+        pthread_create(&accept_thread, NULL, accept_unix_socket, (void *)stream_info);
+        pthread_create(&connect_thread, NULL, connect_unix_socket, (void *)stream_info);
+
+        pthread_join(accept_thread, NULL);
+        pthread_join(connect_thread, NULL);
+
         ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
         ctx_strm->ctx = ctx;
         ctx_strm->connection_info = connection_info;
         ctx_strm->stream_info = stream_info;
+
+        pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)ctx_strm);
+        pthread_detach(stream_info->w_thread);
+
+        g_mutex_lock(&connection_info->queue_mutex);
+        g_queue_push_tail(connection_info->stream_queue, stream_info);
+        g_cond_signal(&connection_info->queue_cond);
+        g_mutex_unlock(&connection_info->queue_mutex);
         ctx->msquic->SetCallbackHandler(stream_info->stream, (void *)stream_callback, ctx_strm);
         log_trace("[strm][%p] peer started", (void *)event->PEER_STREAM_STARTED.Stream);
         break;
@@ -494,13 +618,13 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
 }
 #elif QUICHE
 
-
-static void client_timeout_cb(EV_P_ ev_timer *w, int revents);
-static void server_timeout_cb(EV_P_ ev_timer *w, int revents);
 static void client_recv_cb(EV_P_ ev_io *w, int revents);
+void * stream_write(void *arg);
+void* accept_unix_socket(void * args);
+void* connect_unix_socket(void * args);
 
 static void debug_log(const char *line, void *argp) {
-    fprintf(stderr, "%s\n", line);
+    fprintf(argp, "%s\n", line);
 }
 
 static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
@@ -509,10 +633,10 @@ static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
     quiche_send_info send_info;
 
     while (1) {
-        pthread_mutex_lock(&conn_io->lock);
+        pthread_mutex_lock(&conn_io->mutex);
         ssize_t written = quiche_conn_send(conn_io->conn, out, sizeof(out),
                                            &send_info);
-        pthread_mutex_unlock(&conn_io->lock);
+        pthread_mutex_unlock(&conn_io->mutex);
 
         if (written == QUICHE_ERR_DONE) {
             log_trace("done writing");
@@ -524,11 +648,9 @@ static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
             return;
         }
 
-        pthread_mutex_lock(&conn_io->lock);
         ssize_t sent = sendto(conn_io->sock, out, written, 0,
                               (struct sockaddr *) &send_info.to,
                               send_info.to_len);
-        pthread_mutex_unlock(&conn_io->lock);
         if (sent != written) {
             log_error("failed to send packet: %zd, expected: %zd, error: %s", sent, written, strerror(errno));
             return;
@@ -536,15 +658,14 @@ static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
 
         log_trace("flush_egress: sent %zd bytes", sent);
     }
+    pthread_mutex_lock(&conn_io->mutex);
     if (quiche_conn_is_closed(conn_io->conn)) {
         quiche_conn_free(conn_io->conn);
+        pthread_mutex_unlock(&conn_io->mutex);
         free(conn_io);
-        pthread_mutex_unlock(&conn_io->lock);
         return;
     }
-    // double t = quiche_conn_timeout_as_nanos(conn_io->conn) / 1e9f;
-    // conn_io->timer.repeat = t;
-    // ev_timer_again(loop, &conn_io->timer);
+    pthread_mutex_unlock(&conn_io->mutex);
 }
 
 static void mint_token(const uint8_t *dcid, size_t dcid_len,
@@ -651,145 +772,6 @@ static struct conn_io *create_conn(struct context *ctx, uint8_t *scid, size_t sc
     return conn_io;
 }
 
-static void *conn_recv_cb(void *timeout_args) {
-    struct timeout_args *args = timeout_args;
-    struct context *ctx = args->ctx;
-    struct connections *conns = ctx->conns;
-    struct conn_io *conn_io = args->conn_io;
-
-    uint8_t buf[65535];
-    uint8_t out[MAX_DATAGRAM_SIZE];
-
-    while (1) {
-        struct sockaddr_storage peer_addr = conn_io->peer_addr;
-        socklen_t peer_addr_len = conn_io->peer_addr_len;
-
-        ssize_t length;
-        // Read the packet data
-        if (read(conn_io->read_fd, &length, sizeof(length)) < 0) {
-            log_error("[conn] [%p] failed to read: %s", conn_io, strerror(errno));
-            continue;
-        }
-
-        ssize_t r = read(conn_io->read_fd, buf, length);
-
-        if (r < 0) {
-            log_error("[conn] [%p] failed to read: %s", conn_io, strerror(errno));
-            continue;
-        }
-
-        uint8_t type;
-        uint32_t version;
-
-        uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
-        size_t scid_len = sizeof(scid);
-
-        uint8_t dcid[QUICHE_MAX_CONN_ID_LEN];
-        size_t dcid_len = sizeof(dcid);
-
-        uint8_t odcid[QUICHE_MAX_CONN_ID_LEN];
-        size_t odcid_len = sizeof(odcid);
-
-        uint8_t token[MAX_TOKEN_LEN];
-        size_t token_len = sizeof(token);
-
-        int rc = quiche_header_info(buf, r, LOCAL_CONN_ID_LEN, &version,
-                                    &type, scid, &scid_len, dcid, &dcid_len,
-                                    token, &token_len);
-        if (rc < 0) {
-            log_error("[conn] [%p] failed to parse header: %d", conn_io, rc);
-            continue;
-        }
-
-        log_trace("[conn] [%p] parsed header: version=%u, type=%u, scid_len=%zu, dcid_len=%zu, token_len=%zu",
-               conn_io, version, type, scid_len, dcid_len, token_len);
-
-        quiche_recv_info recv_info = {
-            (struct sockaddr *)&conn_io->peer_addr,
-            conn_io->peer_addr_len,
-
-            (struct sockaddr *)&conns->local_addr,
-            conns->local_addr_len,
-        };
-        
-        ssize_t done = quiche_conn_recv(conn_io->conn, buf, r, &recv_info);
-        if (done < 0) {
-            log_error("[conn] [%p] failed to process packet: %zd", conn_io, done);
-            continue;
-        }
-
-        pthread_mutex_lock(&conn_io->lock);
-        pthread_cond_signal(&conn_io->cond);
-        pthread_mutex_unlock(&conn_io->lock);
-
-        log_trace("[conn] [%p] connection: recv %zd bytes", conn_io, done);
-
-        if (quiche_conn_is_established(conn_io->conn)) {
-            printf("[conn] [%p] connection: established\n", (void *)conn_io);
-            uint64_t s = 0;
-            
-            quiche_stream_iter *readable = quiche_conn_readable(conn_io->conn);
-
-            while (quiche_stream_iter_next(readable, &s)) {
-                log_trace("[conn] [%p] stream %" PRIu64 " is readable", conn_io, s);
-
-                bool fin = false;
-                uint64_t error_code;
-                ssize_t recv_len = quiche_conn_stream_recv(conn_io->conn, s,
-                                                           buf, sizeof(buf),
-                                                           &fin, &error_code);
-                if (recv_len < 0) {
-                    break;
-                }
-                struct stream_io *stream_io;
-                HASH_FIND(hh, conn_io->h, &s, sizeof(s), stream_io);
-                if (stream_io == NULL) {
-                    log_trace("[conn] [%p] stream %p not found", conn_io, (void *)stream_io);
-                    log_trace("buf: %s", buf);
-                    if (strcmp((char *)buf, "open stream") == 0) {
-                        stream_io = malloc(sizeof(struct stream_io));
-                        if (stream_io == NULL) {
-                            log_error("[conn] [%p] failed to allocate stream IO", conn_io);
-                            return NULL;
-                        }
-                        stream_io->stream_id = s;
-                        stream_io->recv_buf = malloc(sizeof(struct buffer));
-                        stream_io->recv_buf->buf = NULL;
-                        stream_io->recv_buf->len = 0;
-                        stream_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-                        stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-                        HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
-                        g_mutex_lock(&conn_io->queue_mutex);
-                        g_queue_push_tail(conn_io->stream_io_queue, stream_io);
-                        g_cond_signal(&conn_io->queue_cond);
-                        g_mutex_unlock(&conn_io->queue_mutex);
-                        quiche_conn_stream_send(conn_io->conn, s, (uint8_t *)"stream opened", sizeof("stream opened"), false, &error_code);
-                        flush_egress(ctx->loop, conn_io);
-                    }
-                } else {
-                    log_trace("[conn] [%p] stream %p found", conn_io, (void *)stream_io);
-                    pthread_mutex_lock(&stream_io->lock);
-                    if (stream_io->recv_buf->buf != NULL) {
-                        // add new bytes to the buffer
-                        stream_io->recv_buf->buf = realloc(stream_io->recv_buf->buf, stream_io->recv_buf->len + recv_len);
-                        memcpy(stream_io->recv_buf->buf + stream_io->recv_buf->len, buf, recv_len);
-                        stream_io->recv_buf->len += recv_len;
-                    } else {
-                        stream_io->recv_buf->buf = malloc(recv_len);
-                        stream_io->recv_buf->len = recv_len;
-                        memcpy(stream_io->recv_buf->buf, buf, recv_len);
-                    }
-                    pthread_cond_signal(&stream_io->cond);
-                    pthread_mutex_unlock(&stream_io->lock);
-                }
-            }
-
-            quiche_stream_iter_free(readable);
-        }
-        flush_egress(ctx->loop, conn_io);
-    }
-}
-
 static void read_socket_cb(EV_P_ ev_io *w, int revents) 
 {
     struct context *ctx = w->data;
@@ -829,7 +811,6 @@ static void read_socket_cb(EV_P_ ev_io *w, int revents)
 
         uint8_t token[MAX_TOKEN_LEN];
         size_t token_len = sizeof(token);
-        log_warn("token: %p", token);
 
         int rc = quiche_header_info(buf, read, LOCAL_CONN_ID_LEN, &version,
                                     &type, scid, &scid_len, dcid, &dcid_len,
@@ -877,7 +858,6 @@ static void read_socket_cb(EV_P_ ev_io *w, int revents)
 
             if (token_len == 0) {
                 log_trace("[conn] [%p] stateless retry", conn_io);
-                log_warn("peer_addr %s:%d", inet_ntoa(((struct sockaddr_in *)&peer_addr)->sin_addr), ntohs(((struct sockaddr_in *)&peer_addr)->sin_port));
                 mint_token(dcid, dcid_len, &peer_addr, peer_addr_len,
                            token, &token_len);
 
@@ -923,45 +903,154 @@ static void read_socket_cb(EV_P_ ev_io *w, int revents)
             if (conn_io == NULL) {
                 continue;
             }
-            
-            int pipefd[2];
-            if (pipe(pipefd) < 0) {
-                log_error("[conn] [%p] failed to create pipe: %s", conn_io, strerror(errno));
-                return;
-            }
-            conn_io->read_fd = pipefd[0];
-            conn_io->write_fd = pipefd[1];
-
-            struct timeout_args *timeout_args = malloc(sizeof(struct timeout_args));
-            timeout_args->ctx = ctx;
-            timeout_args->conn_io = conn_io;
 
             g_mutex_lock(&ctx->queue_mutex);
             g_queue_push_tail(ctx->conn_io_queue, conn_io);
             g_cond_signal(&ctx->queue_cond);
             g_mutex_unlock(&ctx->queue_mutex);
 
-            pthread_t thread_id;
-            struct timeout_args *args = malloc(sizeof(struct timeout_args));
-            args->ctx = ctx;
-            args->conn_io = conn_io;
-            if (pthread_create(&thread_id, NULL, conn_recv_cb, args) != 0) {
-                log_error("[conn] [%p] failed to create event loop thread", conn_io);
-                return;
-            }
-            pthread_detach(thread_id);
-
             HASH_ADD(hh, conns->h, cid, LOCAL_CONN_ID_LEN, conn_io);
         } 
-        log_trace("[conn] [%p] connection: write %zd", conn_io, read);
-        if (write(conn_io->write_fd, &read, sizeof(read)) < 0) {
-            log_error("[conn] [%p] failed to write packet length: %s", conn_io, strerror(errno));
-            return;
+        quiche_recv_info recv_info = {
+            (struct sockaddr *)&peer_addr,
+            peer_addr_len,
+
+            (struct sockaddr *)&conns->local_addr,
+            conns->local_addr_len,
+        };
+
+        pthread_mutex_lock(&conn_io->mutex);
+        ssize_t done = quiche_conn_recv(conn_io->conn, buf, read, &recv_info);
+        pthread_cond_signal(&conn_io->cond);
+        pthread_mutex_unlock(&conn_io->mutex);
+        if (done < 0) {
+            log_error("[conn] [%p] failed to process packet: %zd", conn_io, done);
+            continue;
         }
-        if (write(conn_io->write_fd, buf, read) < 0) {
-            log_error("[conn] [%p] failed to write packet: %s", conn_io, strerror(errno));
-            return;
+        log_trace("[conn] [%p] recv %zd bytes", conn_io, done);
+        flush_egress(ctx->loop, conn_io);
+
+        pthread_mutex_lock(&conn_io->mutex);
+        if (quiche_conn_is_established(conn_io->conn)) {
+            uint64_t s = 0;
+            
+            quiche_stream_iter *readable = quiche_conn_readable(conn_io->conn);
+
+            while (quiche_stream_iter_next(readable, &s)) {
+                log_trace("[conn] [%p] stream %" PRIu64 " is readable", conn_io, s);
+
+                bool fin = false;
+                uint64_t error_code;
+                ssize_t recv_len = quiche_conn_stream_recv(conn_io->conn, s,
+                                                           buf, sizeof(buf),
+                                                           &fin, &error_code);
+                if (recv_len < 0) {
+                    pthread_mutex_unlock(&conn_io->mutex);
+                    break;
+                }
+                struct stream_io *stream_io;
+                HASH_FIND(hh, conn_io->h, &s, sizeof(s), stream_io);
+                if (stream_io == NULL) {
+                    log_trace("[conn] [%p] stream %p not found", conn_io, (void *)stream_io);
+                    log_trace("buf: %s", buf);
+                    if (strcmp((char *)buf, "open stream") == 0) {
+                        stream_io = malloc(sizeof(struct stream_io));
+                        if (stream_io == NULL) {
+                            log_error("[conn] [%p] failed to allocate stream IO", conn_io);
+                            pthread_mutex_unlock(&conn_io->mutex);
+                            continue;;
+                        }
+                        stream_io->stream_id = s;
+                        stream_io->recv_buf = malloc(sizeof(struct buffer));
+                        stream_io->recv_buf->buf = NULL;
+                        stream_io->recv_buf->len = 0;
+
+                        int s_fd, c_fd;
+                        if ((s_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+                            log_error("failed to create unix socket");
+                            quic_error = QUIC_ERROR_STREAM_FAILED;
+                            pthread_mutex_unlock(&conn_io->mutex);
+                            continue;
+                        }
+
+                        log_trace("server socket created");
+
+                        if ((c_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+                            log_error("failed to create unix socket");
+                            quic_error = QUIC_ERROR_STREAM_FAILED;
+                            pthread_mutex_unlock(&conn_io->mutex);
+                            continue;
+                        }
+
+                        struct sockaddr_un addr;
+
+                        addr.sun_family = AF_UNIX;
+                        char * path = "/tmp/quicsand-sockets/";
+                        char * sun_path = malloc(strlen(path) + 10);
+                        sprintf(sun_path, "%s%d", path, s_fd);
+                        strcpy(addr.sun_path, sun_path);
+
+                        // Create directory if it does not exist
+                        if (mkdir(path, 0777) && errno != EEXIST) {
+                            log_error("failed to create directory: %s", strerror(errno));
+                            quic_error = QUIC_ERROR_STREAM_FAILED;
+                            free(sun_path);
+                            close(c_fd);
+                            close(s_fd);
+                            pthread_mutex_unlock(&conn_io->mutex);
+                            continue;
+                        }
+
+                        // Remove existing socket file if it exists
+                        unlink(addr.sun_path);
+
+                        if (bind(s_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0) {
+                            log_error("failed to bind unix socket");
+                            quic_error = QUIC_ERROR_STREAM_FAILED;
+                            pthread_mutex_unlock(&conn_io->mutex);
+                            continue;
+                        }
+
+                        if (listen(s_fd, 1) < 0) {
+                            log_error("failed to listen on unix socket");
+                            quic_error = QUIC_ERROR_STREAM_FAILED;
+                            pthread_mutex_unlock(&conn_io->mutex);
+                            continue;
+                        }
+
+                        stream_io->s_fd = s_fd;
+                        stream_io->c_fd = c_fd;
+                        stream_io->addr = addr;
+
+                        pthread_t accept_thread, connect_thread;
+                        pthread_create(&accept_thread, NULL, accept_unix_socket, (void *)stream_io);
+                        pthread_create(&connect_thread, NULL, connect_unix_socket, (void *)stream_io);
+
+                        pthread_join(accept_thread, NULL);
+                        pthread_join(connect_thread, NULL);
+
+
+                        struct stream_ctx *stream_ctx = malloc(sizeof(struct stream_ctx));
+                        stream_ctx->ctx = ctx;
+                        stream_ctx->conn_io = conn_io;
+                        stream_ctx->stream_io = stream_io;
+
+                        pthread_create(&stream_io->w_thread, NULL, stream_write, (void *)stream_ctx);
+                        pthread_detach(stream_io->w_thread);
+
+                        HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
+                        g_mutex_lock(&conn_io->queue_mutex);
+                        g_queue_push_tail(conn_io->stream_io_queue, stream_io);
+                        g_cond_signal(&conn_io->queue_cond);
+                        g_mutex_unlock(&conn_io->queue_mutex);
+                    }
+                } else {
+                    write(stream_io->a_fd, buf, recv_len);
+                }
+            }
+            quiche_stream_iter_free(readable);
         }
+        pthread_mutex_unlock(&conn_io->mutex);
     }
 }
 
@@ -1022,11 +1111,10 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
             log_error("connection not found");
             return;
         }
-        pthread_mutex_lock(&conn_io->lock);
+        pthread_mutex_lock(&conn_io->mutex);
         ssize_t done = quiche_conn_recv(conn_io->conn, buf, read, &recv_info);
         pthread_cond_signal(&conn_io->cond);
-        pthread_mutex_unlock(&conn_io->lock);
-
+        pthread_mutex_unlock(&conn_io->mutex);
         if (done < 0) {
             log_error("failed to process packet");
             continue;
@@ -1037,15 +1125,18 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
 
     log_trace("done reading");
 
+    pthread_mutex_lock(&conn_io->mutex);
     if (quiche_conn_is_closed(conn_io->conn)) {
         log_trace("connection closed");
-
         ev_break(EV_A_ EVBREAK_ONE);
+        pthread_mutex_unlock(&conn_io->mutex);
         return;
     }
+    pthread_mutex_unlock(&conn_io->mutex);
 
     flush_egress(loop, conn_io);
 
+    pthread_mutex_lock(&conn_io->mutex);
     if (quiche_conn_is_established(conn_io->conn)) {
         uint64_t s = 0;
 
@@ -1068,35 +1159,21 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
             if (stream_io == NULL) {
                 log_trace("stream not found");
                 if (strcmp((char *)buf, "stream opened") == 0) {
-                    pthread_mutex_lock(&conn_io->lock);
-                    conn_io->new_stream_io = malloc(sizeof(struct stream_io));
-                    pthread_cond_signal(&conn_io->cond);
-                    pthread_mutex_unlock(&conn_io->lock);
+                    g_mutex_lock(&conn_io->queue_mutex);
+                    stream_io = malloc(sizeof(struct stream_io));
+                    g_queue_push_tail(conn_io->stream_io_queue, stream_io);
+                    g_cond_signal(&conn_io->queue_cond);
+                    g_mutex_unlock(&conn_io->queue_mutex);
                 }
             } else {
                 log_trace("stream %p found", (void *)stream_io);
-                if (stream_io->recv_buf->buf == NULL) {
-                    stream_io->recv_buf->buf = malloc(recv_len);
-                    if (stream_io->recv_buf->buf == NULL) {
-                        log_error("failed to allocate buffer");
-                        return;
-                    }
-                    stream_io->recv_buf->len = recv_len;
-                    memcpy(stream_io->recv_buf->buf, buf, recv_len);
-                } else {
-                    // add new bytes to the buffer
-                    stream_io->recv_buf->buf = realloc(stream_io->recv_buf->buf, stream_io->recv_buf->len + recv_len);
-                    memcpy(stream_io->recv_buf->buf + stream_io->recv_buf->len, buf, recv_len);
-                    stream_io->recv_buf->len += recv_len;
-                }
-                pthread_mutex_lock(&stream_io->lock);
-                pthread_cond_signal(&stream_io->cond);
-                pthread_mutex_unlock(&stream_io->lock);
+                write(stream_io->a_fd, buf, recv_len);
             }
             if (fin) {
                 const uint8_t error_code;
                 if (quiche_conn_close(conn_io->conn, true, 0, &error_code, sizeof(error_code)) < 0) {
                     log_error("failed to close connection");
+                    pthread_mutex_unlock(&conn_io->mutex);
                     return;
                 }
             }
@@ -1104,90 +1181,75 @@ static void client_recv_cb(EV_P_ ev_io *w, int revents) {
 
         quiche_stream_iter_free(readable);
     }
+    pthread_mutex_unlock(&conn_io->mutex);
 }
 
-static void server_timeout_cb(EV_P_ ev_timer *w, int revents) {
-    struct timeout_args *args = w->data;
-    struct context *ctx = args->ctx;
-    struct conn_io *conn_io = args->conn_io;
-    struct connections *conns = ctx->conns;
+void* accept_unix_socket(void * args) {
+    struct stream_io *stream_io = (struct stream_io *)args;
 
-    quiche_conn_on_timeout(conn_io->conn);
-
-    log_trace("timeout");
-
-    flush_egress(loop, conn_io);
-
-    if (quiche_conn_is_closed(conn_io->conn)) {
-        quiche_stats stats;
-        quiche_path_stats path_stats;
-
-        quiche_conn_stats(conn_io->conn, &stats);
-        quiche_conn_path_stats(conn_io->conn, 0, &path_stats);
-
-        log_trace("connection closed, recv=%zu sent=%zu lost=%zu retrans=%zu rtt=%" PRIu64 "ns",
-               stats.recv, stats.sent, stats.lost, stats.retrans, path_stats.rtt);
-
-        struct stream_io *stream_io, *tmp;
-        HASH_ITER(hh, conn_io->h, stream_io, tmp) {
-            pthread_mutex_lock(&stream_io->lock);
-            pthread_cond_signal(&stream_io->cond);
-            pthread_mutex_unlock(&stream_io->lock);
-        }
-        HASH_DELETE(hh, conns->h, conn_io);
-
-        ev_timer_stop(loop, &conn_io->timer);
-        quiche_conn_free(conn_io->conn);
-        free(conn_io);
-        conn_io = NULL;
-
-        return;
+    if((stream_io->a_fd = accept(stream_io->s_fd, NULL, NULL)) < 0) {
+        return NULL;
     }
-
-    // iter the connection streams and unblock the waiting threads
-    struct stream_io *stream_io, *tmp;
-    HASH_ITER(hh, conn_io->h, stream_io, tmp) {
-        pthread_mutex_lock(&stream_io->lock);
-        pthread_cond_signal(&stream_io->cond);
-        pthread_mutex_unlock(&stream_io->lock);
-    }
+    return (void *)&stream_io->a_fd;
 }
 
-void client_timeout_cb(EV_P_ ev_timer *w, int revents) {
-    struct timeout_args *args = w->data;
-    struct context *ctx = args->ctx;
-    struct conn_io *conn_io = args->conn_io;
+void* connect_unix_socket(void * args) {
+    struct stream_io *stream_io = (struct stream_io *)args;
 
-    quiche_conn_on_timeout(conn_io->conn);
-
-    log_trace("timeout");
-
-    flush_egress(loop, conn_io);
-
-    if (quiche_conn_is_closed(conn_io->conn)) {
-        quiche_stats stats;
-        quiche_path_stats path_stats;
-
-        quiche_conn_stats(conn_io->conn, &stats);
-        quiche_conn_path_stats(conn_io->conn, 0, &path_stats);
-
-        log_trace("connection closed, recv=%zu sent=%zu lost=%zu retrans=%zu rtt=%" PRIu64 "ns",
-               stats.recv, stats.sent, stats.lost, stats.retrans, path_stats.rtt);
-        quiche_conn_free(conn_io->conn);
-        struct stream_io *stream_io, *tmp;
-        HASH_ITER(hh, conn_io->h, stream_io, tmp) {
-            pthread_mutex_lock(&stream_io->lock);
-            pthread_cond_signal(&stream_io->cond);
-            pthread_mutex_unlock(&stream_io->lock);
-        }
-        HASH_DELETE(hh, ctx->conns->h, conn_io);
-        free(conn_io);
-        conn_io = NULL;
-        ev_break(EV_A_ EVBREAK_ONE);
-        return;
+    if (connect(stream_io->c_fd, (struct sockaddr *)&stream_io->addr, sizeof(struct sockaddr_un)) < 0) {
+        log_error("failed to connect to unix socket");
+        quic_error = QUIC_ERROR_STREAM_FAILED;
+        return NULL;
     }
 
-    
+    return (void *)&stream_io->c_fd;
+}
+
+void * stream_write(void *arg) {
+    struct stream_ctx *stream_ctx = (struct stream_ctx *)arg;
+    struct context *ctx = stream_ctx->ctx;
+    struct conn_io *conn_io = stream_ctx->conn_io;
+    struct stream_io *stream_io = stream_ctx->stream_io;
+
+    char buffer[65536];
+    while (1) {
+        log_trace("stream_write: reading from unix socket %d", stream_io->a_fd);
+        int to_read = 0;
+        while ((to_read = quiche_conn_stream_capacity(conn_io->conn, stream_io->stream_id)) == 0) {
+            log_trace("stream_write: conn %d is blocked", stream_io->stream_id);
+            pthread_mutex_lock(&conn_io->mutex);
+            pthread_cond_wait(&conn_io->cond, &conn_io->mutex);
+            pthread_mutex_unlock(&conn_io->mutex);
+        }
+        int len = read(stream_io->a_fd, buffer, to_read);
+        if (len < 0) {
+            log_error("failed to read from unix socket: %s", strerror(errno));
+            return NULL;
+        }
+        if (len == 0) {
+            break;
+        }
+
+        pthread_mutex_lock(&conn_io->mutex);
+        if (!quiche_conn_is_closed(conn_io->conn)) {
+            uint64_t error_code;
+            while (quiche_conn_stream_writable(conn_io->conn, stream_io->stream_id, len) <= 0) {
+                pthread_cond_wait(&conn_io->cond, &conn_io->mutex);
+            }
+            if (quiche_conn_stream_send(conn_io->conn, stream_io->stream_id, buffer, len, false, &error_code) < 0) {
+                log_error("failed to send message: %" PRIu64 " to_read: %d", error_code, to_read);
+                quic_error = QUIC_ERROR_SEND_FAILED;
+                pthread_mutex_unlock(&conn_io->mutex);
+                return NULL;
+            }
+        } else {
+            log_error("connection is closed");
+            pthread_mutex_unlock(&conn_io->mutex);
+            return NULL;
+        }
+        pthread_mutex_unlock(&conn_io->mutex);
+        flush_egress(ctx->loop, conn_io);
+    }
 }
 
 void *event_loop_thread(void *arg) {
@@ -1219,19 +1281,28 @@ context_t create_quic_context(char *cert_path, char *key_path) {
             quiche_config_verify_peer(ctx->config, false);
         }
 
-        quiche_enable_debug_logging(debug_log, NULL);
+        FILE *fp;
 
-        // quiche_config_set_application_protos(ctx->config,
-        //                                     (uint8_t *)"\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
-        // I want ALPN that use h3
+        if (cert_path && key_path) {
+            fp = fopen("server_debug_logging.log", "w");
+        }
+        else {
+            fp = fopen("client_debug_logging.log", "w");
+        }
+        
+        // quiche_enable_debug_logging(debug_log, fp);
+        // quiche_enable_debug_logging(debug_log, stdout);
+
         quiche_config_set_application_protos(ctx->config,
-                                            (uint8_t *)"\x05hq-29\x05hq-28\x05hq-27", 15);
+                                            (uint8_t *) "\x0ahq-interop\x05hq-29\x05hq-28\x05hq-27\x08http/0.9", 38);
+        // quiche_config_set_application_protos(ctx->config,
+        //                                     (uint8_t *)"\x05hq-29\x05hq-28\x05hq-27", 15);
         // quiche_config_set_max_idle_timeout(ctx->config, 10000000);
         quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_initial_max_data(ctx->config, 10000000);
-        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1000000);
-        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 1000000);
+        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 10000000);
+        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 10000000);
         quiche_config_set_initial_max_streams_bidi(ctx->config, 100);
         quiche_config_set_cc_algorithm(ctx->config, QUICHE_CC_RENO);
 
@@ -1243,11 +1314,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
             return NULL;
         }
         ctx->conns->config = ctx->config;
-        ctx->conns->new_conn_io = NULL;
-        ctx->conns->last_conn_io = NULL;
         ctx->conns->h = NULL;
-        ctx->conns->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-        ctx->conns->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
         ctx->conn_io_queue = g_queue_new();
         g_mutex_init(&ctx->queue_mutex);
@@ -1491,13 +1558,15 @@ connection_t open_connection(context_t context, char* ip, int port) {
 
     conn_io->sock = sock;
     conn_io->conn = conn;
-    conn_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    conn_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
     memcpy(&conn_io->peer_addr, peer->ai_addr, peer->ai_addrlen);
     conn_io->peer_addr_len = peer->ai_addrlen;
     conn_io->h = NULL;
-    conn_io->new_stream_io = NULL;
-    conn_io->last_stream_io = NULL;
+    conn_io->stream_count = 0;
+    conn_io->stream_io_queue = g_queue_new();
+    g_mutex_init(&conn_io->queue_mutex);
+    g_cond_init(&conn_io->queue_cond);
+    conn_io->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    conn_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
     // Create a new event loop
     ctx->loop = ev_loop_new(EVFLAG_AUTO);
@@ -1505,12 +1574,6 @@ connection_t open_connection(context_t context, char* ip, int port) {
     ev_io_init(&ctx->watcher, client_recv_cb, sock, EV_READ);
     ev_io_start(ctx->loop, &ctx->watcher);
     ctx->watcher.data = conn_io;
-
-    // ev_init(&conn_io->timer, client_timeout_cb);
-    // struct timeout_args *args = malloc(sizeof(struct timeout_args));
-    // args->ctx = ctx;
-    // args->conn_io = conn_io;
-    // conn_io->timer.data = args;
 
     flush_egress(ctx->loop, conn_io);
 
@@ -1529,6 +1592,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
             return NULL;
         }
     }
+    flush_egress(ctx->loop, conn_io);
     
     log_debug("connection established");
 
@@ -1598,11 +1662,9 @@ int close_connection(context_t context, connection_t connection) {
     log_debug("closing connection");
     struct context *ctx = (struct context *)context;
     struct conn_io *conn_io = (struct conn_io *)connection;
-    pthread_mutex_lock(&conn_io->lock);
     uint8_t error_code;
     size_t error_len = sizeof(error_code);
     quiche_conn_close(conn_io->conn, true, 0, &error_code, error_len);
-    pthread_mutex_unlock(&conn_io->lock);
     flush_egress(ctx->loop, conn_io);
     quiche_conn_free(conn_io->conn);
     HASH_DELETE(hh, ctx->conns->h, conn_io);
@@ -1628,35 +1690,94 @@ int open_stream(context_t context, connection_t connection) {
         const static uint8_t r[] = "open stream";
         uint64_t error_code;
 
-        if (quiche_conn_stream_send(conn_io->conn, 4, r, sizeof(r), false, &error_code) < 0) {
+        if (quiche_conn_stream_send(conn_io->conn, conn_io->stream_count, r, sizeof(r), false, &error_code) < 0) {
             log_error("failed to send message: %" PRIu64 "", error_code);
             quic_error = QUIC_ERROR_SEND_FAILED;
-            return NULL;
+            return -1;
         }
         log_debug("open stream message sent");
         flush_egress(ctx->loop, conn_io);
         
-        log_debug("waiting for new stream");
-        pthread_mutex_lock(&conn_io->lock);
-        while (conn_io->new_stream_io == conn_io->last_stream_io) {
-            pthread_cond_wait(&conn_io->cond, &conn_io->lock);
-        }
-        stream_io = conn_io->new_stream_io;
-        pthread_mutex_unlock(&conn_io->lock);
-        conn_io->last_stream_io = stream_io;
-        stream_io->stream_id = 4;
+        stream_io = malloc(sizeof(struct stream_io));
+        stream_io->stream_id = conn_io->stream_count;
         stream_io->recv_buf = malloc(sizeof(struct buffer));
         stream_io->recv_buf->buf = NULL;
         stream_io->recv_buf->len = 0;
-        stream_io->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-        stream_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        conn_io->stream_count++;
 
         HASH_ADD(hh, conn_io->h, stream_id, sizeof(uint64_t), stream_io);
+
+        int s_fd, c_fd;
+        if ((s_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            log_error("failed to create unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        log_trace("server socket created");
+
+        if ((c_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            log_error("failed to create unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        struct sockaddr_un addr;
+
+        addr.sun_family = AF_UNIX;
+        char * path = "/tmp/quicsand-sockets/";
+        char * sun_path = malloc(strlen(path) + 10);
+        sprintf(sun_path, "%s%d", path, s_fd);
+        strcpy(addr.sun_path, sun_path);
+
+        // Create directory if it does not exist
+        if (mkdir(path, 0777) && errno != EEXIST) {
+            log_error("failed to create directory: %s", strerror(errno));
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            free(sun_path);
+            close(c_fd);
+            close(s_fd);
+            return -1;
+        }
+
+        // Remove existing socket file if it exists
+        unlink(addr.sun_path);
+
+        if (bind(s_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0) {
+            log_error("failed to bind unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        if (listen(s_fd, 1) < 0) {
+            log_error("failed to listen on unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            return -1;
+        }
+
+        stream_io->s_fd = s_fd;
+        stream_io->c_fd = c_fd;
+        stream_io->addr = addr;
+
+        pthread_t accept_thread, connect_thread;
+        pthread_create(&accept_thread, NULL, accept_unix_socket, (void *)stream_io);
+        pthread_create(&connect_thread, NULL, connect_unix_socket, (void *)stream_io);
+
+        pthread_join(accept_thread, NULL);
+        pthread_join(connect_thread, NULL);
+
+        struct stream_ctx *stream_ctx = malloc(sizeof(struct stream_ctx));
+        stream_ctx->ctx = ctx;
+        stream_ctx->conn_io = conn_io;
+        stream_ctx->stream_io = stream_io;
+        
+        pthread_create(&stream_io->w_thread, NULL, stream_write, (void *)stream_ctx);
+        pthread_detach(stream_io->w_thread);
     }
 
     log_debug("stream opened: %p", (void *)stream_io);
 
-    return (stream_fd) stream_io;
+    return stream_io->c_fd;
     #elif MSQUIC
     log_debug("opening stream");
     struct context *ctx = (struct context *)context;
@@ -1666,6 +1787,12 @@ int open_stream(context_t context, connection_t connection) {
     stream_info->a_fd = -1;
     stream_info->s_fd = -1;
     stream_info->c_fd = -1;
+
+    stream_info->buffer_count = 0;
+
+    stream_info->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+    stream_info->ready = 0;
 
     ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
     ctx_strm->ctx = ctx;
@@ -1776,15 +1903,7 @@ int close_stream(context_t context, connection_t connection, int stream) {
     log_debug("closing stream");
     struct context *ctx = (struct context *)context;
     struct conn_io *conn_io = (struct conn_io *)connection;
-    struct stream_io *stream_io = (struct stream_io *)stream;
-    pthread_mutex_lock(&conn_io->lock);
-    uint64_t error_code;
-    quiche_conn_stream_send(conn_io->conn, stream_io->stream_id, "EOS", strlen("EOS"), true, &error_code);
-    pthread_mutex_unlock(&conn_io->lock);
-    flush_egress(ctx->loop, conn_io);
-    quiche_conn_stream_shutdown(conn_io->conn, stream_io->stream_id, true, 0);
-    HASH_DELETE(hh, conn_io->h, stream_io);
-    free(stream_io);
+    int s_fd = stream;
     return 0;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
@@ -1845,6 +1964,9 @@ connection_t accept_connection(context_t context, time_t timeout) {
     }
     conn_io = g_queue_pop_head(ctx->conn_io_queue);
     g_mutex_unlock(&ctx->queue_mutex);
+    conn_io->stream_count = 0;
+    conn_io->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    conn_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
     while (!quiche_conn_is_established(conn_io->conn))
     {
@@ -1874,7 +1996,6 @@ connection_t accept_connection(context_t context, time_t timeout) {
     connection_info = g_queue_pop_head(ctx->conn_queue);
     g_mutex_unlock(&ctx->queue_mutex);
 
-    log_warn("connection received");
     HASH_ADD(hh, ctx->h, connection, sizeof(HQUIC), connection_info);
 
     log_debug("new connection accepted");
@@ -1884,6 +2005,7 @@ connection_t accept_connection(context_t context, time_t timeout) {
 
 int accept_stream(context_t context, connection_t connection, time_t timeout) {
     #ifdef QUICHE
+
     struct context *ctx = (struct context *)context;
     struct conn_io *conn_io = (struct conn_io *)connection;
     struct stream_io *stream_io = NULL;
@@ -1899,7 +2021,7 @@ int accept_stream(context_t context, connection_t connection, time_t timeout) {
 
     log_debug("new stream accepted");
 
-    return (stream_fd) stream_io;
+    return stream_io->c_fd;
     #elif MSQUIC
     log_debug("accepting stream");
     struct context *ctx = (struct context *)context;
@@ -1914,79 +2036,6 @@ int accept_stream(context_t context, connection_t connection, time_t timeout) {
     }
     stream_info = g_queue_pop_head(connection_info->stream_queue);
     g_mutex_unlock(&connection_info->queue_mutex);
-
-    int s_fd, c_fd;
-    if ((s_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-        log_error("failed to create unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
-
-    log_trace("server socket created");
-
-    if ((c_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-        log_error("failed to create unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
-
-    struct sockaddr_un addr;
-
-    addr.sun_family = AF_UNIX;
-    char * path = "/tmp/quicsand-sockets/";
-    char * sun_path = malloc(strlen(path) + 10);
-    sprintf(sun_path, "%s%d", path, s_fd);
-    strcpy(addr.sun_path, sun_path);
-
-    // Create directory if it does not exist
-    if (mkdir(path, 0777) && errno != EEXIST) {
-        log_error("failed to create directory: %s", strerror(errno));
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        free(sun_path);
-        close(c_fd);
-        close(s_fd);
-        return -1;
-    }
-
-    // Remove existing socket file if it exists
-    unlink(addr.sun_path);
-
-    if (bind(s_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0) {
-        log_error("failed to bind unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
-
-    if (listen(s_fd, 1) < 0) {
-        log_error("failed to listen on unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
-
-    stream_info->s_fd = s_fd;
-    stream_info->c_fd = c_fd;
-    stream_info->addr = addr;
-
-    log_warn("socket listening");
-
-    pthread_t accept_thread, connect_thread;
-    pthread_create(&accept_thread, NULL, accept_unix_socket, (void *)stream_info);
-    pthread_create(&connect_thread, NULL, connect_unix_socket, (void *)stream_info);
-
-    pthread_join(accept_thread, NULL);
-    pthread_join(connect_thread, NULL);
-
-    log_warn("socket connected");
-
-    ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
-    ctx_strm->ctx = ctx;
-    ctx_strm->connection_info = connection_info;
-    ctx_strm->stream_info = stream_info;
-
-    pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)ctx_strm);
-    pthread_detach(stream_info->w_thread);
-
-    log_warn("write thread started");
 
     HASH_ADD(hh, connection_info->h, s_fd, sizeof(int), stream_info);
 
