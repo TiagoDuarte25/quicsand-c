@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <log.h>
+#include <unistd.h>
 #include "quicsand_api.h"
 
 typedef struct {
@@ -41,36 +42,39 @@ void* handle_stream(void *arg) {
     int duration = data->duration;
     log_debug("handling stream");
 
-    char request[256];
+    char request[100];
+    int bitrate;
     int len = read(stream_fd, request, sizeof(request));
-    if (len <= 0 || strncmp(request, "request", len) != 0) {
+    if (len <= 0) {
         log_error("failed to receive valid request");
         close(stream_fd);
         free(data);
         return NULL;
     }
-    log_debug("received request: %.*s", len, request);
+    log_debug("bitrate request: %s", request);
+    bitrate = atoi(request);
+
+    // KB per s 
+    int Kbytes_per_second = bitrate / 8;
+    int bytes_per_second = Kbytes_per_second * 1024;
+    size_t buffer_size = bytes_per_second / 20;
+
 
     time_t start_time = time(NULL);
     while (difftime(time(NULL), start_time) < duration) {
         char *buffer;
-        size_t buffer_size = 65536;
         random_data(buffer_size, &buffer);
-
-        size_t bytes_sent = 0;
-        while (bytes_sent < buffer_size) {
-            ssize_t sent = write(stream_fd, buffer + bytes_sent, buffer_size - bytes_sent);
-            if (sent < 0) {
-                log_error("error: %s", quic_error_message(quic_error));
-                free(buffer);
-                close(stream_fd);
-                free(data);
-                return NULL;
-            }
-            bytes_sent += sent;
+        ssize_t sent = write(stream_fd, buffer, buffer_size);
+        if (sent < 0) {
+            log_error("error: %s", quic_error_message(quic_error));
+            free(buffer);
+            close(stream_fd);
+            free(data);
+            return NULL;
         }
         free(buffer);
-        log_debug("sent %zu bytes", bytes_sent);
+        log_debug("sent %zu bytes", sent);
+        usleep(50000);
     }
 
     close(stream_fd);
@@ -163,7 +167,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_INFO) != 0) {
+    if (log_add_fp(fp, LOG_DEBUG) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

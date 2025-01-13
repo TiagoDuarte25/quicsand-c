@@ -22,6 +22,7 @@ struct args {
   char *file_path;
   size_t data_size;
   double duration;
+  int bitrate;
 };
 
 void *stream_data(void *args) {
@@ -29,6 +30,7 @@ void *stream_data(void *args) {
     FILE *fp = arguments->fp;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
+    int bitrate = arguments->bitrate;
 
     log_info("starting streaming client");
 
@@ -41,8 +43,9 @@ void *stream_data(void *args) {
     int stream_fd = open_stream(ctx, connection);
     log_debug("stream opened");
 
-    // Send the "request" string
-    const char *request = "request";
+    // Send the "bitrate" string
+    char *request = "%d";
+    dprintf(stream_fd, request, bitrate);
     write(stream_fd, request, strlen(request));
     log_debug("sent request: %s", request);
 
@@ -72,12 +75,13 @@ int main(int argc, char *argv[]) {
   int port = 0;
   int duration = 0;
   int data_size = 0;
+  int bitrate = 0;
   int opt;
 
   fprintf(stdout, "quicsand client\n");
 
   // Parse command-line arguments
-  while ((opt = getopt(argc, argv, "i:p:f:d:s:l:")) != -1) {
+  while ((opt = getopt(argc, argv, "i:p:f:d:s:l:b:")) != -1) {
       switch (opt) {
             case 'i':
             ip_address = strdup(optarg);
@@ -97,6 +101,9 @@ int main(int argc, char *argv[]) {
             case 'l':
             log_file = strdup(optarg);
             break;
+            case 'b':
+            bitrate = atoi(optarg);
+            break;
           default:
             fprintf(stdout, "usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
             exit(EXIT_FAILURE);
@@ -109,6 +116,7 @@ int main(int argc, char *argv[]) {
   fprintf(stdout, "duration: %d\n", duration);
   fprintf(stdout, "data_size: %d\n", data_size);
   fprintf(stdout, "log_file: %s\n", log_file);
+  fprintf(stdout, "bitrate: %d\n", bitrate);
 
   // Open the log file
   FILE *fp = fopen(log_file, "w+");
@@ -118,7 +126,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_INFO) != 0) {
+  if (log_add_fp(fp, LOG_DEBUG) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }
@@ -138,7 +146,7 @@ int main(int argc, char *argv[]) {
   arguments->port = port;
   arguments->file_path = file_path;
   arguments->duration = duration;
-  arguments->data_size = data_size;
+  arguments->bitrate = bitrate;
   stream_data(arguments);
 
   free(ip_address);
