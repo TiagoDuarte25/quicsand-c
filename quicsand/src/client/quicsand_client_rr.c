@@ -26,7 +26,7 @@ struct args {
 
 int random_data(size_t len, char **data) {
     *data = (char *)malloc(len);
-    for (int i = 0; i < len - 1; i++) {
+    for (size_t i = 0; i < len - 1; i++) {
         (*data)[i] = 'A' + (rand() % 26);
     }
     (*data)[len - 1] = '\0';
@@ -71,6 +71,7 @@ void * request_response_test(void *args) {
         // generate random data
         char *data;
         random_data(data_size, &data);
+        log_debug("data generated");
 
         // send data to the server
         write(stream_fd, data, strlen(data) + 1);
@@ -81,10 +82,7 @@ void * request_response_test(void *args) {
         while ((len = read(stream_fd, buffer, sizeof(buffer))) > 0) {
             log_debug("data received: %.*s", len, buffer);
         }
-        if (len < 0) {
-                log_error("error: %s", quic_error_message(quic_error));
-        }
-        if (len == 0) {
+        if (len <= 0) {
             log_debug("stream closed by server");
         }
 
@@ -95,7 +93,6 @@ void * request_response_test(void *args) {
         close(stream_fd);
         log_debug("stream closed");
 
-        // free memory and close the stream
         free(data);
 
         // Sleep for a short duration to avoid tight loop
@@ -176,7 +173,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_INFO) != 0) {
+  if (log_add_fp(fp, LOG_TRACE) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }

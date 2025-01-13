@@ -79,6 +79,7 @@ void* handle_stream(void * arg) {
                 log_debug("sent %zu bytes", bytes_sent);
             }
             shutdown(stream_fd, SHUT_WR);
+            log_debug("stream closed");
         } else if (len == 0) {
             log_debug("stream closed by client");
             break;
@@ -177,7 +178,7 @@ int main(int argc, char *argv[])
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_INFO) != 0) {
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
