@@ -20,8 +20,9 @@ remove_experiment() {
 
 build_images() {
     # Build the images
+    local TEST=$1
     docker build -f dockerfiles/Dockerfile.$IMPLEMENTATION -t $IMPLEMENTATION:latest .
-    docker build -f dockerfiles/Dockerfile.quicsand -t quicsand:latest . --build-arg IMPLEMENTATION="$IMPLEMENTATION"
+    docker build -f dockerfiles/Dockerfile.quicsand -t quicsand:latest . --build-arg IMPLEMENTATION="$IMPLEMENTATION" --build-arg TEST=$TEST
 }
 
 prepare_environment() {
@@ -55,14 +56,15 @@ check_containers_ready() {
 }
 
 run_test() {
+    local topology_file=$1
+    local num_clients=$2
 
     echo "Setting up..."
 
-    build_images
-
     rm -f experiment.yaml
+
     # build topology
-    ./KollapsDeploymentGenerator $1 -s experiment.yaml
+    ./KollapsDeploymentGenerator $topology_file.xml -s experiment.yaml
 
     # Check if the node is already part of a swarm
     if ! docker info | grep -q "Swarm: active"; then
@@ -90,7 +92,34 @@ run_test() {
 
     curl http://127.0.0.1:8088/start >& /dev/null
 
-    echo "Test started."
+    echo "Experiment started."
+
+    sleep 2
+
+    while true; do
+        all_finished=true
+        for i in $(seq 1 $num_clients); do
+            # get the container id
+            container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
+            if [ -n "$container_id" ]; then
+                if docker exec $container_id pgrep "quicsand_client" > /dev/null; then
+                    echo "Container quicsand_testing_client$i is still running."
+                    all_finished=false
+                    break
+                fi
+            else
+                echo "Container quicsand_testing_client$i not found."
+            fi
+        done
+
+        if $all_finished; then
+            echo "All quicsand_client scripts have finished."
+            break
+        else
+            sleep 1
+        fi
+    done
+
 }
 
 get_logs() {
@@ -104,19 +133,18 @@ get_logs() {
     for i in $(seq 1 $clients_num); do
         # get the container id
         container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
-        docker cp $container_id:/app/build/client.log resources/logs/$1\_client$i.log
+        docker cp $container_id:/app/build/client.log resources/logs/$1\_$2\_client$i.log
     done
 
     for i in $(seq 1 $servers_num); do
         # get the container id
         container_id=$(docker ps | grep "quicsand_testing_server" | awk '{print $1}' | sed -n "$i"p)
-        docker cp $container_id:/app/build/server.log resources/logs/$1\_server$i.log
+        docker cp $container_id:/app/build/server.log resources/logs/$1\_$2\_server$i.log
     done
-}
 
-# Default values for optional arguments
-IMPLEMENTATION="msquic"
-MODE="debug"
+    # get docker stats from all containers and save it to a file
+    docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}" $(docker ps --filter "name=client" --filter "name=server" -q) > resources/logs/$1\_$2_stats.log
+}
 
 # Parse command-line arguments
 while [[ "$#" -eq 0 ]]; do
@@ -126,12 +154,12 @@ done
 # Parse command-line arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        -i|--implementation)
-            IMPLEMENTATION="$2"
+        -c|--config)
+            CONFIG_FILE="$2"
             shift
             ;;
-        -m|--mode)
-            MODE="$2"
+        -t|--topologies)
+            TOPOLOGIES_FILE="$2"
             shift
             ;;
         -h|--help)
@@ -145,76 +173,26 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# Read the YAML file and execute the tests
+IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
+NUM_CLIENTS=$(yq '.configs.globalVariables.num_clients' $CONFIG_FILE)
+NUM_SERVERS=$(yq '.configs.globalVariables.num_servers' $CONFIG_FILE)
+TESTS=$(yq '.tests' $CONFIG_FILE)
+TOPOLOGIES=$(yq '.topologies' $TOPOLOGIES_FILE)
+
 # Check if the implementation is valid
 if [ ! -d "implementations/$IMPLEMENTATION" ]; then
     echo "Error: Invalid implementation specified."
     usage
 fi
 
-if [ "$MODE" == "debug" ]; then
-
-    prepare_environment
-    run_test low_latency.xml
-
-elif [ "$MODE" == "test" ]; then
-
-    # Test 1: Low bandwidth
-    prepare_environment
-    run_test resources/topologies/low_bandwidth.xml
-    sleep 35
-    get_logs "low_bandwidth"
-
-    # Test 2: High bandwidth
-    prepare_environment
-    run_test resources/topologies/high_bandwidth.xml
-    sleep 35
-    get_logs "high_bandwidth"
-
-    # Test 3: High latency
-    prepare_environment
-    run_test resources/topologies/high_latency.xml
-    sleep 35
-    get_logs "high_latency"
-
-else
-    echo "Error: Invalid mode specified."
-    usage
-fi
-
-# DEBUG
-
-# prepare_environment
-
-# run_test resources/topologies/low_bandwidth.xml
-
-# TESTS 
-
-# Test 1: Low bandwidth
-
-# prepare_environment
-
-# run_test resources/topologies/low_bandwidth.xml
-
-# sleep 35
-
-# get_logs "low_bandwidth"
-
-# # Test 2: High bandwidth
-
-# prepare_environment
-
-# run_test resources/topologies/high_bandwidth.xml
-
-# sleep 35
-
-# get_logs "high_bandwidth"
-
-# # Test 3: High latency
-
-# prepare_environment
-
-# run_test resources/topologies/high_latency.xml
-
-# sleep 35
-
-# get_logs "high_latency"
+for TEST_KEY in $(echo "$TESTS" | yq 'keys | .[]' - | tr -d '"'); do
+    for TOPOLOGY_KEY in $(echo "$TOPOLOGIES" | yq 'keys | .[]' - | tr -d '"'); do
+        python3 TopologyGenerator.py $TOPOLOGY_KEY
+        echo "Running test $TEST_KEY with topology $TOPOLOGY_KEY"
+        prepare_environment
+        build_images $TEST_KEY
+        run_test $TOPOLOGY_KEY $NUM_CLIENTS
+        get_logs $TEST_KEY $TOPOLOGY_KEY
+    done
+done

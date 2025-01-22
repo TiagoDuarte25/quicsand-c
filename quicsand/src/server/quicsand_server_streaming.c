@@ -79,6 +79,7 @@ void* handle_stream(void *arg) {
 
     close(stream_fd);
     log_debug("stream closed");
+
     free(data);
     return NULL;
 }
@@ -167,7 +168,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_DEBUG) != 0) {
+    if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

@@ -43,6 +43,19 @@ void* handle_stream(void *arg) {
         return NULL;
     }
 
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    size_t file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Send file size to the client
+    if (write(stream_fd, &file_size, sizeof(size_t)) < 0) {
+        log_error("error: %s", quic_error_message(quic_error));
+        fclose(file);
+        close(stream_fd);
+        return NULL;
+    }
+
     char buffer[65536];
     size_t bytes_read;
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
@@ -61,8 +74,7 @@ void* handle_stream(void *arg) {
         log_debug("sent %zu bytes", bytes_sent);
     }
     fclose(file);
-    close(stream_fd);
-    log_debug("stream closed");
+    log_debug("file download completed");
 
     return NULL;
 }
@@ -146,7 +158,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_DEBUG) != 0) {
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

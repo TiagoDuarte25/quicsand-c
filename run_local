@@ -46,9 +46,7 @@ run_client_server() {
     local FILE_PATH=$5
     local FACTOR=$6
     local BITRATE=$7
-
-    # Trim any extra spaces or quotes from TEST_TYPE
-    TEST_TYPE=$(echo "$TEST_TYPE" | xargs)
+    local NUM_CLIENTS=$8
 
     # Define log file names
     local SERVER_LOG="${TEST_NAME}_server.log"
@@ -61,19 +59,19 @@ run_client_server() {
     case $TEST_TYPE in
         request-response)
             echo "starting request-response server..."
-            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
             ;;
         streaming)
             echo "starting streaming server..."
-            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -m $FACTOR -l $SERVER_LOG; exec bash"
             ;;
         upload)
             echo "starting upload server..."
-            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG -t $TEST_NAME; exec bash"
             ;;
         download)
             echo "starting download server..."
-            tmux new-window -t quicsand_session:1 -n 'Server' "cd bin; ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
             ;;
         *)
             echo "Error: Unknown test type $TEST_TYPE"
@@ -81,61 +79,136 @@ run_client_server() {
             return
             ;;
     esac
-    gnome-terminal -- tmux attach-session -t quicsand_session:1
 
     # Give the server some time to start
-    sleep 5
+    sleep 2
 
-    # Start the client in a new tmux window based on the test type
-    case $TEST_TYPE in
-        request-response)
-            echo "starting request-response client..."
-            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
-            ;;
-        streaming)
-            echo "starting streaming client..."
-            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG; exec bash"
-            ;;
-        upload)
-            echo "starting upload client..."
-            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
-            ;;
-        download)
-            echo "starting download client..."
-            tmux new-window -t quicsand_session:2 -n 'Client' "cd bin; ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
-            ;;
-        *)
-            echo "Error: Unknown test type $TEST_TYPE"
-            tmux kill-session -t quicsand_session
-            return
-            ;;
-    esac
-    gnome-terminal -- tmux attach-session -t quicsand_session:2
+    # Start the clients in new tmux windows based on the test type
+    local RUNNING_CLIENTS=0
+    while [ $RUNNING_CLIENTS -lt $NUM_CLIENTS ]; do
+        case $TEST_TYPE in
+            request-response)
+                echo "starting request-response client..."
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
+                ;;
+            streaming)
+                echo "starting streaming client..."
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG; exec bash"
+                ;;
+            upload)
+                echo "starting upload client..."
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
+                ;;
+            download)
+                echo "starting download client..."
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
+                ;;
+            *)
+                echo "Error: Unknown test type $TEST_TYPE"
+                tmux kill-session -t quicsand_session
+                return
+                ;;
+        esac
+        RUNNING_CLIENTS=$((RUNNING_CLIENTS + 1))
+    done
 
-    # # check if the client is still running
-    # while true; do
-    #     if ! tmux list-sessions | grep -q quicsand_session; then
-    #         break
-    #     fi
-    #     sleep 1
-    # done
+    # Check if the client script is still running
+    while pgrep -f "quicsand_client" > /dev/null; do
+        sleep 1
+    done
 
-    DURATION=$((DURATION + 5))
-    sleep $DURATION
-
-    # Stop the tmux session
-    echo "Stopping processes..."
+    # Stop the server process
+    echo "Stopping server process..."
+    pkill -f "quicsand_server"
     tmux kill-session -t quicsand_session
-
-    sleep 5
 }
+
+# # Function to run client and server
+# run_client_server() {
+#     local TEST_NAME=$1
+#     local TEST_TYPE=$2
+#     local DURATION=$3
+#     local DATA_SIZE=$4
+#     local FILE_PATH=$5
+#     local FACTOR=$6
+#     local BITRATE=$7
+#     local NUM_CLIENTS=$8
+
+#     # Define log file names
+#     local SERVER_LOG="${TEST_NAME}_server.log"
+#     local CLIENT_LOG="${TEST_NAME}_client.log"
+
+#     # Start the server in a new gnome terminal window
+#     case $TEST_TYPE in
+#         request-response)
+#             echo "starting request-response server..."
+#             gnome-terminal -- bash -c "cd bin; ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+#             ;;
+#         streaming)
+#             echo "starting streaming server..."
+#             gnome-terminal -- bash -c "cd bin; ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -m $FACTOR -l $SERVER_LOG; exec bash"
+#             ;;
+#         upload)
+#             echo "starting upload server..."
+#             gnome-terminal -- bash -c "cd bin; ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG -t $TEST_NAME; exec bash"
+#             ;;
+#         download)
+#             echo "starting download server..."
+#             gnome-terminal -- bash -c "cd bin; ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+#             ;;
+#         *)
+#             echo "Error: Unknown test type $TEST_TYPE"
+#             return
+#             ;;
+#     esac
+
+#     # Give the server some time to start
+#     sleep 2
+
+#     # Start the clients in new gnome terminal windows based on the test type
+#     local RUNNING_CLIENTS=0
+#     while [ $RUNNING_CLIENTS -lt $NUM_CLIENTS ]; do
+#         case $TEST_TYPE in
+#             request-response)
+#                 echo "starting request-response client..."
+#                 gnome-terminal -- bash -c "cd bin; ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             streaming)
+#                 echo "starting streaming client..."
+#                 gnome-terminal -- bash -c "cd bin; ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             upload)
+#                 echo "starting upload client..."
+#                 gnome-terminal -- bash -c "cd bin; ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             download)
+#                 echo "starting download client..."
+#                 gnome-terminal -- bash -c "cd bin; ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             *)
+#                 echo "Error: Unknown test type $TEST_TYPE"
+#                 return
+#                 ;;
+#         esac
+#         RUNNING_CLIENTS=$((RUNNING_CLIENTS + 1))
+#     done
+
+#     # Check if the client script is still running
+#     while pgrep -f "quicsand_client" > /dev/null; do
+#         sleep 1
+#     done
+
+#     # Stop the server process
+#     echo "Stopping server process..."
+#     # pkill -f "quicsand_server"
+# }
 
 # Read the YAML file and execute the tests
 IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
 NUM_CLIENTS=$(yq '.configs.globalVariables.num_clients' $CONFIG_FILE)
 NUM_SERVERS=$(yq '.configs.globalVariables.num_servers' $CONFIG_FILE)
-TESTS=$(yq '.configs.tests' $CONFIG_FILE)
-NUM_TESTS=$(echo "$TESTS" | yq 'length' -)
+TESTS=$(yq '.tests' $CONFIG_FILE)
+NUM_TESTS=$(echo "$TESTS" | yq 'length | .[]' -)
 
 # Build the implementation
 echo "Building $IMPLEMENTATION implementation"
@@ -147,13 +220,13 @@ cp -r ../quicsand/config.yaml bin/
 cp -r ../quicsand/certs bin/
 
 # Execute the tests
-for i in $(seq 0 $(($NUM_TESTS - 1))); do
-    TEST_NAME=$(echo "$TESTS" | yq ".[$i].name" -)
-    TEST_TYPE=$(echo "$TESTS" | yq ".[$i].type" -)
-    DURATION=$(echo "$TESTS" | yq ".[$i].duration" -)
-    DATA_SIZE=$(echo "$TESTS" | yq ".[$i].data_size" -)
-    FILE_PATH=$(echo "$TESTS" | yq ".[$i].file_path" -)
-    FACTOR=$(echo "$TESTS" | yq ".[$i].factor" -)
-    BITRATE=$(echo "$TESTS" | yq ".[$i].bitrate" -)
-    run_client_server "$TEST_NAME" "$TEST_TYPE" "$DURATION" "$DATA_SIZE" "$FILE_PATH" "$FACTOR" "$BITRATE"
+for TEST_KEY in $(echo $TESTS | yq 'keys | .[]' - | tr -d '"'); do
+    echo "Running test: $TEST_KEY"
+    TEST_TYPE=$(echo $TESTS | yq ".${TEST_KEY}.type" - | tr -d '"')
+    DURATION=$(echo $TESTS | yq ".${TEST_KEY}.duration" - | tr -d '"')
+    DATA_SIZE=$(echo $TESTS | yq ".${TEST_KEY}.data_size" - | tr -d '"')
+    FILE_PATH=$(echo $TESTS | yq ".${TEST_KEY}.file_path" - | tr -d '"')
+    FACTOR=$(echo $TESTS | yq ".${TEST_KEY}.factor" - | tr -d '"')
+    BITRATE=$(echo $TESTS | yq ".${TEST_KEY}.bitrate" - | tr -d '"')
+    run_client_server $TEST_KEY $TEST_TYPE $DURATION $DATA_SIZE $FILE_PATH $FACTOR $BITRATE $NUM_CLIENTS
 done

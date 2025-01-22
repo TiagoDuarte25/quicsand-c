@@ -45,111 +45,121 @@ void *upload_file(void *args) {
         return NULL;
     }
 
-    static char buffer[65536];
-    size_t bytes_read;
+    // get the file size
+    fseek(file, 0, SEEK_END);
+    size_t file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
 
     // open a new stream
     int stream_fd = open_stream(ctx, connection);
     log_debug("stream opened");
 
+    // send the file size
+    log_debug("file size: %lu", file_size);
+    if (write(stream_fd, &file_size, sizeof(file_size)) != sizeof(file_size)) {
+        log_error("failed to send file size");
+        close(stream_fd);
+        fclose(file);
+        return NULL;
+    }
+    log_debug("file size sent: %lu", file_size);
+
+    size_t bytes_sent = 0;
+    static char buffer[65536];
+    size_t bytes_read;
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
         // send data to the server
         write(stream_fd, buffer, bytes_read);
         log_debug("data sent: %zu bytes", bytes_read);
-        usleep(20);
+        bytes_sent += bytes_read;
+        log_debug("total bytes sent: %d", bytes_sent);
     }
+    fclose(file);
+
+    // receive information of file upload completion
+    char response[32];
+    read(stream_fd, response, sizeof(response));
+    log_info("server response: %s", response);
 
     //close the stream
     close(stream_fd);
-    fclose(file);
 
     // close_connection(ctx, connection);
 
     log_info("file upload completed");
 
-    getchar();
-
     return NULL;
 }
 
 int main(int argc, char *argv[]) {
-  char *ip_address = NULL;
-  char *file_path = NULL;
-  char *log_file = NULL;
-  int port = 0;
-  int duration = 0;
-  int data_size = 0;
-  int opt;
+    char *ip_address = NULL;
+    char *file_path = NULL;
+    char *log_file = NULL;
+    int port = 0;
+    int duration = 0;
+    int data_size = 0;
+    int opt;
 
-  fprintf(stdout, "quicsand client\n");
+    // Parse command-line arguments
+    while ((opt = getopt(argc, argv, "i:p:f:d:s:l:")) != -1) {
+        switch (opt) {
+                case 'i':
+                ip_address = strdup(optarg);
+                break;
+                case 'p':
+                port = atoi(optarg);
+                break;
+                case 'f':
+                file_path = strdup(optarg);
+                break;
+                case 'd':
+                duration = atoi(optarg);
+                break;
+                case 's':
+                data_size = atoi(optarg);
+                break;
+                case 'l':
+                log_file = strdup(optarg);
+                break;
+            default:
+                fprintf(stdout, "usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
 
-  // Parse command-line arguments
-  while ((opt = getopt(argc, argv, "i:p:f:d:s:l:")) != -1) {
-      switch (opt) {
-            case 'i':
-            ip_address = strdup(optarg);
-            break;
-            case 'p':
-            port = atoi(optarg);
-            break;
-            case 'f':
-            file_path = strdup(optarg);
-            break;
-            case 'd':
-            duration = atoi(optarg);
-            break;
-            case 's':
-            data_size = atoi(optarg);
-            break;
-            case 'l':
-            log_file = strdup(optarg);
-            break;
-          default:
-            fprintf(stdout, "usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
-            exit(EXIT_FAILURE);
-      }
-  }
+    // Open the log file
+    FILE *fp = fopen(log_file, "w+");
+    if (!fp) {
+        perror("Failed to open log file");
+        return 1;
+    }
 
-  fprintf(stdout, "ip_address: %s\n", ip_address);
-  fprintf(stdout, "port: %d\n", port);
-  fprintf(stdout, "file_path: %s\n", file_path);
-  fprintf(stdout, "duration: %d\n", duration);
-  fprintf(stdout, "data_size: %d\n", data_size);
-  fprintf(stdout, "log_file: %s\n", log_file);
+    // Add file callback with the level
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
+        fprintf(fp, "Failed to add file callback\n");
+        return 1;
+    }
 
-  // Open the log file
-  FILE *fp = fopen(log_file, "w+");
-  if (!fp) {
-      perror("Failed to open log file");
-      return 1;
-  }
+    // Check if required arguments are provided
+    if (ip_address == NULL || port == 0) {
+        log_info("usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
+        fclose(fp);
+        return EXIT_FAILURE;
+    }
 
-  // Add file callback with the level
-  if (log_add_fp(fp, LOG_INFO) != 0) {
-      fprintf(fp, "Failed to add file callback\n");
-      return 1;
-  }
+    log_info("starting client");
 
-  // Check if required arguments are provided
-  if (ip_address == NULL || port == 0) {
-      log_info("usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
-      fclose(fp);
-      return EXIT_FAILURE;
-  }
+    struct args *arguments = (struct args *)malloc(sizeof(struct args));
+    arguments->fp = fp;
+    arguments->ip_address = ip_address;
+    arguments->port = port;
+    arguments->file_path = file_path;
+    arguments->duration = duration;
+    arguments->data_size = data_size;
+    upload_file(arguments);
 
-  log_info("starting client");
+    log_info("client finished");
+    fclose(fp);
 
-  struct args *arguments = (struct args *)malloc(sizeof(struct args));
-  arguments->fp = fp;
-  arguments->ip_address = ip_address;
-  arguments->port = port;
-  arguments->file_path = file_path;
-  arguments->duration = duration;
-  arguments->data_size = data_size;
-  upload_file(arguments);
-
-  free(ip_address);
-  free(file_path);
-  fclose(fp);
-  getchar();
+    return 0;
 }

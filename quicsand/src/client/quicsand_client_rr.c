@@ -15,6 +15,9 @@
 #include "log.h"
 #include <bits/time.h>
 
+#include <openssl/evp.h>
+#include <openssl/sha.h>
+
 struct args {
   FILE *fp;
   char *ip_address;
@@ -31,6 +34,14 @@ int random_data(size_t len, char **data) {
     }
     (*data)[len - 1] = '\0';
     return 0;
+}
+
+// Function to convert binary data to a hexadecimal string
+void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
+    for (size_t i = 0; i < len; i++) {
+        sprintf(hex + (i * 2), "%02x", bin[i]);
+    }
+    hex[len * 2] = '\0';
 }
 
 void * request_response_test(void *args) {
@@ -57,6 +68,13 @@ void * request_response_test(void *args) {
     log_debug("connection opened");
     char buffer[65536];
 
+    // Initialize the SHA-256 context
+    EVP_MD_CTX *req_sha256_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(req_sha256_ctx, EVP_sha256(), NULL);
+
+    EVP_MD_CTX *res_sha256_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(res_sha256_ctx, EVP_sha256(), NULL);
+
     // Start the timer
     clock_gettime(CLOCK_MONOTONIC, &start);
     while (elapsed_time < duration) {
@@ -72,6 +90,7 @@ void * request_response_test(void *args) {
         char *data;
         random_data(data_size, &data);
         log_debug("data generated");
+        EVP_DigestUpdate(req_sha256_ctx, data, data_size);
 
         // send data to the server
         write(stream_fd, data, strlen(data) + 1);
@@ -80,6 +99,7 @@ void * request_response_test(void *args) {
         // receive data from the server
         int len;
         while ((len = read(stream_fd, buffer, sizeof(buffer))) > 0) {
+            EVP_DigestUpdate(req_sha256_ctx, buffer, len);
             log_debug("data received: %.*s", len, buffer);
         }
         if (len <= 0) {
@@ -106,6 +126,21 @@ void * request_response_test(void *args) {
 
     close_connection(ctx, connection);
 
+    // Finalize the SHA-256 hash
+    unsigned char req_hash[SHA256_DIGEST_LENGTH];
+    EVP_DigestFinal_ex(req_sha256_ctx, req_hash, NULL);
+
+    unsigned char res_hash[SHA256_DIGEST_LENGTH];
+    EVP_DigestFinal_ex(res_sha256_ctx, res_hash, NULL);
+
+    // Convert hashes to hexadecimal strings
+    char req_hash_hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    char res_hash_hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    bin_to_hex(req_hash, SHA256_DIGEST_LENGTH, req_hash_hex);
+    bin_to_hex(res_hash, SHA256_DIGEST_LENGTH, res_hash_hex);
+
+    log_info("request hash: %s", req_hash_hex);
+    log_info("response hash: %s", res_hash_hex);
     log_info("end of test");
 
     rtt = sum_rtt / num_requests;
@@ -158,13 +193,6 @@ int main(int argc, char *argv[]) {
       }
   }
 
-  fprintf(stdout, "ip_address: %s\n", ip_address);
-  fprintf(stdout, "port: %d\n", port);
-  fprintf(stdout, "file_path: %s\n", file_path);
-  fprintf(stdout, "duration: %d\n", duration);
-  fprintf(stdout, "data_size: %d\n", data_size);
-  fprintf(stdout, "log_file: %s\n", log_file);
-
   // Open the log file
   FILE *fp = fopen(log_file, "w+");
   if (!fp) {
@@ -173,7 +201,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_TRACE) != 0) {
+  if (log_add_fp(fp, LOG_INFO) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }
@@ -196,7 +224,13 @@ int main(int argc, char *argv[]) {
   arguments->data_size = data_size;
   request_response_test(arguments);
 
+  log_info("client finished");
+
   free(ip_address);
   free(file_path);
   fclose(fp);
+
+  sleep(20);
+  
+  return 0;
 }

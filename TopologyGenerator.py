@@ -1,19 +1,17 @@
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
+import yaml
+import sys
 
-def generate_topology(number_of_clients, multiple_servers, middle_endpoint, image, latency, upload, download, topology_name):
+def generate_topology(number_of_clients, number_of_servers, middle_endpoint, image, latency, upload, download, topology_name):
     experiment = ET.Element('experiment', boot="kollaps:2.0")
     
     services = ET.SubElement(experiment, 'services')
     ET.SubElement(services, 'service', name="dashboard", image="kollaps/dashboard:1.0", supervisor="true", port="8088")
 
+    for i in range(1, number_of_servers + 1):
+        ET.SubElement(services, 'service', name=f"client{i}", image=image, command=f"['server','{i}']")
 
-    if multiple_servers:
-        for i in range(1, number_of_clients + 1):
-            ET.SubElement(services, 'service', name=f"client{i}", image=image, command=f"['server','{i}']")
-    else:
-        for i in range(1, number_of_clients + 1):
-            ET.SubElement(services, 'service', name=f"client{i}", image=image, command="['server','1']")
     ET.SubElement(services, 'service', name="server", image=image, share="false")
     
     bridges = ET.SubElement(experiment, 'bridges')
@@ -28,10 +26,8 @@ def generate_topology(number_of_clients, multiple_servers, middle_endpoint, imag
     dynamic = ET.SubElement(experiment, 'dynamic')
     for i in range(1, number_of_clients + 1):
         ET.SubElement(dynamic, 'schedule', name=f"client{i}", time="1.0", action="join")
-    if multiple_servers:
-        ET.SubElement(dynamic, 'schedule', name="server", time="0.0", action="join", amount=str(number_of_clients))
-    else:
-        ET.SubElement(dynamic, 'schedule', name="server", time="0.0", action="join", amount="1")
+
+    ET.SubElement(dynamic, 'schedule', name="server", time="0.0", action="join", amount=str(number_of_servers))
     
     xml_str = ET.tostring(experiment, encoding='utf-8')
     parsed_str = minidom.parseString(xml_str)
@@ -41,13 +37,28 @@ def generate_topology(number_of_clients, multiple_servers, middle_endpoint, imag
         f.write(pretty_xml_as_string)
 
 if __name__ == "__main__":
-    generate_topology(
-        number_of_clients=10,
-        multiple_servers=False,
-        middle_endpoint=True,
-        image="quicsand",
-        latency="10",
-        upload="500Mbps",
-        download="500Mbps",
-        topology_name="low_latency.xml"
-    )
+    if len(sys.argv) < 2:
+        print("Usage: python TopologyGenerator.py <topology_name>")
+        sys.exit(1)
+
+    topology_name = sys.argv[1].strip('"')
+
+    print(f"Generating topology {topology_name}...")
+
+    with open("topologies.yaml", "r") as yaml_file:
+        topologies = yaml.safe_load(yaml_file)
+
+    if topology_name in topologies['topologies']:
+        topology = topologies['topologies'][topology_name]
+        generate_topology(
+            number_of_clients=topology['number_of_clients'],
+            number_of_servers=topology['number_of_servers'],
+            middle_endpoint=topology['middle_endpoint'],
+            image=topology['image'],
+            latency=f"{topology['latency']}",
+            upload=topology['upload'],
+            download=topology['download'],
+            topology_name=f"{topology_name}.xml"
+        )
+    else:
+        print(f"Topology {topology_name} not found.")

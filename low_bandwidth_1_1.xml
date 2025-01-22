@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<experiment boot="kollaps:2.0">
+    <services>
+        <service name="dashboard" image="kollaps/dashboard:1.0" supervisor="true" port="8088"/>
+        <service name="client1" image="quicsand" command="['server','1']"/>
+        <service name="server" image="quicsand" share="false"/>
+    </services>
+    <bridges>
+        <bridge name="s1"/>
+    </bridges>
+    <links>
+        <link origin="client1" dest="s1" latency="10" upload="10Mbps" download="10Mbps" network="quicsand_network"/>
+        <link origin="s1" dest="server" latency="10" upload="10Mbps" download="10Mbps" network="quicsand_network"/>
+    </links>
+    <dynamic>
+        <schedule name="client1" time="1.0" action="join"/>
+        <schedule name="server" time="0.0" action="join" amount="1"/>
+    </dynamic>
+</experiment>

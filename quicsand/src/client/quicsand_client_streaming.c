@@ -56,10 +56,6 @@ void *stream_data(void *args) {
         log_debug("received data: %zu bytes", bytes_received);
     }
 
-    // Close the stream
-    close(stream_fd);
-    log_info("stream closed");
-
     // Close the connection
     close_connection(ctx, connection);
 
@@ -152,5 +148,4 @@ int main(int argc, char *argv[]) {
   free(ip_address);
   free(file_path);
   fclose(fp);
-  getchar();
 }

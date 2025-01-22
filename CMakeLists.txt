@@ -123,6 +123,8 @@ ELSE()
     message(FATAL_ERROR "IMPL must be either msquic or quiche")
 ENDIF()
 
+find_package(OpenSSL REQUIRED)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
 
@@ -136,8 +138,10 @@ foreach(testsourcefile ${APP_SOURCES})
     add_executable( ${testname} ${SRC} ${testsourcefile} )
     # Make sure YourLib is linked to each app
     target_include_directories(${testname} PRIVATE quicsand/include)
+    target_include_directories(${testname} PRIVATE ${OPENSSL_INCLUDE_DIR})
     target_link_libraries(${testname} ${LIBS})
     target_link_libraries(${testname} PkgConfig::deps)
+    target_link_libraries(${testname} OpenSSL::SSL OpenSSL::Crypto)
     target_compile_definitions(${testname} PRIVATE ${DEF})
     set_target_properties(${testname} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 endforeach(testsourcefile ${APP_SOURCES})

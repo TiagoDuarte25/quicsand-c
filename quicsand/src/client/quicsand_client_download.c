@@ -58,20 +58,37 @@ void *download_file(void *args) {
         return NULL;
     }
 
-    static char buffer[65536];
-    size_t bytes_read;
-    while ((bytes_read = read(stream_fd, buffer, sizeof(buffer))) > 0) {
-        fwrite(buffer, sizeof(char), bytes_read, file);
-        log_debug("data written to file");
+    size_t file_size;
+    size_t len = read(stream_fd, &file_size, sizeof(size_t));
+    if (len < 0) {
+        log_error("error: %s", quic_error_message(quic_error));
+        fclose(file);
+        close(stream_fd);
+        return NULL;
     }
+    log_debug("file size: %ld", file_size);
+
+    static char buffer[65536];
+    size_t total_bytes_read = 0;
+    size_t bytes_read;
+    while (total_bytes_read < file_size) {
+        bytes_read = read(stream_fd, buffer, sizeof(buffer));
+        if (bytes_read < 0) {
+            log_error("error: %s", quic_error_message(quic_error));
+            fclose(file);
+            close(stream_fd);
+            return NULL;
+        }
+        total_bytes_read += bytes_read;
+        fwrite(buffer, 1, bytes_read, file);
+    }
+
     fclose(file);
 
     //close the stream
     close(stream_fd);
 
     log_info("file download completed");
-
-    getchar();
 
     return NULL;
 }
@@ -114,13 +131,6 @@ int main(int argc, char *argv[]) {
       }
   }
 
-  fprintf(stdout, "ip_address: %s\n", ip_address);
-  fprintf(stdout, "port: %d\n", port);
-  fprintf(stdout, "file_path: %s\n", file_path);
-  fprintf(stdout, "duration: %d\n", duration);
-  fprintf(stdout, "data_size: %d\n", data_size);
-  fprintf(stdout, "log_file: %s\n", log_file);
-
   // Open the log file
   FILE *fp = fopen(log_file, "w+");
   if (!fp) {
@@ -129,7 +139,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_DEBUG) != 0) {
+  if (log_add_fp(fp, LOG_TRACE) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }
@@ -153,5 +163,5 @@ int main(int argc, char *argv[]) {
   free(ip_address);
   free(file_path);
   fclose(fp);
-  getchar();
+  return 0;
 }

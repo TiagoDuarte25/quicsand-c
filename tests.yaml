@@ -8,155 +8,170 @@ configs:
     num_clients: 1
     num_servers: 1
 
-  tests:
-    # - name: test1
-    #   type: request-response
-    #   duration: 1800
-    #   data_size: 10
-    #   factor: 100
+tests:
+  aa_test1:
+    type: request-response
+    duration: 30
+    data_size: 10
+    factor: 100
 
-    # - name: test2
-    #   type: request-response
-    #   duration: 30
-    #   data_size: 100
-    #   factor: 100
+  ab_test2:
+      type: request-response
+      duration: 30
+      data_size: 100
+      factor: 100
 
-    # - name: test3
-    #   type: request-response
-    #   duration: 30
-    #   data_size: 1000
-    #   factor: 100
+  ac_test3:
+      type: request-response
+      duration: 30
+      data_size: 1000
+      factor: 100
 
-    # - name: test4
-    #   type: request-response
-    #   duration: 30
-    #   data_size: 10
-    #   factor: 1000
+  ad_test4:
+      type: request-response
+      duration: 30
+      data_size: 10
+      factor: 1000
 
-    # - name: test5
-    #   type: request-response
-    #   duration: 30
-    #   data_size: 100
-    #   factor: 1000
+  ae_test5:
+      type: request-response
+      duration: 30
+      data_size: 100
+      factor: 1000
 
-    # - name: test6
-    #   type: request-response
-    #   duration: 30
-    #   data_size: 1000
-    #   factor: 1000
+  af_test6:
+      type: request-response
+      duration: 30
+      data_size: 1000
+      factor: 1000
 
-    # - name: test7
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
-    #   duration: 60
+  ag_test7:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
+      file_path: /app/resources/testing_files/100kb_hex.txt
+      duration: 60
 
-    # - name: test8
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
-    #   duration: 60
+  ah_test8:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
+      file_path: /app/resources/testing_files/100mb_hex.txt
+      duration: 60
 
-    # - name: test9
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
-    #   duration: 60
+  ai_test9:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
+      file_path: /app/resources/testing_files/10mb_hex.txt
+      duration: 60
 
-    # - name: test10
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1gb_hex.txt
-    #   duration: 60
+  aj_test10:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1gb_hex.txt
+      file_path: /app/resources/testing_files/1gb_hex.txt
+      duration: 60
 
-    # - name: test11
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1mb_hex.txt
-    #   duration: 60
+  ak_test11:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1mb_hex.txt
+      file_path: /app/resources/testing_files/1mb_hex.txt
+      duration: 60
 
-    # - name: test12
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/500kb_hex.txt
-    #   duration: 60
+  al_test12:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/500kb_hex.txt
+      file_path: /app/resources/testing_files/500kb_hex.txt
+      duration: 60
 
-    # - name: test13
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/50mb_hex.txt
-    #   duration: 60
+  am_test13:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/50mb_hex.txt
+      file_path: /app/resources/testing_files/50mb_hex.txt
+      duration: 60
 
-    # - name: test14
-    #   type: upload
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/5gb_hex.txt
-    #   duration: 60
+  an_test14:
+      type: upload
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/5gb_hex.txt
+      file_path: /app/resources/testing_files/5gb_hex.txt
+      duration: 60
 
-    # - name: test15
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
+  ao_test15:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
+      file_path: /app/resources/testing_files/100kb_hex.txt
 
-    # - name: test16
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
+  ap_test16:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
+      file_path: /app/resources/testing_files/100mb_hex.txt
 
-    # - name: test17
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
+  aq_test17:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
+      file_path: /app/resources/testing_files/10mb_hex.txt
 
-    # - name: test18
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1gb_hex.txt
+  ar_test18:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1gb_hex.txt
+      file_path: /app/resources/testing_files/1gb_hex.txt
 
-    # - name: test19
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1mb_hex.txt
+  as_test19:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1mb_hex.txt
+      file_path: /app/resources/testing_files/1mb_hex.txt
 
-    # - name: test20
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/500kb_hex.txt
+  at_test20:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/500kb_hex.txt
+      file_path: /app/resources/testing_files/500kb_hex.txt
 
-    # - name: test21
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/50mb_hex.txt
+  au_test21:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/50mb_hex.txt
+      file_path: /app/resources/testing_files/50mb_hex.txt
 
-    # - name: test22
-    #   type: download
-    #   duration: 60
-    #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/5gb_hex.txt
+  av_test22:
+      type: download
+      duration: 60
+      # file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/5gb_hex.txt
+      file_path: /app/resources/testing_files/5gb_hex.txt
 
-    - name: test23
+  aw_test23:
       type: streaming
       bitrate: 200 # Kbps (0.2 Mbps)
       duration: 180
 
-    - name: test24
+  ax_test24:
       type: streaming
       bitrate: 700 # Kbps (0.7 Mbps)
       duration: 180
 
-    - name: test25
+  ay_test25:
       type: streaming
       bitrate: 1500 # Kbps (1.5 Mbps)
       duration: 180
 
-    - name: test26
+  az_test26:
       type: streaming
       bitrate: 3000 # Kbps (3 Mbps)
       duration: 180
 
-    - name: test27
+  ba_test27:
       type: streaming
       bitrate: 8000 # Kbps (8 Mbps)
       duration: 180
 
-    - name: test28
+  bb_test28:
       type: streaming
       bitrate: 12000 # Kbps (12 Mbps)
       duration: 180
 
-    - name: test29
+  bc_test29:
       type: streaming
       bitrate: 20000 # Kbps (20 Mbps)
       duration: 180
-

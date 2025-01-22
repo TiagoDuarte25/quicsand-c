@@ -12,6 +12,9 @@
 #include <log.h>
 #include "quicsand_api.h"
 
+#include <openssl/evp.h>
+#include <openssl/sha.h>
+
 #define CHUNK_SIZE 1024
 
 char* reverse_string(char *str)
@@ -28,6 +31,15 @@ char* reverse_string(char *str)
     }
     return str;
 }
+
+// Function to convert binary data to a hexadecimal string
+void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
+    for (size_t i = 0; i < len; i++) {
+        sprintf(hex + (i * 2), "%02x", bin[i]);
+    }
+    hex[len * 2] = '\0';
+}
+
 
 int random_data(size_t len, char **data) {
     *data = (char *)malloc(len);
@@ -49,6 +61,8 @@ typedef struct {
     connection_t connection;
     int stream_fd;
     int factor;
+    EVP_MD_CTX *req_sha256;
+    EVP_MD_CTX *res_sha256;
 } thread_data_stream_t;
 
 void* handle_stream(void * arg) {
@@ -56,6 +70,8 @@ void* handle_stream(void * arg) {
     context_t ctx = data->ctx;
     connection_t connection = data->connection;
     int stream_fd = data->stream_fd;
+    EVP_MD_CTX *req_sha256 = data->req_sha256;
+    EVP_MD_CTX *res_sha256 = data->res_sha256;
     log_debug("handling stream");
 
     while (1) {
@@ -63,12 +79,14 @@ void* handle_stream(void * arg) {
         // receive data from the client
         int len = read(stream_fd, buffer, sizeof(buffer));
         if (len > 0) {
+            EVP_DigestUpdate(req_sha256, buffer, len);
             log_debug("received data: %.*s", len, buffer);
 
             // response size multiplied by factor
             int response_len = len * data->factor;
             char* response;
             random_data(response_len, &response);
+            EVP_DigestUpdate(res_sha256, response, response_len);
             // send the response in chunks
             size_t chunk_size = 65536;
             size_t bytes_sent = 0;
@@ -99,13 +117,22 @@ void *handle_connection(void *arg)
     connection_t connection = data->connection;
     log_debug("handling connection");
 
+    // Initialize the SHA-256 context
+    EVP_MD_CTX *req_sha256_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(req_sha256_ctx, EVP_sha256(), NULL);
+
+    EVP_MD_CTX *res_sha256_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(res_sha256_ctx, EVP_sha256(), NULL);
+
     while (1) {
 
+        log_debug("waiting for stream");
         int stream_fd = accept_stream(ctx, connection, 0);
+        log_debug("stream accepted");
         if (stream_fd < 0) {
             log_error("error: %s", quic_error_message(quic_error));
             close_connection(ctx, connection);
-            continue;
+            break;
         }
 
         // Allocate memory for thread data
@@ -114,6 +141,8 @@ void *handle_connection(void *arg)
         stream_data->connection = connection;
         stream_data->stream_fd = stream_fd;
         stream_data->factor = data->factor;
+        stream_data->req_sha256 = req_sha256_ctx;
+        stream_data->res_sha256 = res_sha256_ctx;
 
         // Create a new thread to handle the stream
         pthread_t thread_id;
@@ -121,13 +150,29 @@ void *handle_connection(void *arg)
         {
             log_error("error: failed to create thread");
             free(stream_data);
-            continue;
+            break;
         }
         log_debug("created thread to handle stream");
 
         // Detach the thread so that it cleans up after itself
         pthread_detach(thread_id);
     }
+
+    // Finalize the SHA-256 hash
+    unsigned char req_hash[SHA256_DIGEST_LENGTH];
+    unsigned char res_hash[SHA256_DIGEST_LENGTH];
+    EVP_DigestFinal_ex(req_sha256_ctx, req_hash, NULL);
+    EVP_DigestFinal_ex(res_sha256_ctx, res_hash, NULL);
+
+    // Convert hashes to hexadecimal strings
+    char req_hash_hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    char res_hash_hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    bin_to_hex(req_hash, SHA256_DIGEST_LENGTH, req_hash_hex);
+    bin_to_hex(res_hash, SHA256_DIGEST_LENGTH, res_hash_hex);
+
+    log_info("request hash: %s", req_hash_hex);
+    log_info("response hash: %s", res_hash_hex);
+
     return NULL;
 }
 
@@ -178,7 +223,7 @@ int main(int argc, char *argv[])
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_TRACE) != 0) {
+    if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

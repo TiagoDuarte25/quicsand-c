@@ -1,6 +1,7 @@
 #include "quicsand_api.h"
 #include <errno.h>
 #include <log.h>
+#include <poll.h>
 
 quic_error_code_t quic_error = QUIC_SUCCESS;
 
@@ -163,6 +164,10 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     int ready; 
+
+    // to clear
+    size_t bytes_received;
+    size_t bytes_written;
 } stream_info_t;
 
 typedef struct {
@@ -240,12 +245,16 @@ void* connect_unix_socket(void * args) {
 }
 
 void * stream_write(void *arg) {
+    
     ctx_strm_t *ctx_strm = (ctx_strm_t *)arg;
     stream_info_t *stream_info = ctx_strm->stream_info;
     struct context *ctx = ctx_strm->ctx;
     char buffer[65536];
+
+    stream_info->bytes_received = 0;
+    stream_info->bytes_written = 0;
+
     while (1) {
-        log_trace("stream_write: reading from unix socket %d", stream_info->a_fd);
         int len = read(stream_info->a_fd, buffer, sizeof(buffer));
         log_trace("stream_write: read %d bytes", len);
         if (len < 0) {
@@ -254,33 +263,50 @@ void * stream_write(void *arg) {
         }
         if (len == 0) {
             log_trace("stream_write: EOF");
+            if (stream_info == NULL) {
+                log_trace("stream_write: stream_info is NULL");
+                return NULL;
+            }
             pthread_mutex_lock(&stream_info->mutex);
+            log_trace("stream_write: shutting down stream %p gracefully", stream_info->stream);
             ctx->msquic->StreamShutdown(stream_info->stream, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0);
             pthread_mutex_unlock(&stream_info->mutex);
             return NULL;
         }
         
-        QUIC_BUFFER *send_buffer = malloc(sizeof(QUIC_BUFFER) + sizeof(buffer));
-        send_buffer->Buffer = buffer;
+        log_trace("stream_write: preparing to send %d bytes", len);
+        QUIC_BUFFER *send_buffer = malloc(sizeof(QUIC_BUFFER));
+        if (!send_buffer) {
+            log_error("failed to allocate memory for send_buffer");
+            return NULL;
+        }
+        send_buffer->Buffer = malloc(len);
+        if (!send_buffer->Buffer) {
+            log_error("failed to allocate memory for send_buffer->Buffer");
+            free(send_buffer);
+            return NULL;
+        }
+        memcpy(send_buffer->Buffer, buffer, len);
         send_buffer->Length = len;
         
+        pthread_mutex_lock(&stream_info->mutex);
         stream_info->buffer_count++;
         stream_info->ready = 0;
-        pthread_mutex_lock(&stream_info->mutex);
+        log_trace("stream_write: sending %d bytes on stream %p", len, stream_info->stream);
         QUIC_STATUS status = ctx->msquic->StreamSend(stream_info->stream, send_buffer, 1, QUIC_SEND_FLAG_NONE, send_buffer);
         pthread_mutex_unlock(&stream_info->mutex);
         if (QUIC_FAILED(status)) {
             log_error("send stream failed, 0x%x!", status);
+            // free(send_buffer);
             return NULL;
         }
-        
+        pthread_mutex_lock(&stream_info->mutex);
         if (stream_info->ready == 0) {
-            pthread_mutex_lock(&stream_info->mutex);
+            log_trace("stream_write: waiting for stream %p to be ready", stream_info->stream);  
             pthread_cond_wait(&stream_info->cond, &stream_info->mutex);
-            pthread_mutex_unlock(&stream_info->mutex);
-        }
-        log_trace("stream_write: sent %d bytes", len);
-        free(send_buffer);
+        }  
+        log_trace("stream_write: sent %d bytes on stream %p", len, stream_info->stream);
+        pthread_mutex_unlock(&stream_info->mutex);
     }
 }
 
@@ -300,30 +326,60 @@ stream_callback(
     switch (event->Type)
     {
     case QUIC_STREAM_EVENT_START_COMPLETE:
+        pthread_mutex_lock(&stream_info->mutex);
         log_trace("[strm][%p] start complete", (void *)stream);
+        pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_RECEIVE:
-        log_trace("[strm][%p] data received", (void *)stream);
+        
         // write to the unix socket if can't send block until it can
-        int val;
         pthread_mutex_lock(&stream_info->mutex);
-        if (event->RECEIVE.BufferCount == 0) {
-            log_trace("no data to write");
-            pthread_mutex_unlock(&stream_info->mutex);
-            break;
+        log_trace("[strm][%p] data received", (void *)stream);
+
+        int len = event->RECEIVE.TotalBufferLength;
+
+        int sndbuf;
+        socklen_t optlen = sizeof(sndbuf);
+        if (getsockopt(stream_info->a_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == -1) {
+            log_error("getsockopt failed: %s", strerror(errno));
         }
-        while ((val = write(stream_info->a_fd, event->RECEIVE.Buffers->Buffer, event->RECEIVE.TotalBufferLength)) < 0) {
-            log_trace("val: %d");
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                log_debug("waiting for data to be sent");
-                continue;
-            } else {
-                log_error("failed to write to the stream_fd[1] file descriptor: %s", strerror(errno));
-                continue;
+        
+
+        stream_info->bytes_received += len;
+
+        size_t total_bytes_written = 0;
+        
+        for (int i = 0; i < event->RECEIVE.BufferCount; i++) {
+            size_t buffer_bytes_written = 0;
+            while (buffer_bytes_written < event->RECEIVE.Buffers[i].Length) {
+                struct pollfd pfd;
+                pfd.fd = stream_info->a_fd;
+                pfd.events = POLLOUT;
+
+                int poll_result = poll(&pfd, 1, -1); // Wait indefinitely until the socket is writable
+                if (poll_result < 0) {
+                    log_error("poll failed: %s", strerror(errno));
+                    pthread_mutex_unlock(&stream_info->mutex);
+                    return -1;
+                }
+
+                if (pfd.revents & POLLOUT) {
+                    size_t bytes_to_write = event->RECEIVE.Buffers[i].Length - buffer_bytes_written;
+                    if (bytes_to_write > sndbuf) {
+                        bytes_to_write = sndbuf;
+                    }
+                    ssize_t bytes_written = write(stream_info->a_fd, event->RECEIVE.Buffers[i].Buffer + buffer_bytes_written, bytes_to_write);
+                    if (bytes_written < 0) {
+                        log_error("write failed: %s", strerror(errno));
+                        pthread_mutex_unlock(&stream_info->mutex);
+                        return -1;
+                    }
+                    buffer_bytes_written += bytes_written;
+                    total_bytes_written += bytes_written;
+                }
             }
         }
         pthread_mutex_unlock(&stream_info->mutex);
-        log_trace("val: %d", val);
         break;  
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
         pthread_mutex_lock(&stream_info->mutex);
@@ -335,8 +391,8 @@ stream_callback(
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         pthread_mutex_lock(&stream_info->mutex);
         log_trace("[strm][%p] peer shut down", (void *)stream);
-        pthread_mutex_unlock(&stream_info->mutex);
         shutdown(stream_info->a_fd, SHUT_WR);
+        pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         pthread_mutex_lock(&stream_info->mutex);
@@ -353,7 +409,6 @@ stream_callback(
     case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
         pthread_mutex_lock(&stream_info->mutex);
         log_trace("[strm][%p] send shutdown complete", (void *)stream);
-        // ctx->msquic->StreamClose(stream);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
@@ -421,6 +476,10 @@ connection_callback(
         }
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
+        g_mutex_lock(&connection_info->queue_mutex);
+        g_queue_push_tail(connection_info->stream_queue, NULL);
+        g_cond_signal(&connection_info->queue_cond);
+        g_mutex_unlock(&connection_info->queue_mutex);
         log_trace("[conn][%p] shutdown initiated by peer, 0x%llu", (void *)connection, (unsigned long long)event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
@@ -430,7 +489,7 @@ connection_callback(
         {
             log_trace("[conn][%p] app close not in progress", (void *)connection);
             ctx->msquic->ConnectionClose(connection);  
-            free(connection_info);    
+            free(connection_info);  
         }
         break;
     case QUIC_CONNECTION_EVENT_LOCAL_ADDRESS_CHANGED:
@@ -479,7 +538,6 @@ connection_callback(
         if (mkdir(path, 0777) && errno != EEXIST) {
             log_error("failed to create directory: %s", strerror(errno));
             quic_error = QUIC_ERROR_STREAM_FAILED;
-            free(sun_path);
             close(c_fd);
             close(s_fd);
             return -1;
@@ -2067,11 +2125,15 @@ int accept_stream(context_t context, connection_t connection, time_t timeout) {
     
     // Lock the mutex to wait for a connection
     g_mutex_lock(&connection_info->queue_mutex);
-    while (g_queue_is_empty(connection_info->stream_queue)) {
+    if (g_queue_is_empty(connection_info->stream_queue)) {
         log_debug("waiting for new stream");
         g_cond_wait(&connection_info->queue_cond, &connection_info->queue_mutex);
     }
     stream_info = g_queue_pop_head(connection_info->stream_queue);
+    if (stream_info == NULL) {
+        log_error("failed to accept stream");
+        return -1;
+    }
     g_mutex_unlock(&connection_info->queue_mutex);
 
     HASH_ADD(hh, connection_info->h, s_fd, sizeof(int), stream_info);

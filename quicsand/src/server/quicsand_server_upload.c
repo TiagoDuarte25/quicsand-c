@@ -34,6 +34,15 @@ void* handle_stream(void * arg) {
     int stream_fd = data->stream_fd;
     char* filename = data->filename;
     log_debug("handling stream");
+    
+    // Receive the file size from the client
+    size_t file_size;
+    if (read(stream_fd, &file_size, sizeof(file_size)) != sizeof(file_size)) {
+        log_error("failed to receive file size");
+        close(stream_fd);
+        return NULL;
+    }
+    log_debug("file size received: %lu", file_size);
 
     // Open file for writing
     FILE *file = fopen(filename, "w");
@@ -42,29 +51,31 @@ void* handle_stream(void * arg) {
         close(stream_fd);
         return NULL;
     }
-    char buffer[65536];
-    while (1) {
-        // receive data from the client
-        int len = read(stream_fd, buffer, sizeof(buffer));
-        log_debug("len: %d", len);
-        if (len == 0) {
-            log_debug("stream closed by client");
-            break;
-        }
-        else if (len > 0) {
-            log_debug("received data: %.*s", len, buffer);
 
+    char buffer[65536];
+    size_t bytes_read = 0;
+    while (bytes_read < file_size) {
+        // receive data from the client
+        size_t len = read(stream_fd, buffer, sizeof(buffer));
+        log_debug("received %lu bytes", len);
+        if (len > 0) {
             // Write received data to file
             fwrite(buffer, sizeof(char), len, file);
             log_debug("data written to file");
         } else {
             break;
         }
+        bytes_read += len;
+        log_debug("total bytes read: %lu", bytes_read);
     }
-
+    fflush(file);
     fclose(file);
-    close(stream_fd);
-    log_debug("stream closed");
+
+    // send information of file upload completion
+    char response[32];
+    snprintf(response, sizeof(response), "file uploaded: %zu bytes", file_size);
+    write(stream_fd, response, strlen(response) + 1);
+    log_debug("response sent: %s", response);
     
     return NULL;
 }
@@ -115,12 +126,13 @@ int main(int argc, char *argv[])
     char *key_path = NULL;
     char *ip_address = NULL;
     char *log_file = NULL;
+    char *test_name = NULL;
     int factor = 1;
     int port = 0;
     int opt;
 
     // Parse command-line arguments
-    while ((opt = getopt(argc, argv, "c:k:i:p:l:m:")) != -1)
+    while ((opt = getopt(argc, argv, "c:k:i:p:l:m:t:")) != -1)
     {
         switch (opt)
         {
@@ -142,6 +154,9 @@ int main(int argc, char *argv[])
         case 'm':
             factor = atoi(optarg);
             break;
+        case 't':
+            test_name = strdup(optarg);
+            break;
         default:
             fprintf(stdout, "usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>", argv[0]);
             exit(EXIT_FAILURE);
@@ -158,7 +173,7 @@ int main(int argc, char *argv[])
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_INFO) != 0) {
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
@@ -177,9 +192,6 @@ int main(int argc, char *argv[])
     set_listen(ctx);
     log_debug("listening");
 
-    char test_name[256];
-    sscanf(log_file, "%[^_]_", test_name);
-
     // Ensure test_name is not too long
     if (strlen(test_name) > 246) {
         log_error("test name is too long");
@@ -187,8 +199,10 @@ int main(int argc, char *argv[])
     }
 
     // Create the file name
-    char filename[256];
-    snprintf(filename, sizeof(filename), "%s_file.txt", test_name);
+    char filename[256] = "";
+    strcat(filename, test_name);
+    strcat(filename, ".txt");
+    log_debug("filename: %s", filename);
 
     log_info("server running...");
     while (1)
