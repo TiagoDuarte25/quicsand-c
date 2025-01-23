@@ -13,7 +13,7 @@ COPY CMakeLists.txt /app/CMakeLists.txt
 COPY resources/testing_files /app/resources/testing_files
 COPY tests.yaml /app/tests.yaml
 
-RUN apt update && apt install -y bind9 bind9utils bind9-doc dnsutils libglib2.0-dev yq procps
+RUN apt update && apt install -y bind9 bind9utils bind9-doc dnsutils libglib2.0-dev yq procps libssl-dev
 
 # Copy configuration and certificates
 RUN mkdir -p /app/build && \

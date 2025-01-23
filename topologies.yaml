@@ -1,6 +1,6 @@
 topologies:
   aa_low_lat_mid_bw_1_1:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -9,7 +9,7 @@ topologies:
     number_of_servers: 1
   
   ab_high_lat_mid_bw_1_1:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -18,7 +18,7 @@ topologies:
     number_of_servers: 1
 
   ac_mid_lat_low_bw_1_1:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -27,7 +27,7 @@ topologies:
     number_of_servers: 1
   
   ad_mid_lat_high_bw_1_1:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -36,7 +36,7 @@ topologies:
     number_of_servers: 1
 
   ae_mid_lat_mid_bw_1_1:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -45,7 +45,7 @@ topologies:
     number_of_servers: 1
 
   af_high_lat_low_bw_1_1:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -54,7 +54,7 @@ topologies:
     number_of_servers: 1
   
   ag_low_lat_high_bw_1_1:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -63,7 +63,7 @@ topologies:
     number_of_servers: 1
 
   ah_low_lat_mid_bw_10_10:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -72,7 +72,7 @@ topologies:
     number_of_servers: 10
   
   ai_high_lat_mid_bw_10_10:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -81,7 +81,7 @@ topologies:
     number_of_servers: 10
 
   aj_mid_lat_low_bw_10_10:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -90,7 +90,7 @@ topologies:
     number_of_servers: 10
 
   ak_mid_lat_high_bw_10_10:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -99,7 +99,7 @@ topologies:
     number_of_servers: 10
   
   al_mid_lat_mid_bw_10_10:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -108,7 +108,7 @@ topologies:
     number_of_servers: 10
   
   am_high_lat_low_bw_10_10:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -117,7 +117,7 @@ topologies:
     number_of_servers: 10
   
   an_low_lat_high_bw_10_10:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -126,7 +126,7 @@ topologies:
     number_of_servers: 10
 
   ao_low_lat_mid_bw_25_25:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -135,7 +135,7 @@ topologies:
     number_of_servers: 25
 
   aq_mid_lat_low_bw_25_25:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -144,7 +144,7 @@ topologies:
     number_of_servers: 25
   
   ar_mid_lat_high_bw_25_25:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -153,7 +153,7 @@ topologies:
     number_of_servers: 25
 
   as_mid_lat_mid_bw_25_25:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -162,7 +162,7 @@ topologies:
     number_of_servers: 25
 
   at_high_lat_low_bw_25_25:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -171,7 +171,7 @@ topologies:
     number_of_servers: 25
   
   au_low_lat_high_bw_25_25:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -180,7 +180,7 @@ topologies:
     number_of_servers: 25
 
   av_low_lat_mid_bw_50_50:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -189,7 +189,7 @@ topologies:
     number_of_servers: 50
 
   aw_high_lat_mid_bw_50_50:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -198,7 +198,7 @@ topologies:
     number_of_servers: 50
 
   ax_mid_lat_low_bw_50_50:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -207,7 +207,7 @@ topologies:
     number_of_servers: 50
   
   ay_mid_lat_high_bw_50_50:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -216,7 +216,7 @@ topologies:
     number_of_servers: 50
 
   az_mid_lat_mid_bw_50_50:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -225,7 +225,7 @@ topologies:
     number_of_servers: 50
 
   ba_high_lat_low_bw_50_50:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -234,7 +234,7 @@ topologies:
     number_of_servers: 50
   
   bb_low_lat_high_bw_50_50:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -243,7 +243,7 @@ topologies:
     number_of_servers: 50
 
   bc_low_lat_mid_bw_100_100:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -252,7 +252,7 @@ topologies:
     number_of_servers: 100
 
   bd_high_lat_mid_bw_100_100:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -261,7 +261,7 @@ topologies:
     number_of_servers: 100
 
   be_mid_lat_low_bw_100_100:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -270,7 +270,7 @@ topologies:
     number_of_servers: 100
   
   bf_mid_lat_high_bw_100_100:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -279,7 +279,7 @@ topologies:
     number_of_servers: 100
 
   bg_mid_lat_mid_bw_100_100:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -288,7 +288,7 @@ topologies:
     number_of_servers: 100
 
   bh_high_lat_low_bw_100_100:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -297,7 +297,7 @@ topologies:
     number_of_servers: 100
   
   bi_low_lat_high_bw_100_100:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -306,7 +306,7 @@ topologies:
     number_of_servers: 100
 
   bj_low_lat_mid_bw_10_1:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -315,7 +315,7 @@ topologies:
     number_of_servers: 1
 
   bk_high_lat_mid_bw_10_1:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -324,7 +324,7 @@ topologies:
     number_of_servers: 1
 
   bl_mid_lat_low_bw_10_1:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -333,7 +333,7 @@ topologies:
     number_of_servers: 1
   
   bm_mid_lat_high_bw_10_1:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -342,7 +342,7 @@ topologies:
     number_of_servers: 1
 
   bn_mid_lat_mid_bw_10_1:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -351,7 +351,7 @@ topologies:
     number_of_servers: 1
 
   bo_high_lat_low_bw_10_1:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -360,7 +360,7 @@ topologies:
     number_of_servers: 1
   
   bp_low_lat_high_bw_10_1:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -369,7 +369,7 @@ topologies:
     number_of_servers: 1
 
   bq_low_lat_mid_bw_25_1:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -378,7 +378,7 @@ topologies:
     number_of_servers: 1
 
   br_high_lat_mid_bw_25_1:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -387,7 +387,7 @@ topologies:
     number_of_servers: 1
 
   bs_mid_lat_low_bw_25_1:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -396,7 +396,7 @@ topologies:
     number_of_servers: 1
   
   bt_mid_lat_high_bw_25_1:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -405,7 +405,7 @@ topologies:
     number_of_servers: 1
 
   bu_mid_lat_mid_bw_25_1:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -414,7 +414,7 @@ topologies:
     number_of_servers: 1
 
   bv_high_lat_low_bw_25_1:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -423,7 +423,7 @@ topologies:
     number_of_servers: 1
   
   bw_low_lat_high_bw_25_1:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -432,7 +432,7 @@ topologies:
     number_of_servers: 1
 
   bx_low_lat_mid_bw_50_1:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -441,7 +441,7 @@ topologies:
     number_of_servers: 1
 
   by_high_lat_mid_bw_50_1:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -450,7 +450,7 @@ topologies:
     number_of_servers: 1
 
   bz_mid_lat_low_bw_50_1:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -459,7 +459,7 @@ topologies:
     number_of_servers: 1
   
   ca_mid_lat_high_bw_50_1:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -468,7 +468,7 @@ topologies:
     number_of_servers: 1
 
   cb_mid_lat_mid_bw_50_1:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -477,7 +477,7 @@ topologies:
     number_of_servers: 1
 
   cc_high_lat_low_bw_50_1:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -486,7 +486,7 @@ topologies:
     number_of_servers: 1
   
   cd_low_lat_high_bw_50_1:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -495,7 +495,7 @@ topologies:
     number_of_servers: 1
 
   ce_low_lat_mid_bw_100_1:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -504,7 +504,7 @@ topologies:
     number_of_servers: 1
 
   cf_high_lat_mid_bw_100_1:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -513,7 +513,7 @@ topologies:
     number_of_servers: 1
 
   cg_mid_lat_low_bw_100_1:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -522,7 +522,7 @@ topologies:
     number_of_servers: 1
   
   ch_mid_lat_high_bw_100_1:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -531,7 +531,7 @@ topologies:
     number_of_servers: 1
 
   ci_mid_lat_mid_bw_100_1:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: true
@@ -540,7 +540,7 @@ topologies:
     number_of_servers: 1
 
   cj_high_lat_low_bw_100_1:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: true
@@ -549,7 +549,7 @@ topologies:
     number_of_servers: 1
   
   ck_low_lat_high_bw_100_1:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: true
@@ -558,7 +558,7 @@ topologies:
     number_of_servers: 1
 
   cl_low_lat_mid_bw_1_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -567,7 +567,7 @@ topologies:
     number_of_servers: 1
   
   cm_high_lat_mid_bw_1_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -576,7 +576,7 @@ topologies:
     number_of_servers: 1
 
   cn_mid_lat_low_bw_1_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -585,7 +585,7 @@ topologies:
     number_of_servers: 1
   
   co_mid_lat_high_bw_1_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -594,7 +594,7 @@ topologies:
     number_of_servers: 1
 
   cp_mid_lat_mid_bw_1_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -603,7 +603,7 @@ topologies:
     number_of_servers: 1
 
   cq_high_lat_low_bw_1_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -612,7 +612,7 @@ topologies:
     number_of_servers: 1
   
   cr_low_lat_high_bw_1_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -621,7 +621,7 @@ topologies:
     number_of_servers: 1
 
   cs_low_lat_mid_bw_10_10_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -630,7 +630,7 @@ topologies:
     number_of_servers: 10
   
   ct_high_lat_mid_bw_10_10_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -639,7 +639,7 @@ topologies:
     number_of_servers: 10
 
   cu_mid_lat_low_bw_10_10_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -648,7 +648,7 @@ topologies:
     number_of_servers: 10
 
   cv_mid_lat_high_bw_10_10_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -657,7 +657,7 @@ topologies:
     number_of_servers: 10
   
   cw_mid_lat_mid_bw_10_10_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -666,7 +666,7 @@ topologies:
     number_of_servers: 10
   
   cx_high_lat_low_bw_10_10_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -675,7 +675,7 @@ topologies:
     number_of_servers: 10
   
   cy_low_lat_high_bw_10_10_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -684,7 +684,7 @@ topologies:
     number_of_servers: 10
 
   cz_low_lat_mid_bw_25_25_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -693,7 +693,7 @@ topologies:
     number_of_servers: 25
 
   da_high_lat_mid_bw_25_25_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -702,7 +702,7 @@ topologies:
     number_of_servers: 25
 
   db_mid_lat_low_bw_25_25_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -711,7 +711,7 @@ topologies:
     number_of_servers: 25
   
   dc_mid_lat_high_bw_25_25_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -720,7 +720,7 @@ topologies:
     number_of_servers: 25
 
   dd_mid_lat_mid_bw_25_25_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -729,7 +729,7 @@ topologies:
     number_of_servers: 25
 
   de_high_lat_low_bw_25_25_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -738,7 +738,7 @@ topologies:
     number_of_servers: 25
   
   df_low_lat_high_bw_25_25_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -747,7 +747,7 @@ topologies:
     number_of_servers: 25
 
   dg_low_lat_mid_bw_50_50_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -756,7 +756,7 @@ topologies:
     number_of_servers: 50
 
   dh_high_lat_mid_bw_50_50_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -765,7 +765,7 @@ topologies:
     number_of_servers: 50
 
   di_mid_lat_low_bw_50_50_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -774,7 +774,7 @@ topologies:
     number_of_servers: 50
   
   dj_mid_lat_high_bw_50_50_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -783,7 +783,7 @@ topologies:
     number_of_servers: 50
 
   dk_mid_lat_mid_bw_50_50_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -792,7 +792,7 @@ topologies:
     number_of_servers: 50
 
   dl_high_lat_low_bw_50_50_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -801,7 +801,7 @@ topologies:
     number_of_servers: 50
   
   dm_low_lat_high_bw_50_50_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -810,7 +810,7 @@ topologies:
     number_of_servers: 50
 
   dn_low_lat_mid_bw_100_100_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -819,7 +819,7 @@ topologies:
     number_of_servers: 100
 
   do_high_lat_mid_bw_100_100_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -828,7 +828,7 @@ topologies:
     number_of_servers: 100
 
   dp_mid_lat_low_bw_100_100_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -837,7 +837,7 @@ topologies:
     number_of_servers: 100
   
   dq_mid_lat_high_bw_100_100_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -846,7 +846,7 @@ topologies:
     number_of_servers: 100
 
   dr_mid_lat_mid_bw_100_100_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -855,7 +855,7 @@ topologies:
     number_of_servers: 100
 
   ds_high_lat_low_bw_100_100_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -864,7 +864,7 @@ topologies:
     number_of_servers: 100
   
   dt_low_lat_high_bw_100_100_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -873,7 +873,7 @@ topologies:
     number_of_servers: 100
 
   du_low_lat_mid_bw_10_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -882,7 +882,7 @@ topologies:
     number_of_servers: 1
 
   dv_high_lat_mid_bw_10_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -891,7 +891,7 @@ topologies:
     number_of_servers: 1
 
   dw_mid_lat_low_bw_10_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -900,7 +900,7 @@ topologies:
     number_of_servers: 1
   
   dx_mid_lat_high_bw_10_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -909,7 +909,7 @@ topologies:
     number_of_servers: 1
 
   dy_mid_lat_mid_bw_10_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -918,7 +918,7 @@ topologies:
     number_of_servers: 1
 
   dz_high_lat_low_bw_10_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -927,7 +927,7 @@ topologies:
     number_of_servers: 1
   
   ea_low_lat_high_bw_10_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -936,7 +936,7 @@ topologies:
     number_of_servers: 1
 
   eb_low_lat_mid_bw_25_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -945,7 +945,7 @@ topologies:
     number_of_servers: 1
 
   ec_high_lat_mid_bw_25_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -954,7 +954,7 @@ topologies:
     number_of_servers: 1
 
   ed_mid_lat_low_bw_25_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -963,7 +963,7 @@ topologies:
     number_of_servers: 1
   
   ee_mid_lat_high_bw_25_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -972,7 +972,7 @@ topologies:
     number_of_servers: 1
 
   ef_mid_lat_mid_bw_25_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -981,7 +981,7 @@ topologies:
     number_of_servers: 1
 
   eg_high_lat_low_bw_25_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -990,7 +990,7 @@ topologies:
     number_of_servers: 1
   
   eh_low_lat_high_bw_25_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -999,7 +999,7 @@ topologies:
     number_of_servers: 1
 
   ei_low_lat_mid_bw_50_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -1008,7 +1008,7 @@ topologies:
     number_of_servers: 1
 
   ej_high_lat_mid_bw_50_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -1017,7 +1017,7 @@ topologies:
     number_of_servers: 1
 
   ek_mid_lat_low_bw_50_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -1026,7 +1026,7 @@ topologies:
     number_of_servers: 1
   
   el_mid_lat_high_bw_50_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -1035,7 +1035,7 @@ topologies:
     number_of_servers: 1
 
   em_mid_lat_mid_bw_50_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -1044,7 +1044,7 @@ topologies:
     number_of_servers: 1
 
   en_high_lat_low_bw_50_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -1053,7 +1053,7 @@ topologies:
     number_of_servers: 1
   
   eo_low_lat_high_bw_50_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -1062,7 +1062,7 @@ topologies:
     number_of_servers: 1
 
   ep_low_lat_mid_bw_100_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -1071,7 +1071,7 @@ topologies:
     number_of_servers: 1
 
   eq_high_lat_mid_bw_100_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -1080,7 +1080,7 @@ topologies:
     number_of_servers: 1
 
   er_mid_lat_low_bw_100_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -1089,7 +1089,7 @@ topologies:
     number_of_servers: 1
   
   es_mid_lat_high_bw_100_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false
@@ -1098,7 +1098,7 @@ topologies:
     number_of_servers: 1
 
   et_mid_lat_mid_bw_100_1_no_middle:
-    lat: 100
+    latency: 100
     upload: 500Mbps
     download: 500Mbps
     middle_endpoint: false
@@ -1107,7 +1107,7 @@ topologies:
     number_of_servers: 1
 
   eu_high_lat_low_bw_100_1_no_middle:
-    lat: 200
+    latency: 200
     upload: 10Mbps
     download: 10Mbps
     middle_endpoint: false
@@ -1116,7 +1116,7 @@ topologies:
     number_of_servers: 1
   
   ev_low_lat_high_bw_100_1_no_middle:
-    lat: 10
+    latency: 10
     upload: 1000Mbps
     download: 1000Mbps
     middle_endpoint: false

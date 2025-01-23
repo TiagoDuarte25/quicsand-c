@@ -103,7 +103,7 @@ run_test() {
             container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
             if [ -n "$container_id" ]; then
                 if docker exec $container_id pgrep "quicsand_client" > /dev/null; then
-                    echo "Container quicsand_testing_client$i is still running."
+                    # echo "Container quicsand_testing_client$i is still running."
                     all_finished=false
                     break
                 fi
