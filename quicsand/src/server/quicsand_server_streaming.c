@@ -13,6 +13,9 @@
 #include <unistd.h>
 #include "quicsand_api.h"
 
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+
 typedef struct {
     context_t ctx;
     connection_t connection;
@@ -32,6 +35,14 @@ int random_data(size_t len, char **data) {
         (*data)[i] = 'A' + (rand() % 26);
     }
     return 0;
+}
+
+// Function to convert binary data to a hexadecimal string
+void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
+    for (size_t i = 0; i < len; i++) {
+        sprintf(hex + (i * 2), "%02x", bin[i]);
+    }
+    hex[len * 2] = '\0';
 }
 
 void* handle_stream(void *arg) {
@@ -59,6 +70,9 @@ void* handle_stream(void *arg) {
     int bytes_per_second = Kbytes_per_second * 1024;
     size_t buffer_size = bytes_per_second / 20;
 
+    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+
 
     time_t start_time = time(NULL);
     while (difftime(time(NULL), start_time) < duration) {
@@ -72,6 +86,7 @@ void* handle_stream(void *arg) {
             free(data);
             return NULL;
         }
+        EVP_DigestUpdate(mdctx, buffer, buffer_size);
         free(buffer);
         log_debug("sent %zu bytes", sent);
         usleep(50000);
@@ -79,6 +94,13 @@ void* handle_stream(void *arg) {
 
     close(stream_fd);
     log_debug("stream closed");
+
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len;
+    EVP_DigestFinal_ex(mdctx, hash, &hash_len);
+    unsigned char hash_hex[hash_len * 2 + 1];
+    bin_to_hex(hash, hash_len, hash_hex);
+    log_info("final hash: %s", hash_hex);
 
     free(data);
     return NULL;

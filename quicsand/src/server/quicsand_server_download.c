@@ -12,6 +12,9 @@
 #include <log.h>
 #include "quicsand_api.h"
 
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+
 #define CHUNK_SIZE 1024
 
 typedef struct {
@@ -24,6 +27,12 @@ typedef struct {
     connection_t connection;
     int stream_fd;
 } thread_data_stream_t;
+
+void bin_to_hex(const unsigned char *bin, size_t bin_len, char *hex) {
+    for (size_t i = 0; i < bin_len; i++) {
+        sprintf(hex + (i * 2), "%02x", bin[i]);
+    }
+}
 
 void* handle_stream(void *arg) {
     thread_data_stream_t *data = (thread_data_stream_t *)arg;
@@ -56,6 +65,9 @@ void* handle_stream(void *arg) {
         return NULL;
     }
 
+    EVP_MD_CTX *file_hash_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(file_hash_ctx, EVP_sha256(), NULL);
+
     char buffer[65536];
     size_t bytes_read;
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
@@ -70,11 +82,19 @@ void* handle_stream(void *arg) {
                 return NULL;
             }
             bytes_sent += len;
+            EVP_DigestUpdate(file_hash_ctx, buffer, len);
         }
         log_debug("sent %zu bytes", bytes_sent);
     }
     fclose(file);
-    log_debug("file download completed");
+    log_info("file download completed");
+
+    unsigned char file_hash[EVP_MAX_MD_SIZE];
+    unsigned int file_hash_len;
+    EVP_DigestFinal_ex(file_hash_ctx, file_hash, &file_hash_len);
+    unsigned char file_hash_hex[file_hash_len * 2 + 1];
+    bin_to_hex(file_hash, file_hash_len, file_hash_hex);
+    log_info("file hash: %s", file_hash_hex);
 
     return NULL;
 }
@@ -158,7 +178,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_TRACE) != 0) {
+    if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

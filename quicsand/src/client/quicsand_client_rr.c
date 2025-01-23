@@ -79,9 +79,6 @@ void * request_response_test(void *args) {
     clock_gettime(CLOCK_MONOTONIC, &start);
     while (elapsed_time < duration) {
         num_requests++;
-        // start the round-trip timer
-        clock_gettime(CLOCK_MONOTONIC, &rtt_start);
-
         // open a new stream
         int stream_fd = open_stream(ctx, connection);
         log_debug("stream opened");
@@ -89,18 +86,20 @@ void * request_response_test(void *args) {
         // generate random data
         char *data;
         random_data(data_size, &data);
-        log_debug("data generated");
         EVP_DigestUpdate(req_sha256_ctx, data, data_size);
 
+        // start the round-trip timer
+        clock_gettime(CLOCK_MONOTONIC, &rtt_start);
+
         // send data to the server
-        write(stream_fd, data, strlen(data) + 1);
-        log_debug("data sent: %s", data);
+        write(stream_fd, data, data_size);
+        log_debug("sent %d bytes", data_size);
 
         // receive data from the server
         int len;
         while ((len = read(stream_fd, buffer, sizeof(buffer))) > 0) {
-            EVP_DigestUpdate(req_sha256_ctx, buffer, len);
-            log_debug("data received: %.*s", len, buffer);
+            EVP_DigestUpdate(res_sha256_ctx, buffer, len);
+            log_debug("received %d bytes", len);
         }
         if (len <= 0) {
             log_debug("stream closed by server");
@@ -123,6 +122,10 @@ void * request_response_test(void *args) {
         elapsed_time = (current.tv_sec - start.tv_sec) + (current.tv_nsec - start.tv_nsec) / 1e9;
         sum_rtt += (rtt_end.tv_sec - rtt_start.tv_sec) * 1000 + (rtt_end.tv_nsec - rtt_start.tv_nsec) / 1e6;
     }
+
+    // Get connection statistics
+    statistics_t stats;
+    get_conneciton_statistics(ctx, connection, &stats);
 
     close_connection(ctx, connection);
 
@@ -148,7 +151,12 @@ void * request_response_test(void *args) {
     fprintf(fp, "\n");
     fprintf(fp, "\n");
     fprintf(fp, "-------------- Statistics --------------\n");
-    fprintf(fp, "rtt: %d ms\n", rtt);
+    fprintf(fp, "our rtt: %d ms\n", rtt);
+    fprintf(fp, "rtt: %d ms\n", stats.avg_rtt);
+    fprintf(fp, "max_rtt: %d ms\n", stats.max_rtt);
+    fprintf(fp, "min_rtt: %d ms\n", stats.min_rtt);
+    fprintf(fp, "total_sent_packets: %d\n", stats.total_sent_packets);
+    fprintf(fp, "total_received_packets: %d\n", stats.total_received_packets);
     fprintf(fp, "num_requests: %d\n", num_requests);
     fflush(fp);
 
@@ -229,8 +237,6 @@ int main(int argc, char *argv[]) {
   free(ip_address);
   free(file_path);
   fclose(fp);
-
-  sleep(20);
   
   return 0;
 }

@@ -61,8 +61,9 @@ typedef struct {
     connection_t connection;
     int stream_fd;
     int factor;
-    EVP_MD_CTX *req_sha256;
-    EVP_MD_CTX *res_sha256;
+    EVP_MD_CTX *req_sha256_ctx;
+    EVP_MD_CTX *res_sha256_ctx;
+    int num_requests;
 } thread_data_stream_t;
 
 void* handle_stream(void * arg) {
@@ -70,23 +71,25 @@ void* handle_stream(void * arg) {
     context_t ctx = data->ctx;
     connection_t connection = data->connection;
     int stream_fd = data->stream_fd;
-    EVP_MD_CTX *req_sha256 = data->req_sha256;
-    EVP_MD_CTX *res_sha256 = data->res_sha256;
+    EVP_MD_CTX *req_sha256_ctx = data->req_sha256_ctx;
+    EVP_MD_CTX *res_sha256_ctx = data->res_sha256_ctx;
+    int num_requests = data->num_requests;
+
     log_debug("handling stream");
 
     while (1) {
         char buffer[65536];
         // receive data from the client
-        int len = read(stream_fd, buffer, sizeof(buffer));
+        size_t len = read(stream_fd, buffer, sizeof(buffer));
         if (len > 0) {
-            EVP_DigestUpdate(req_sha256, buffer, len);
-            log_debug("received data: %.*s", len, buffer);
+            EVP_DigestUpdate(req_sha256_ctx, buffer, len);
+            log_debug("received %d bytes", len);
 
             // response size multiplied by factor
             int response_len = len * data->factor;
             char* response;
             random_data(response_len, &response);
-            EVP_DigestUpdate(res_sha256, response, response_len);
+            EVP_DigestUpdate(res_sha256_ctx, response, response_len);
             // send the response in chunks
             size_t chunk_size = 65536;
             size_t bytes_sent = 0;
@@ -123,6 +126,8 @@ void *handle_connection(void *arg)
 
     EVP_MD_CTX *res_sha256_ctx = EVP_MD_CTX_new();
     EVP_DigestInit_ex(res_sha256_ctx, EVP_sha256(), NULL);
+    
+    int num_requests = 0;
 
     while (1) {
 
@@ -135,14 +140,17 @@ void *handle_connection(void *arg)
             break;
         }
 
+        num_requests++;
+
         // Allocate memory for thread data
         thread_data_stream_t *stream_data = (thread_data_stream_t *)malloc(sizeof(thread_data_stream_t));
         stream_data->ctx = ctx;
         stream_data->connection = connection;
         stream_data->stream_fd = stream_fd;
         stream_data->factor = data->factor;
-        stream_data->req_sha256 = req_sha256_ctx;
-        stream_data->res_sha256 = res_sha256_ctx;
+        stream_data->req_sha256_ctx = req_sha256_ctx;
+        stream_data->res_sha256_ctx = res_sha256_ctx;
+        stream_data->num_requests = num_requests;
 
         // Create a new thread to handle the stream
         pthread_t thread_id;

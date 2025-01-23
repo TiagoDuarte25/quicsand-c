@@ -15,6 +15,9 @@
 #include "log.h"
 #include <bits/time.h>
 
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+
 struct args {
   FILE *fp;
   char *ip_address;
@@ -23,6 +26,12 @@ struct args {
   size_t data_size;
   double duration;
 };
+
+void bin_to_hex(const unsigned char *bin, size_t bin_len, char *hex) {
+    for (size_t i = 0; i < bin_len; i++) {
+        sprintf(hex + (i * 2), "%02x", bin[i]);
+    }
+}
 
 void *download_file(void *args) {
     struct args *arguments = (struct args *)args;
@@ -68,6 +77,9 @@ void *download_file(void *args) {
     }
     log_debug("file size: %ld", file_size);
 
+    EVP_MD_CTX *file_hash_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(file_hash_ctx, EVP_sha256(), NULL);
+
     static char buffer[65536];
     size_t total_bytes_read = 0;
     size_t bytes_read;
@@ -81,6 +93,7 @@ void *download_file(void *args) {
         }
         total_bytes_read += bytes_read;
         fwrite(buffer, 1, bytes_read, file);
+        EVP_DigestUpdate(file_hash_ctx, buffer, bytes_read);
     }
 
     fclose(file);
@@ -89,6 +102,28 @@ void *download_file(void *args) {
     close(stream_fd);
 
     log_info("file download completed");
+
+    unsigned char file_hash[EVP_MAX_MD_SIZE];
+    unsigned int file_hash_len;
+    EVP_DigestFinal_ex(file_hash_ctx, file_hash, &file_hash_len);
+    unsigned char file_hash_hex[file_hash_len * 2 + 1];
+    bin_to_hex(file_hash, file_hash_len, file_hash_hex);
+    log_info("file hash: %s", file_hash_hex);
+
+    statistics_t stats;
+    get_conneciton_statistics(ctx, connection, &stats);
+
+    fprintf(fp, "\n");
+    fprintf(fp, "\n");
+    fprintf(fp, "-------------- Statistics --------------\n");
+    fprintf(fp, "rtt: %d ms\n", stats.avg_rtt);
+    fprintf(fp, "max_rtt: %d ms\n", stats.max_rtt);
+    fprintf(fp, "min_rtt: %d ms\n", stats.min_rtt);
+    fprintf(fp, "total_sent_packets: %d\n", stats.total_sent_packets);
+    fprintf(fp, "total_received_packets: %d\n", stats.total_received_packets);
+    fflush(fp);
+
+
 
     return NULL;
 }
@@ -139,7 +174,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_TRACE) != 0) {
+  if (log_add_fp(fp, LOG_INFO) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }

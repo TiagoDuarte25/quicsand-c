@@ -344,7 +344,6 @@ stream_callback(
             log_error("getsockopt failed: %s", strerror(errno));
         }
         
-
         stream_info->bytes_received += len;
 
         size_t total_bytes_written = 0;
@@ -2140,6 +2139,31 @@ int accept_stream(context_t context, connection_t connection, time_t timeout) {
 
     log_debug("new stream accepted");
     return stream_info->c_fd;
+    #endif
+}
+
+int get_conneciton_statistics(context_t context, connection_t connection, statistics_t *stats) {
+    #ifdef QUICHE
+    struct context *ctx = (struct context *)context;
+    struct conn_io *conn_io = (struct conn_io *)connection;
+    stats->recv = quiche_conn_stats_read(conn_io->conn);
+    stats->sent = quiche_conn_stats_write(conn_io->conn);
+    return 0;
+    #elif MSQUIC
+    struct context *ctx = (struct context *)context;
+    connection_info_t *connection_info = connection;
+    QUIC_STATISTICS statistics;
+    uint32_t statistics_length = sizeof(statistics);
+    if (QUIC_FAILED(ctx->msquic->GetParam(connection_info->connection, QUIC_PARAM_CONN_STATISTICS, &statistics_length, &statistics))) {
+        log_error("failed to get connection statistics");
+        return -1;
+    }
+    stats->avg_rtt = statistics.Rtt / 1000;
+    stats->max_rtt = statistics.MaxRtt / 1000;
+    stats->min_rtt = statistics.MinRtt / 1000;
+    stats->total_sent_packets = statistics.Send.TotalPackets;
+    stats->total_received_packets = statistics.Recv.TotalPackets;
+    return 0;
     #endif
 }
 

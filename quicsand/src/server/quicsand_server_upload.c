@@ -12,6 +12,9 @@
 #include <log.h>
 #include "quicsand_api.h"
 
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+
 typedef struct {
     context_t ctx;
     connection_t connection;
@@ -27,12 +30,21 @@ typedef struct {
     char* filename;
 } thread_data_stream_t;
 
+// Function to convert binary data to a hexadecimal string
+void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
+    for (size_t i = 0; i < len; i++) {
+        sprintf(hex + (i * 2), "%02x", bin[i]);
+    }
+    hex[len * 2] = '\0';
+}
+
 void* handle_stream(void * arg) {
     thread_data_stream_t *data = (thread_data_stream_t *)arg;
     context_t ctx = data->ctx;
     connection_t connection = data->connection;
     int stream_fd = data->stream_fd;
     char* filename = data->filename;
+
     log_debug("handling stream");
     
     // Receive the file size from the client
@@ -52,6 +64,9 @@ void* handle_stream(void * arg) {
         return NULL;
     }
 
+    EVP_MD_CTX *file_hash_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(file_hash_ctx, EVP_sha256(), NULL);
+
     char buffer[65536];
     size_t bytes_read = 0;
     while (bytes_read < file_size) {
@@ -62,6 +77,8 @@ void* handle_stream(void * arg) {
             // Write received data to file
             fwrite(buffer, sizeof(char), len, file);
             log_debug("data written to file");
+            // Update the hash
+            EVP_DigestUpdate(file_hash_ctx, buffer, len);
         } else {
             break;
         }
@@ -70,6 +87,14 @@ void* handle_stream(void * arg) {
     }
     fflush(file);
     fclose(file);
+
+    // Calculate the hash of the file
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len;
+    EVP_DigestFinal_ex(file_hash_ctx, hash, &hash_len);
+    char hash_hex[hash_len * 2 + 1];
+    bin_to_hex(hash, hash_len, hash_hex);
+    log_info("file hash: %s", hash_hex);
 
     // send information of file upload completion
     char response[32];
@@ -173,7 +198,7 @@ int main(int argc, char *argv[])
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_TRACE) != 0) {
+    if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

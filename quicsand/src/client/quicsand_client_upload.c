@@ -15,6 +15,9 @@
 #include "log.h"
 #include <bits/time.h>
 
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+
 struct args {
   FILE *fp;
   char *ip_address;
@@ -23,6 +26,14 @@ struct args {
   size_t data_size;
   double duration;
 };
+
+// Function to convert binary data to a hexadecimal string
+void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
+    for (size_t i = 0; i < len; i++) {
+        sprintf(hex + (i * 2), "%02x", bin[i]);
+    }
+    hex[len * 2] = '\0';
+}
 
 void *upload_file(void *args) {
     struct args *arguments = (struct args *)args;
@@ -50,6 +61,9 @@ void *upload_file(void *args) {
     size_t file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
 
+    EVP_MD_CTX *file_hash_ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(file_hash_ctx, EVP_sha256(), NULL);
+
     // open a new stream
     int stream_fd = open_stream(ctx, connection);
     log_debug("stream opened");
@@ -70,6 +84,7 @@ void *upload_file(void *args) {
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
         // send data to the server
         write(stream_fd, buffer, bytes_read);
+        EVP_DigestUpdate(file_hash_ctx, buffer, bytes_read);
         log_debug("data sent: %zu bytes", bytes_read);
         bytes_sent += bytes_read;
         log_debug("total bytes sent: %d", bytes_sent);
@@ -87,6 +102,26 @@ void *upload_file(void *args) {
     // close_connection(ctx, connection);
 
     log_info("file upload completed");
+
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len;
+    EVP_DigestFinal_ex(file_hash_ctx, hash, &hash_len);
+    char hash_hex[hash_len * 2 + 1];
+    bin_to_hex(hash, hash_len, hash_hex);
+    log_info("file hash: %s", hash_hex);
+
+    statistics_t stats;
+    get_conneciton_statistics(ctx, connection, &stats);
+
+    fprintf(fp, "\n");
+    fprintf(fp, "\n");
+    fprintf(fp, "-------------- Statistics --------------\n");
+    fprintf(fp, "rtt: %d ms\n", stats.avg_rtt);
+    fprintf(fp, "max_rtt: %d ms\n", stats.max_rtt);
+    fprintf(fp, "min_rtt: %d ms\n", stats.min_rtt);
+    fprintf(fp, "total_sent_packets: %d\n", stats.total_sent_packets);
+    fprintf(fp, "total_received_packets: %d\n", stats.total_received_packets);
+    fflush(fp);
 
     return NULL;
 }
@@ -135,7 +170,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_TRACE) != 0) {
+    if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

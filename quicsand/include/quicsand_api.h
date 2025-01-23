@@ -16,6 +16,15 @@ typedef void *connection_t;
 typedef void *config_t;
 typedef void *stream_t;
 
+typedef struct statistics
+{
+    int min_rtt;
+    int max_rtt;
+    int avg_rtt;
+    int total_sent_packets;
+    int total_received_packets;
+} statistics_t;
+
 enum mode_t
 {
     QUIC_CLIENT,
@@ -80,5 +89,6 @@ int accept_stream(context_t context, connection_t connection, time_t timeout);
 // common functions
 int print_context(context_t context);
 char* quic_error_message(quic_error_code_t quic_error);
+int get_conneciton_statistics(context_t context, connection_t connection, statistics_t *stats);
 
 #endif 
