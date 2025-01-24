@@ -57,7 +57,14 @@ check_containers_ready() {
 
 run_test() {
     local topology_file=$1
-    local num_clients=$2
+    local test_name=$2
+    local directory=$3
+    local clients_num
+    local servers_num
+    clients_num=$(docker ps | grep "quicsand_testing_client" | wc -l)
+    servers_num=$(docker ps | grep "quicsand_testing_server" | wc -l)
+
+    
 
     echo "Setting up..."
 
@@ -96,6 +103,26 @@ run_test() {
 
     sleep 2
 
+    {
+        while true; do
+            all_finished=true
+            # get every container stats and save it to a file
+            for i in $(seq 1 $num_clients); do
+                # get the container id
+                container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
+                curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/client$i.json
+
+            done
+            for i in $(seq 1 $num_servers); do
+                # get the container id
+                container_id=$(docker ps | grep "quicsand_testing_server" | awk '{print $1}' | sed -n "$i"p)
+                curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/server$i.json
+            done
+            sleep 1
+        done
+    } &
+    pid=$!
+
     while true; do
         all_finished=true
         for i in $(seq 1 $num_clients); do
@@ -114,6 +141,9 @@ run_test() {
 
         if $all_finished; then
             echo "All quicsand_client scripts have finished."
+            sleep 1
+            kill $pid
+            wait $pid
             break
         else
             sleep 1
@@ -123,6 +153,7 @@ run_test() {
 }
 
 get_logs() {
+    directory=$1
     mkdir -p resources/logs
     local clients_num
     local servers_num
@@ -133,17 +164,17 @@ get_logs() {
     for i in $(seq 1 $clients_num); do
         # get the container id
         container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
-        docker cp $container_id:/app/build/client.log resources/logs/$1\_$2\_client$i.log
+        docker cp $container_id:/app/build/client.log $directory/client$i.log
     done
 
     for i in $(seq 1 $servers_num); do
         # get the container id
         container_id=$(docker ps | grep "quicsand_testing_server" | awk '{print $1}' | sed -n "$i"p)
-        docker cp $container_id:/app/build/server.log resources/logs/$1\_$2\_server$i.log
+        docker cp $container_id:/app/build/server.log $directory/server$i.log
     done
 
     # get docker stats from all containers and save it to a file
-    docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}" $(docker ps --filter "name=client" --filter "name=server" -q) > resources/logs/$1\_$2_stats.log
+    docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}" $(docker ps --filter "name=client" --filter "name=server" -q) > $directory/stats.log
 }
 
 # Parse command-line arguments
@@ -175,8 +206,6 @@ done
 
 # Read the YAML file and execute the tests
 IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
-NUM_CLIENTS=$(yq '.configs.globalVariables.num_clients' $CONFIG_FILE)
-NUM_SERVERS=$(yq '.configs.globalVariables.num_servers' $CONFIG_FILE)
 TESTS=$(yq '.tests' $CONFIG_FILE)
 TOPOLOGIES=$(yq '.topologies' $TOPOLOGIES_FILE)
 
@@ -186,13 +215,16 @@ if [ ! -d "implementations/$IMPLEMENTATION" ]; then
     usage
 fi
 
+rm -rf resources/logs/*
 for TEST_KEY in $(echo "$TESTS" | yq 'keys | .[]' - | tr -d '"'); do
     for TOPOLOGY_KEY in $(echo "$TOPOLOGIES" | yq 'keys | .[]' - | tr -d '"'); do
         python3 TopologyGenerator.py $TOPOLOGY_KEY
         echo "Running test $TEST_KEY with topology $TOPOLOGY_KEY"
         prepare_environment
         build_images $TEST_KEY
-        run_test $TOPOLOGY_KEY $NUM_CLIENTS
-        get_logs $TEST_KEY $TOPOLOGY_KEY
+        DIRECTORY=resources/logs/$TEST_KEY\_$TOPOLOGY_KEY
+        mkdir -p $DIRECTORY
+        run_test $TOPOLOGY_KEY $TEST_KEY $DIRECTORY
+        get_logs $DIRECTORY
     done
 done
