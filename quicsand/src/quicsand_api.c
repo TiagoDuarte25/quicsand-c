@@ -256,25 +256,25 @@ void * stream_write(void *arg) {
 
     while (1) {
         int len = read(stream_info->a_fd, buffer, sizeof(buffer));
-        log_trace("stream_write: read %d bytes", len);
+        log_trace("[strm][%p] stream_write: read %d bytes", (void *)stream_info->stream, len);
         if (len < 0) {
             log_error("failed to read from unix socket: %s", strerror(errno));
             return NULL;
         }
         if (len == 0) {
-            log_trace("stream_write: EOF");
+            log_trace("[strm][%p] stream_write: EOF");
             if (stream_info == NULL) {
                 log_trace("stream_write: stream_info is NULL");
                 return NULL;
             }
             pthread_mutex_lock(&stream_info->mutex);
-            log_trace("stream_write: shutting down stream %p gracefully", stream_info->stream);
+            log_trace("[strm][%p] stream_write: shutting down stream %p gracefully", (void *)stream_info->stream , stream_info->stream);
             ctx->msquic->StreamShutdown(stream_info->stream, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0);
             pthread_mutex_unlock(&stream_info->mutex);
             return NULL;
         }
         
-        log_trace("stream_write: preparing to send %d bytes", len);
+        log_trace("[strm][%p] stream_write: preparing to send %d bytes", (void *)stream_info->stream , len);
         QUIC_BUFFER *send_buffer = malloc(sizeof(QUIC_BUFFER));
         if (!send_buffer) {
             log_error("failed to allocate memory for send_buffer");
@@ -292,7 +292,7 @@ void * stream_write(void *arg) {
         pthread_mutex_lock(&stream_info->mutex);
         stream_info->buffer_count++;
         stream_info->ready = 0;
-        log_trace("stream_write: sending %d bytes on stream %p", len, stream_info->stream);
+        log_trace("[strm][%p] stream_write: sending %d bytes on stream %p", (void *)stream_info->stream , len, stream_info->stream);
         QUIC_STATUS status = ctx->msquic->StreamSend(stream_info->stream, send_buffer, 1, QUIC_SEND_FLAG_NONE, send_buffer);
         pthread_mutex_unlock(&stream_info->mutex);
         if (QUIC_FAILED(status)) {
@@ -305,7 +305,7 @@ void * stream_write(void *arg) {
             log_trace("stream_write: waiting for stream %p to be ready", stream_info->stream);  
             pthread_cond_wait(&stream_info->cond, &stream_info->mutex);
         }  
-        log_trace("stream_write: sent %d bytes on stream %p", len, stream_info->stream);
+        log_trace("[strm][%p] stream_write: sent %d bytes", (void *)stream_info->stream, len);
         pthread_mutex_unlock(&stream_info->mutex);
     }
 }
@@ -327,14 +327,14 @@ stream_callback(
     {
     case QUIC_STREAM_EVENT_START_COMPLETE:
         pthread_mutex_lock(&stream_info->mutex);
-        log_trace("[strm][%p] start complete", (void *)stream);
+        log_trace("[conn][%p][strm][%p] start complete", (void*)connection_info->connection, (void *)stream);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_RECEIVE:
         
         // write to the unix socket if can't send block until it can
         pthread_mutex_lock(&stream_info->mutex);
-        log_trace("[strm][%p] data received", (void *)stream);
+        log_trace("[conn][%p][strm][%p] data receive", (void*)connection_info->connection, (void *)stream);
 
         int len = event->RECEIVE.TotalBufferLength;
 
@@ -385,33 +385,33 @@ stream_callback(
         stream_info->ready = 1;
         pthread_cond_signal(&stream_info->cond);
         pthread_mutex_unlock(&stream_info->mutex);
-        log_trace("[strm][%p] data sent", (void *)stream);
+        log_trace("[conn][%p][strm][%p] send complete", (void*)connection_info->connection, (void *)stream);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         pthread_mutex_lock(&stream_info->mutex);
-        log_trace("[strm][%p] peer shut down", (void *)stream);
+        log_trace("[conn][%p][strm][%p] peer send shutdown", (void*)connection_info->connection, (void *)stream);
         shutdown(stream_info->a_fd, SHUT_WR);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         pthread_mutex_lock(&stream_info->mutex);
         ctx->msquic->StreamShutdown(stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
-        log_trace("[strm][%p] peer aborted", (void *)stream);
+        log_trace("[conn][%p][strm][%p] peer send aborted", (void*)connection_info->connection, (void *)stream);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         pthread_mutex_lock(&stream_info->mutex);
-        log_trace("[strm][%p] peer receive aborted", (void *)stream);
+        log_trace("[conn][%p][strm][%p] peer receive aborted", (void*)connection_info->connection, (void *)stream);
         ctx->msquic->StreamClose(stream);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
         pthread_mutex_lock(&stream_info->mutex);
-        log_trace("[strm][%p] send shutdown complete", (void *)stream);
+        log_trace("[conn][%p][strm][%p] send shutdown complete", (void*)connection_info->connection, (void *)stream);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        log_trace("[strm] all done");
+        log_trace("[conn][%p][strm] all done", (void*)connection_info->connection);
         HASH_DELETE(hh, connection_info->h, stream_info);
         if (stream_info->a_fd >= 0) {
             shutdown(stream_info->a_fd, SHUT_RDWR);
@@ -428,13 +428,14 @@ stream_callback(
             close(stream_info->s_fd);
             stream_info->s_fd = -1;
         }
+        unlink(stream_info->addr.sun_path);
         free(stream_info);
         break;
     case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:
         log_trace("[strm][%p] ideal send buffer size: %u", (void *)stream, event->IDEAL_SEND_BUFFER_SIZE.ByteCount);
         break;
     case QUIC_STREAM_EVENT_PEER_ACCEPTED:
-        log_trace("[strm][%p] peer accepted", (void *)stream);
+        log_trace("[conn][%p][strm][%p] peer accepted", (void*)connection_info->connection, (void *)stream);
         break;
     case QUIC_STREAM_EVENT_CANCEL_ON_LOSS:
         log_trace("[strm][%p] cancel on loss", (void *)stream);
@@ -462,6 +463,7 @@ connection_callback(
     {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         log_trace("[conn][%p] connected", (void *)connection);
+        log_trace("[conn][%p] connection established", (void *)connection_info->connection);
         g_mutex_lock(&ctx->queue_mutex);
         g_queue_push_tail(ctx->conn_queue, connection_info);
         g_cond_signal(&ctx->queue_cond);
@@ -517,13 +519,15 @@ connection_callback(
             return -1;
         }
 
-        log_trace("server socket created");
+        log_trace("server socket created with fd: %d", s_fd);
 
         if ((c_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
             log_error("failed to create unix socket");
             quic_error = QUIC_ERROR_STREAM_FAILED;
             return -1;
         }
+
+        log_trace("client socket created with fd: %d", c_fd);
 
         struct sockaddr_un addr;
 
@@ -533,6 +537,9 @@ connection_callback(
         sprintf(sun_path, "%s%d", path, s_fd);
         strcpy(addr.sun_path, sun_path);
 
+        log_trace("server socket path: %s", addr.sun_path);
+
+
         // Create directory if it does not exist
         if (mkdir(path, 0777) && errno != EEXIST) {
             log_error("failed to create directory: %s", strerror(errno));
@@ -541,9 +548,6 @@ connection_callback(
             close(s_fd);
             return -1;
         }
-
-        // Remove existing socket file if it exists
-        unlink(addr.sun_path);
 
         if (bind(s_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0) {
             log_error("failed to bind unix socket");
@@ -649,6 +653,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         // pointers allocation
         ctx_conn_t *ctx_conn = (ctx_conn_t *)malloc(sizeof(ctx_conn_t));
         connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
+        connection_info->connection = event->NEW_CONNECTION.Connection;
         connection_info->h = NULL;
         connection_info->stream_queue = g_queue_new();
         g_mutex_init(&connection_info->queue_mutex);
@@ -1873,122 +1878,171 @@ int open_stream(context_t context, connection_t connection) {
 
     return stream_io->c_fd;
     #elif MSQUIC
-    log_debug("opening stream");
-    struct context *ctx = (struct context *)context;
-    connection_info_t *connection_info = connection;
-    
-    stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
-    stream_info->a_fd = -1;
-    stream_info->s_fd = -1;
-    stream_info->c_fd = -1;
+        log_debug("opening stream");
+        struct context *ctx = (struct context *)context;
+        connection_info_t *connection_info = connection;
+        
+        stream_info_t *stream_info = (stream_info_t *)malloc(sizeof(stream_info_t));
+        if (!stream_info) {
+            log_error("failed to allocate memory for stream_info");
+            return -1;
+        }
+        stream_info->a_fd = -1;
+        stream_info->s_fd = -1;
+        stream_info->c_fd = -1;
+        stream_info->buffer_count = 0;
 
-    stream_info->buffer_count = 0;
+        stream_info->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+        stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        stream_info->ready = 0;
 
-    stream_info->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-    stream_info->ready = 0;
+        ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
+        if (!ctx_strm) {
+            log_error("failed to allocate memory for ctx_strm");
+            free(stream_info);
+            return -1;
+        }
+        ctx_strm->ctx = ctx;
+        ctx_strm->connection_info = connection_info;
+        ctx_strm->stream_info = stream_info;
 
-    ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
-    ctx_strm->ctx = ctx;
-    ctx_strm->connection_info = connection_info;
-    ctx_strm->stream_info = stream_info;
-    //
-    // Create/allocate a new bidirectional stream. The stream is just allocated
-    // and no QUIC stream identifier is assigned until it's started.
-    //
-    QUIC_STATUS status = QUIC_STATUS_SUCCESS;
-    if (QUIC_FAILED(status = ctx->msquic->StreamOpen(connection_info->connection, QUIC_STREAM_OPEN_FLAG_NONE, stream_callback, ctx_strm, &stream_info->stream)))
-    {
-        log_error("failed to open stream, 0x%x!", status);
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
+        pthread_mutex_lock(&stream_info->mutex);
+        QUIC_STATUS status = QUIC_STATUS_SUCCESS;
+        if (QUIC_FAILED(status = ctx->msquic->StreamOpen(connection_info->connection, QUIC_STREAM_OPEN_FLAG_NONE, stream_callback, ctx_strm, &stream_info->stream))) {
+            log_error("failed to open stream, 0x%x!", status);
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            pthread_mutex_unlock(&stream_info->mutex);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("stream opened successfully");
 
-    //
-    // Starts the bidirectional stream. By default, the peer is not notified of
-    // the stream being started until data is sent on the stream.
-    //
-    if (QUIC_FAILED(status = ctx->msquic->StreamStart(stream_info->stream, QUIC_STREAM_START_FLAG_IMMEDIATE)))
-    {
-        log_error("failed to start stream, 0x%x!", status);
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        ctx->msquic->StreamClose(stream_info->stream);
-        return -1;
-    }
+        if (QUIC_FAILED(status = ctx->msquic->StreamStart(stream_info->stream, QUIC_STREAM_START_FLAG_IMMEDIATE))) {
+            log_error("failed to start stream, 0x%x!", status);
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            ctx->msquic->StreamClose(stream_info->stream);
+            pthread_mutex_unlock(&stream_info->mutex);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("stream started successfully");
+        pthread_mutex_unlock(&stream_info->mutex);
 
-    int s_fd, c_fd;
-    if ((s_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-        log_error("failed to create unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
+        int s_fd, c_fd;
+        if ((s_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            log_error("failed to create server unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            ctx->msquic->StreamClose(stream_info->stream);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("server socket created, fd: %d", s_fd);
 
-    log_trace("server socket created");
+        if ((c_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            log_error("failed to create client unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            close(s_fd);
+            ctx->msquic->StreamClose(stream_info->stream);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("client socket created, fd: %d", c_fd);
 
-    if ((c_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-        log_error("failed to create unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
+        struct sockaddr_un addr;
+        addr.sun_family = AF_UNIX;
+        char *path = "/tmp/quicsand-sockets/";
+        char *sun_path = malloc(strlen(path) + 20); // Increased size to accommodate unique identifier
+        if (!sun_path) {
+            log_error("failed to allocate memory for sun_path");
+            close(c_fd);
+            close(s_fd);
+            ctx->msquic->StreamClose(stream_info->stream);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        sprintf(sun_path, "%s%d_%d", path, getpid(), s_fd); // Use process ID and socket FD to create unique path
+        strcpy(addr.sun_path, sun_path);
 
-    struct sockaddr_un addr;
+        if (mkdir(path, 0777) && errno != EEXIST) {
+            log_error("failed to create directory: %s", strerror(errno));
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            free(sun_path);
+            close(c_fd);
+            close(s_fd);
+            ctx->msquic->StreamClose(stream_info->stream);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("directory created or already exists: %s", path);
 
-    addr.sun_family = AF_UNIX;
-    char * path = "/tmp/quicsand-sockets/";
-    char * sun_path = malloc(strlen(path) + 10);
-    sprintf(sun_path, "%s%d", path, s_fd);
-    strcpy(addr.sun_path, sun_path);
+        if (bind(s_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0) {
+            log_error("failed to bind server unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            free(sun_path);
+            close(c_fd);
+            close(s_fd);
+            ctx->msquic->StreamClose(stream_info->stream);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("server socket bound to path: %s", addr.sun_path);
 
-    // Create directory if it does not exist
-    if (mkdir(path, 0777) && errno != EEXIST) {
-        log_error("failed to create directory: %s", strerror(errno));
-        quic_error = QUIC_ERROR_STREAM_FAILED;
+        if (listen(s_fd, 1) < 0) {
+            log_error("failed to listen on server unix socket");
+            quic_error = QUIC_ERROR_STREAM_FAILED;
+            free(sun_path);
+            close(c_fd);
+            close(s_fd);
+            ctx->msquic->StreamClose(stream_info->stream);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("server socket listening");
+
+        pthread_mutex_lock(&stream_info->mutex);
+        stream_info->s_fd = s_fd;
+        stream_info->c_fd = c_fd;
+        stream_info->addr = addr;
+        pthread_mutex_unlock(&stream_info->mutex);
+
+        pthread_t accept_thread, connect_thread;
+        pthread_create(&accept_thread, NULL, accept_unix_socket, (void *)stream_info);
+        pthread_create(&connect_thread, NULL, connect_unix_socket, (void *)stream_info);
+
+        pthread_join(accept_thread, NULL);
+        pthread_join(connect_thread, NULL);
+
+        if (stream_info->s_fd < 0 || stream_info->c_fd < 0) {
+            log_error("failed to create unix socket");
+            free(sun_path);
+            close(c_fd);
+            close(s_fd);
+            ctx->msquic->StreamClose(stream_info->stream);
+            free(stream_info);
+            free(ctx_strm);
+            return -1;
+        }
+        log_debug("unix socket connection established");
+
+        pthread_mutex_lock(&stream_info->mutex);
+        HASH_ADD(hh, connection_info->h, s_fd, sizeof(int), stream_info);
+        pthread_mutex_unlock(&stream_info->mutex);
+        log_debug("stream_info added to hash table");
+
+        pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)ctx_strm);
+        pthread_detach(stream_info->w_thread);
+        log_debug("write thread created and detached");
+
         free(sun_path);
-        close(c_fd);
-        close(s_fd);
-        return -1;
-    }
-
-    // Remove existing socket file if it exists
-    unlink(addr.sun_path);
-
-    if (bind(s_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0) {
-        log_error("failed to bind unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
-
-    if (listen(s_fd, 1) < 0) {
-        log_error("failed to listen on unix socket");
-        quic_error = QUIC_ERROR_STREAM_FAILED;
-        return -1;
-    }
-
-    stream_info->s_fd = s_fd;
-    stream_info->c_fd = c_fd;
-    stream_info->addr = addr;
-
-    // start unix socket client and server socket
-    pthread_t accept_thread, connect_thread;
-    pthread_create(&accept_thread, NULL, accept_unix_socket, (void *)stream_info);
-    pthread_create(&connect_thread, NULL, connect_unix_socket, (void *)stream_info);
-
-    pthread_join(accept_thread, NULL);
-    pthread_join(connect_thread, NULL);
-
-    if (stream_info->s_fd < 0 || stream_info->c_fd < 0) {
-        log_error("failed to create unix socket");
-        return -1;
-    }
-
-    log_trace("connection established");
-
-    HASH_ADD(hh, connection_info->h, s_fd, sizeof(int), stream_info);
-
-    pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)ctx_strm);
-    pthread_detach(stream_info->w_thread);
-
-    return stream_info->c_fd;
+        return stream_info->c_fd;
     #endif
 }
 

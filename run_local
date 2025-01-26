@@ -50,7 +50,6 @@ run_client_server() {
 
     # Define log file names
     local SERVER_LOG="${TEST_NAME}_server.log"
-    local CLIENT_LOG="${TEST_NAME}_client.log"
 
     # Start a new tmux session
     tmux new-session -d -s quicsand_session
@@ -86,6 +85,8 @@ run_client_server() {
     # Start the clients in new tmux windows based on the test type
     local RUNNING_CLIENTS=0
     while [ $RUNNING_CLIENTS -lt $NUM_CLIENTS ]; do
+        RUNNING_CLIENTS=$((RUNNING_CLIENTS + 1))
+        local CLIENT_LOG="${TEST_NAME}_client_$RUNNING_CLIENTS.log"
         case $TEST_TYPE in
             request-response)
                 echo "starting request-response client..."
@@ -109,7 +110,6 @@ run_client_server() {
                 return
                 ;;
         esac
-        RUNNING_CLIENTS=$((RUNNING_CLIENTS + 1))
     done
 
     # Check if the client script is still running
@@ -218,6 +218,8 @@ cd build
 make
 cp -r ../quicsand/config.yaml bin/
 cp -r ../quicsand/certs bin/
+
+rm -rf /tmp/quicsand-sockets
 
 # Execute the tests
 for TEST_KEY in $(echo $TESTS | yq 'keys | .[]' - | tr -d '"'); do
