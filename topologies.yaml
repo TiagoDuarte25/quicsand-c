@@ -19,8 +19,8 @@ topologies:
 
   ac_mid_lat_low_bw_1_1:
     latency: 100
-    upload: 10Mbps
-    download: 10Mbps
+    upload: 100Mbps
+    download: 100Mbps
     middle_endpoint: true
     image: quicsand
     number_of_clients: 1

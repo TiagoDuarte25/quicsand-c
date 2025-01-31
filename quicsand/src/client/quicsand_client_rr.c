@@ -96,10 +96,12 @@ void * request_response_test(void *args) {
         log_debug("sent %d bytes", data_size);
 
         // receive data from the server
-        int len;
+        size_t total_received = 0;
+        ssize_t len;
         while ((len = read(stream_fd, buffer, sizeof(buffer))) > 0) {
             EVP_DigestUpdate(res_sha256_ctx, buffer, len);
-            log_debug("received %d bytes", len);
+            total_received += len;
+            log_debug("received_bytes=%d, total_bytes_received=%d", len, total_received);
         }
         if (len <= 0) {
             log_debug("stream closed by server");

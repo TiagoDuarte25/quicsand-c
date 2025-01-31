@@ -80,7 +80,9 @@ void* handle_stream(void * arg) {
     while (1) {
         char buffer[65536];
         // receive data from the client
-        size_t len = read(stream_fd, buffer, sizeof(buffer));
+        log_debug("waiting for data");
+        ssize_t len = read(stream_fd, buffer, sizeof(buffer));
+        log_debug("received %d bytes", len);
         if (len > 0) {
             EVP_DigestUpdate(req_sha256_ctx, buffer, len);
             log_debug("received %d bytes", len);
@@ -89,18 +91,44 @@ void* handle_stream(void * arg) {
             int response_len = len * data->factor;
             char* response;
             random_data(response_len, &response);
+            log_debug("generated response of %d bytes", response_len);
             EVP_DigestUpdate(res_sha256_ctx, response, response_len);
             // send the response in chunks
             size_t chunk_size = 65536;
             size_t bytes_sent = 0;
             while (bytes_sent < response_len) {
                 size_t bytes_to_send = (response_len - bytes_sent) < chunk_size ? (response_len - bytes_sent) : chunk_size;
-                write(stream_fd, response + bytes_sent, bytes_to_send);
-                bytes_sent += bytes_to_send;
-                log_debug("sent %zu bytes", bytes_sent);
+                
+                // Ensure the response pointer is valid
+                if (response == NULL) {
+                    log_error("response pointer is NULL");
+                    break;
+                }
+
+                // Log the current state before sending
+                log_debug("sending chunk: bytes_sent=%zu, bytes_to_send=%zu, response_len=%zu", bytes_sent, bytes_to_send, response_len);
+
+                // Ensure the pointer arithmetic is correct
+                char *current_position = response + bytes_sent;
+                if (current_position < response || current_position >= response + response_len) {
+                    log_error("invalid pointer arithmetic: current_position=%p, response=%p, response_len=%zu", current_position, response, response_len);
+                    break;
+                }
+
+                ssize_t result = write(stream_fd, current_position, bytes_to_send);
+                if (result < 0) {
+                    log_error("failed to send data");
+                    break;
+                }
+
+
+                bytes_sent += result;
+                log_debug("sent %zu bytes, total bytes sent: %zu", result, bytes_sent);
             }
-            shutdown(stream_fd, SHUT_WR);
+            free(response);
+            close(stream_fd);
             log_debug("stream closed");
+            break;
         } else if (len == 0) {
             log_debug("stream closed by client");
             break;
@@ -136,7 +164,7 @@ void *handle_connection(void *arg)
         log_debug("stream accepted");
         if (stream_fd < 0) {
             log_error("error: %s", quic_error_message(quic_error));
-            close_connection(ctx, connection);
+            // close_connection(ctx, connection);
             break;
         }
 
