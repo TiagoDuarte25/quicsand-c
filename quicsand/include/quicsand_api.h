@@ -18,11 +18,15 @@ typedef void *stream_t;
 
 typedef struct statistics
 {
-    int min_rtt;
-    int max_rtt;
-    int avg_rtt;
-    int total_sent_packets;
-    int total_received_packets;
+    ssize_t min_rtt;
+    ssize_t max_rtt;
+    ssize_t avg_rtt;
+    ssize_t total_sent_packets;
+    ssize_t total_received_packets;
+    ssize_t total_lost_packets;
+    ssize_t total_retransmitted_packets;
+    ssize_t total_sent_bytes;
+    ssize_t total_received_bytes;
 } statistics_t;
 
 enum mode_t
@@ -90,5 +94,7 @@ int accept_stream(context_t context, connection_t connection, time_t timeout);
 int print_context(context_t context);
 char* quic_error_message(quic_error_code_t quic_error);
 int get_conneciton_statistics(context_t context, connection_t connection, statistics_t *stats);
+
+void destroy_quic_context(context_t context);
 
 #endif 

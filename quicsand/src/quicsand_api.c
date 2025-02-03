@@ -32,7 +32,7 @@ quic_error_code_t quic_error = QUIC_SUCCESS;
 
 #define LOCAL_CONN_ID_LEN 16
 
-#define MAX_DATAGRAM_SIZE 1350
+#define MAX_DATAGRAM_SIZE 1450
 
 #define MAX_TOKEN_LEN \
     sizeof("quiche") - 1 + \
@@ -122,6 +122,17 @@ struct timeout_args {
     struct context *ctx;
     struct conn_io *conn_io;
 };
+
+#define NUM_FLUSH_WORKERS 4  // Number of worker threads
+
+typedef struct {
+    struct conn_io *conn_io;
+} FlushTask;
+
+// Global GQueue for connections needing flush_egress
+GQueue *flush_queue;
+GMutex queue_mutex;
+GCond queue_cond;
 
 #elif MSQUIC
 
@@ -718,7 +729,7 @@ static void debug_log(const char *line, void *argp) {
 }
 
 static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io) {
-    uint8_t out[MAX_DATAGRAM_SIZE];
+    uint8_t out[MAX_DATAGRAM_SIZE * 4];
 
     quiche_send_info send_info;
 
@@ -1393,12 +1404,12 @@ void * stream_write(void *arg) {
     while (1) {
         log_trace("strm_write: reading from unix socket %d", stream_io->a_fd);
         int to_read = 0;
+        pthread_mutex_lock(&conn_io->mutex);
         while ((to_read = quiche_conn_stream_capacity(conn_io->conn, stream_io->stream_id)) <= 0) {
             log_trace("strm_write: conn %d is blocked", stream_io->stream_id);
-            pthread_mutex_lock(&conn_io->mutex);
-            pthread_cond_wait(&conn_io->cond, &conn_io->mutex);
-            pthread_mutex_unlock(&conn_io->mutex);
+            pthread_cond_wait(&conn_io->cond, &conn_io->mutex); 
         }
+        pthread_mutex_unlock(&conn_io->mutex);
         log_warn("strm_write: to_read: %d", to_read);
         log_trace("strm_write: reading from unix socket %d", stream_io->a_fd);
         int len = read(stream_io->a_fd, buffer, to_read);
@@ -1485,11 +1496,11 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         // quiche_config_set_max_idle_timeout(ctx->config, 10000000);
         quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
-        quiche_config_set_initial_max_data(ctx->config, 10000000);
-        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 10000000);
-        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 10000000);
+        quiche_config_set_initial_max_data(ctx->config, 1000000000);
+        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1000000000);
+        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 1000000000);
         quiche_config_set_initial_max_streams_bidi(ctx->config, 10000);
-        quiche_config_set_cc_algorithm(ctx->config, QUICHE_CC_RENO);
+        quiche_config_set_cc_algorithm(ctx->config, QUICHE_CC_CUBIC);
 
         ctx->conns = (struct connections *)malloc(sizeof(struct connections));
         if (ctx->conns == NULL)
@@ -1852,11 +1863,30 @@ int close_connection(context_t context, connection_t connection) {
     log_debug("closing connection");
     struct context *ctx = (struct context *)context;
     struct conn_io *conn_io = (struct conn_io *)connection;
+
+    if (conn_io == NULL) {
+        log_error("connection is NULL");
+        return -1;
+    }
+
     const uint8_t *error_code = (const uint8_t *) "kthxbye";
     quiche_conn_close(conn_io->conn, false, 0, error_code, 7);
     flush_egress(ctx->loop, conn_io);
+
+    // Free streams
+    if (conn_io->streams != NULL) {
+        g_hash_table_destroy(conn_io->streams);
+    }
+
+    // Free stream_io_queue
+    if (conn_io->stream_io_queue != NULL) {
+        g_queue_free(conn_io->stream_io_queue);
+    }
+
+    // Free the connection
     quiche_conn_free(conn_io->conn);
     free(conn_io);
+
     return 0;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
@@ -2298,6 +2328,44 @@ int accept_stream(context_t context, connection_t connection, time_t timeout) {
     #endif
 }
 
+void destroy_quic_context(context_t context) {
+    #ifdef QUICHE
+    struct context *ctx = (struct context *)context;
+
+    if (ctx == NULL) {
+        return;
+    }
+
+    // Stop the event loop
+    if (ctx->loop != NULL) {
+        ev_break(ctx->loop, EVBREAK_ALL);
+    }
+
+    // Free connections
+    if (ctx->conns != NULL) {
+        if (ctx->conns->connections != NULL) {
+            g_hash_table_destroy(ctx->conns->connections);
+        }
+        free(ctx->conns);
+    }
+
+    // Free config
+    if (ctx->config != NULL) {
+        quiche_config_free(ctx->config);
+    }
+
+    // Free the context
+    free(ctx);
+    #elif MSQUIC
+    struct context *ctx = (struct context *)context;
+    if (ctx->msquic != NULL) {
+        ctx->msquic->RegistrationClose(ctx->registration);
+        MsQuicClose(ctx->msquic);
+    }
+    free(ctx);
+    #endif
+}
+
 int get_conneciton_statistics(context_t context, connection_t connection, statistics_t *stats) {
     #ifdef QUICHE
     struct context *ctx = (struct context *)context;
@@ -2317,6 +2385,11 @@ int get_conneciton_statistics(context_t context, connection_t connection, statis
     stats->min_rtt = statistics.MinRtt / 1000;
     stats->total_sent_packets = statistics.Send.TotalPackets;
     stats->total_received_packets = statistics.Recv.TotalPackets;
+    stats->total_lost_packets = statistics.Send.SuspectedLostPackets - statistics.Send.SpuriousLostPackets;
+    stats->total_retransmitted_packets = statistics.Send.RetransmittablePackets;
+    stats->total_sent_bytes = statistics.Send.TotalBytes;
+    stats->total_received_bytes = statistics.Recv.TotalBytes;
+
     return 0;
     #endif
 }
