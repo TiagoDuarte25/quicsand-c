@@ -218,7 +218,7 @@ run_client_server() {
         sleep 1
     done
 
-    kill -9 $BASH_PPID
+    # kill -9 $BASH_PPID
 
     pkill -f "quicsand_server"
 }

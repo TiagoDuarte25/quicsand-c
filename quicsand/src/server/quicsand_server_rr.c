@@ -82,7 +82,6 @@ void* handle_stream(void * arg) {
         // receive data from the client
         log_debug("waiting for data");
         ssize_t len = read(stream_fd, buffer, sizeof(buffer));
-        log_debug("received %d bytes", len);
         if (len > 0) {
             EVP_DigestUpdate(req_sha256_ctx, buffer, len);
             log_debug("received %d bytes", len);
@@ -115,6 +114,7 @@ void* handle_stream(void * arg) {
                     break;
                 }
 
+                log_warn("before this write");
                 ssize_t result = write(stream_fd, current_position, bytes_to_send);
                 if (result < 0) {
                     log_error("failed to send data");
