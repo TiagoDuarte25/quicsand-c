@@ -118,10 +118,6 @@ void * request_response_test(void *args) {
         // calculate round-trip time
         clock_gettime(CLOCK_MONOTONIC, &rtt_end);
 
-        //close the stream
-        close(stream_fd);
-        log_debug("stream closed");
-
         free(data);
 
         // Sleep for a short duration to avoid tight loop
@@ -224,7 +220,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_TRACE) != 0) {
+  if (log_add_fp(fp, LOG_INFO) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }

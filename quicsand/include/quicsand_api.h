@@ -82,7 +82,6 @@ context_t create_quic_context(char *cert_path, char *key_path);
 connection_t open_connection(context_t context, char* ip, int port);
 int close_connection(context_t context, connection_t connection);
 int open_stream(context_t context, connection_t connection);
-int close_stream(context_t context, connection_t connection, int stream);
 
 // server functions
 int bind_addr(context_t context, char* ip, int port);

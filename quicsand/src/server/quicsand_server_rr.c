@@ -15,6 +15,8 @@
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 
+#include <errno.h>
+
 #define CHUNK_SIZE 1024
 
 char* reverse_string(char *str)
@@ -76,7 +78,7 @@ void* handle_stream(void * arg) {
     int num_requests = data->num_requests;
 
     log_debug("handling stream");
-
+    log_warn("stream_fd: %d", stream_fd);
     while (1) {
         char buffer[65536];
         // receive data from the client
@@ -114,10 +116,11 @@ void* handle_stream(void * arg) {
                     break;
                 }
 
-                log_warn("before this write");
+                
                 ssize_t result = write(stream_fd, current_position, bytes_to_send);
                 if (result < 0) {
-                    log_error("failed to send data");
+                    log_warn("stream_fd: %d", stream_fd);
+                    log_error("failed to send data: %s", strerror(errno));
                     break;
                 }
 
@@ -125,9 +128,12 @@ void* handle_stream(void * arg) {
                 bytes_sent += result;
                 log_debug("sent %zu bytes, total bytes sent: %zu", result, bytes_sent);
             }
-            free(response);
+            
+            // close stream
             close(stream_fd);
             log_debug("stream closed");
+
+            free(response);
             break;
         } else if (len == 0) {
             log_debug("stream closed by client");
@@ -259,7 +265,7 @@ int main(int argc, char *argv[])
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_TRACE) != 0) {
+    if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }

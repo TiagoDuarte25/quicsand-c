@@ -115,13 +115,17 @@ void *upload_file(void *args) {
 
     fprintf(fp, "\n");
     fprintf(fp, "\n");
-    fprintf(fp, "-------------- Statistics --------------\n");
-    fprintf(fp, "rtt: %d ms\n", stats.avg_rtt);
-    fprintf(fp, "max_rtt: %d ms\n", stats.max_rtt);
-    fprintf(fp, "min_rtt: %d ms\n", stats.min_rtt);
-    fprintf(fp, "total_sent_packets: %d\n", stats.total_sent_packets);
-    fprintf(fp, "total_received_packets: %d\n", stats.total_received_packets);
-    fflush(fp);
+    fprintf(fp, "-------------- Applicational Statistics --------------\n");
+    fprintf(fp, "total bytes sent: %ld\n", file_size);
+    fprintf(fp, "\n");
+    fprintf(fp, "-------------- Protocol Statistics --------------\n");
+    fprintf(fp, "rtt: %ld ms\n", stats.avg_rtt);
+    fprintf(fp, "total sent packets: %ld\n", stats.total_sent_packets);
+    fprintf(fp, "total received packets: %ld\n", stats.total_received_packets);
+    fprintf(fp, "packet loss (%c): %ld\n", '%', (size_t)((stats.total_lost_packets / stats.total_sent_packets) * 100));
+    fprintf(fp, "retransmitted packets: %ld\n", stats.total_retransmitted_packets);
+    fprintf(fp, "total bytes sent: %ld\n", stats.total_sent_bytes);
+    fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
 
     return NULL;
 }
@@ -170,7 +174,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_TRACE) != 0) {
+    if (log_add_fp(fp, LOG_INFO) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
