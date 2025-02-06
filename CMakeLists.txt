@@ -13,15 +13,22 @@ else()
     message(FATAL_ERROR "No recognizable OS version file found.")
 endif()
 
+# Default to Debug build if not set
 IF(CMAKE_BUILD_TYPE STREQUAL "")
     SET(CMAKE_BUILD_TYPE Debug)
 ENDIF()
+
 MESSAGE(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+
 IF (CMAKE_BUILD_TYPE STREQUAL Debug)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -DOPENSSL_DEBUG -DDEBUG")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address,undefined,leak")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Werror")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstack-protector-all -fno-omit-frame-pointer")
 ELSEIF (CMAKE_BUILD_TYPE STREQUAL Release)
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security")
 ENDIF()
+
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} $ENV{EXTRA_CFLAGS}")
 
 MESSAGE(STATUS "Compiler flags: ${CMAKE_C_FLAGS}")

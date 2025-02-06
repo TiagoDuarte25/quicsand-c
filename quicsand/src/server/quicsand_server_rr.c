@@ -45,7 +45,7 @@ void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
 
 int random_data(size_t len, char **data) {
     *data = (char *)malloc(len);
-    for (int i = 0; i < len - 1; i++) {
+    for (size_t i = 0; i < len - 1; i++) {
         (*data)[i] = 'A' + (rand() % 26);
     }
     (*data)[len - 1] = '\0';
@@ -65,17 +65,13 @@ typedef struct {
     int factor;
     EVP_MD_CTX *req_sha256_ctx;
     EVP_MD_CTX *res_sha256_ctx;
-    int num_requests;
 } thread_data_stream_t;
 
 void* handle_stream(void * arg) {
     thread_data_stream_t *data = (thread_data_stream_t *)arg;
-    context_t ctx = data->ctx;
-    connection_t connection = data->connection;
     int stream_fd = data->stream_fd;
     EVP_MD_CTX *req_sha256_ctx = data->req_sha256_ctx;
     EVP_MD_CTX *res_sha256_ctx = data->res_sha256_ctx;
-    int num_requests = data->num_requests;
 
     log_debug("handling stream");
     log_warn("stream_fd: %d", stream_fd);
@@ -89,7 +85,7 @@ void* handle_stream(void * arg) {
             log_debug("received %d bytes", len);
 
             // response size multiplied by factor
-            int response_len = len * data->factor;
+            size_t response_len = len * data->factor;
             char* response;
             random_data(response_len, &response);
             log_debug("generated response of %d bytes", response_len);
@@ -98,7 +94,7 @@ void* handle_stream(void * arg) {
             size_t chunk_size = 65536;
             size_t bytes_sent = 0;
             while (bytes_sent < response_len) {
-                size_t bytes_to_send = (response_len - bytes_sent) < chunk_size ? (response_len - bytes_sent) : chunk_size;
+                ssize_t bytes_to_send = (response_len - bytes_sent) < chunk_size ? (response_len - bytes_sent) : chunk_size;
                 
                 // Ensure the response pointer is valid
                 if (response == NULL) {
@@ -119,7 +115,6 @@ void* handle_stream(void * arg) {
                 
                 ssize_t result = write(stream_fd, current_position, bytes_to_send);
                 if (result < 0) {
-                    log_warn("stream_fd: %d", stream_fd);
                     log_error("failed to send data: %s", strerror(errno));
                     break;
                 }
@@ -166,7 +161,7 @@ void *handle_connection(void *arg)
     while (1) {
 
         log_debug("waiting for stream");
-        int stream_fd = accept_stream(ctx, connection, 0);
+        int stream_fd = accept_stream(ctx, connection);
         log_debug("stream accepted");
         if (stream_fd < 0) {
             log_error("error: %s", quic_error_message(quic_error));
@@ -178,13 +173,10 @@ void *handle_connection(void *arg)
 
         // Allocate memory for thread data
         thread_data_stream_t *stream_data = (thread_data_stream_t *)malloc(sizeof(thread_data_stream_t));
-        stream_data->ctx = ctx;
-        stream_data->connection = connection;
         stream_data->stream_fd = stream_fd;
         stream_data->factor = data->factor;
         stream_data->req_sha256_ctx = req_sha256_ctx;
         stream_data->res_sha256_ctx = res_sha256_ctx;
-        stream_data->num_requests = num_requests;
 
         // Create a new thread to handle the stream
         pthread_t thread_id;
@@ -265,7 +257,7 @@ int main(int argc, char *argv[])
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_INFO) != 0) {
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
@@ -288,7 +280,7 @@ int main(int argc, char *argv[])
     while (1)
     {
         log_debug("waiting for connection");
-        connection_t connection = accept_connection(ctx, 0);
+        connection_t connection = accept_connection(ctx);
         if (!connection)
         {
             log_error("error: %s", quic_error_message(quic_error));

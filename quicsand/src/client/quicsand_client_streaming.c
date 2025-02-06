@@ -55,8 +55,8 @@ void *stream_data(void *args) {
     log_debug("stream opened");
 
     // Send the "bitrate" string
-    char *request = "%d";
-    dprintf(stream_fd, request, bitrate);
+    char request[32];
+    snprintf(request, sizeof(request), "%d", bitrate);
     write(stream_fd, request, strlen(request));
     log_debug("sent request: %s", request);
 
@@ -65,21 +65,23 @@ void *stream_data(void *args) {
 
     // Receive streaming data
     static char buffer[65536];
-    size_t bytes_received;
+    ssize_t total_bytes_received = 0;
+    ssize_t bytes_received;
     while ((bytes_received = read(stream_fd, buffer, sizeof(buffer))) > 0) {
         EVP_DigestUpdate(mdctx, buffer, bytes_received);
         log_debug("received data: %zu bytes", bytes_received);
+        total_bytes_received += bytes_received;
     }
 
-    // Close the connection
-    close_connection(ctx, connection);
+    // // Close the connection
+    // close_connection(ctx, connection);
 
     log_info("streaming client completed");
     
     unsigned char hash[EVP_MAX_MD_SIZE];
     unsigned int hash_len;
     EVP_DigestFinal_ex(mdctx, hash, &hash_len);
-    unsigned char hash_hex[hash_len * 2 + 1];
+    char hash_hex[hash_len * 2 + 1];
     bin_to_hex(hash, hash_len, hash_hex);
     log_info("final hash: %s", hash_hex);
 
@@ -88,13 +90,17 @@ void *stream_data(void *args) {
 
     fprintf(fp, "\n");
     fprintf(fp, "\n");
-    fprintf(fp, "-------------- Statistics --------------\n");
-    fprintf(fp, "rtt: %d ms\n", stats.avg_rtt);
-    fprintf(fp, "max_rtt: %d ms\n", stats.max_rtt);
-    fprintf(fp, "min_rtt: %d ms\n", stats.min_rtt);
-    fprintf(fp, "total_sent_packets: %d\n", stats.total_sent_packets);
-    fprintf(fp, "total_received_packets: %d\n", stats.total_received_packets);
-    fflush(fp);
+    fprintf(fp, "-------------- Applicational Statistics --------------\n");
+    fprintf(fp, "total bytes received: %ld\n", total_bytes_received);
+    fprintf(fp, "\n");
+    fprintf(fp, "-------------- Protocol Statistics --------------\n");
+    fprintf(fp, "rtt: %ld ms\n", stats.avg_rtt);
+    fprintf(fp, "total sent packets: %ld\n", stats.total_sent_packets);
+    fprintf(fp, "total received packets: %ld\n", stats.total_received_packets);
+    fprintf(fp, "packet loss (%c): %ld\n", '%', (size_t)((stats.total_lost_packets / stats.total_sent_packets) * 100));
+    fprintf(fp, "retransmitted packets: %ld\n", stats.total_retransmitted_packets);
+    fprintf(fp, "total bytes sent: %ld\n", stats.total_sent_bytes);
+    fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
 
     return NULL;
 }

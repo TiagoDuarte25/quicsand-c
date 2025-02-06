@@ -67,8 +67,8 @@ void *download_file(void *args) {
         return NULL;
     }
 
-    size_t file_size;
-    size_t len = read(stream_fd, &file_size, sizeof(size_t));
+    ssize_t file_size;
+    ssize_t len = read(stream_fd, &file_size, sizeof(size_t));
     if (len < 0) {
         log_error("error: %s", quic_error_message(quic_error));
         fclose(file);
@@ -81,10 +81,9 @@ void *download_file(void *args) {
     EVP_DigestInit_ex(file_hash_ctx, EVP_sha256(), NULL);
 
     static char buffer[65536];
-    size_t total_bytes_read = 0;
-    size_t bytes_read;
+    ssize_t total_bytes_read = 0;
     while (total_bytes_read < file_size) {
-        bytes_read = read(stream_fd, buffer, sizeof(buffer));
+        ssize_t bytes_read = read(stream_fd, buffer, sizeof(buffer));
         if (bytes_read < 0) {
             log_error("error: %s", quic_error_message(quic_error));
             fclose(file);
@@ -106,7 +105,7 @@ void *download_file(void *args) {
     unsigned char file_hash[EVP_MAX_MD_SIZE];
     unsigned int file_hash_len;
     EVP_DigestFinal_ex(file_hash_ctx, file_hash, &file_hash_len);
-    unsigned char file_hash_hex[file_hash_len * 2 + 1];
+    char file_hash_hex[file_hash_len * 2 + 1];
     bin_to_hex(file_hash, file_hash_len, file_hash_hex);
     log_info("file hash: %s", file_hash_hex);
 
@@ -115,15 +114,17 @@ void *download_file(void *args) {
 
     fprintf(fp, "\n");
     fprintf(fp, "\n");
-    fprintf(fp, "-------------- Statistics --------------\n");
-    fprintf(fp, "rtt: %d ms\n", stats.avg_rtt);
-    fprintf(fp, "max_rtt: %d ms\n", stats.max_rtt);
-    fprintf(fp, "min_rtt: %d ms\n", stats.min_rtt);
-    fprintf(fp, "total_sent_packets: %d\n", stats.total_sent_packets);
-    fprintf(fp, "total_received_packets: %d\n", stats.total_received_packets);
-    fflush(fp);
-
-
+    fprintf(fp, "-------------- Applicational Statistics --------------\n");
+    fprintf(fp, "total bytes sent: %ld\n", file_size);
+    fprintf(fp, "\n");
+    fprintf(fp, "-------------- Protocol Statistics --------------\n");
+    fprintf(fp, "rtt: %ld ms\n", stats.avg_rtt);
+    fprintf(fp, "total sent packets: %ld\n", stats.total_sent_packets);
+    fprintf(fp, "total received packets: %ld\n", stats.total_received_packets);
+    fprintf(fp, "packet loss (%c): %ld\n", '%', (size_t)((stats.total_lost_packets / stats.total_sent_packets) * 100));
+    fprintf(fp, "retransmitted packets: %ld\n", stats.total_retransmitted_packets);
+    fprintf(fp, "total bytes sent: %ld\n", stats.total_sent_bytes);
+    fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
 
     return NULL;
 }
@@ -133,8 +134,6 @@ int main(int argc, char *argv[]) {
   char *file_path = NULL;
   char *log_file = NULL;
   int port = 0;
-  int duration = 0;
-  int data_size = 0;
   int opt;
 
   fprintf(stdout, "quicsand client\n");
@@ -150,12 +149,6 @@ int main(int argc, char *argv[]) {
             break;
             case 'f':
             file_path = strdup(optarg);
-            break;
-            case 'd':
-            duration = atoi(optarg);
-            break;
-            case 's':
-            data_size = atoi(optarg);
             break;
             case 'l':
             log_file = strdup(optarg);

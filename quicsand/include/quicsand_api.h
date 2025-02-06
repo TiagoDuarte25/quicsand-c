@@ -86,8 +86,8 @@ int open_stream(context_t context, connection_t connection);
 // server functions
 int bind_addr(context_t context, char* ip, int port);
 int set_listen(context_t context);
-connection_t accept_connection(context_t context, time_t timeout);
-int accept_stream(context_t context, connection_t connection, time_t timeout);
+connection_t accept_connection(context_t context);
+int accept_stream(context_t context, connection_t connection);
 
 // common functions
 int print_context(context_t context);

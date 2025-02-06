@@ -23,8 +23,6 @@ typedef struct {
 } thread_data_t;
 
 typedef struct {
-    context_t ctx;
-    connection_t connection;
     int stream_fd;
     int factor;
     char* filename;
@@ -40,8 +38,6 @@ void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
 
 void* handle_stream(void * arg) {
     thread_data_stream_t *data = (thread_data_stream_t *)arg;
-    context_t ctx = data->ctx;
-    connection_t connection = data->connection;
     int stream_fd = data->stream_fd;
     char* filename = data->filename;
 
@@ -71,7 +67,7 @@ void* handle_stream(void * arg) {
     size_t bytes_read = 0;
     while (bytes_read < file_size) {
         // receive data from the client
-        size_t len = read(stream_fd, buffer, sizeof(buffer));
+        ssize_t len = read(stream_fd, buffer, sizeof(buffer));
         log_debug("received %lu bytes", len);
         if (len > 0) {
             // Write received data to file
@@ -114,7 +110,7 @@ void *handle_connection(void *arg)
 
     while (1) {
 
-        int stream_fd = accept_stream(ctx, connection, 0);
+        int stream_fd = accept_stream(ctx, connection);
         if (stream_fd < 0) {
             log_error("error: %s", quic_error_message(quic_error));
             close_connection(ctx, connection);
@@ -123,10 +119,7 @@ void *handle_connection(void *arg)
 
         // Allocate memory for thread data
         thread_data_stream_t *stream_data = (thread_data_stream_t *)malloc(sizeof(thread_data_stream_t));
-        stream_data->ctx = ctx;
-        stream_data->connection = connection;
         stream_data->stream_fd = stream_fd;
-        stream_data->factor = data->factor;
         stream_data->filename = data->filename;
 
         // Create a new thread to handle the stream
@@ -152,7 +145,6 @@ int main(int argc, char *argv[])
     char *ip_address = NULL;
     char *log_file = NULL;
     char *test_name = NULL;
-    int factor = 1;
     int port = 0;
     int opt;
 
@@ -176,9 +168,6 @@ int main(int argc, char *argv[])
         case 'l':
             log_file = strdup(optarg);
             break;
-        case 'm':
-            factor = atoi(optarg);
-            break;
         case 't':
             test_name = strdup(optarg);
             break;
@@ -198,7 +187,7 @@ int main(int argc, char *argv[])
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_INFO) != 0) {
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
@@ -233,7 +222,7 @@ int main(int argc, char *argv[])
     while (1)
     {
         log_debug("waiting for connection");
-        connection_t connection = accept_connection(ctx, 0);
+        connection_t connection = accept_connection(ctx);
         if (!connection)
         {
             log_error("error: %s", quic_error_message(quic_error));
@@ -245,7 +234,6 @@ int main(int argc, char *argv[])
         thread_data_t *data = (thread_data_t *)malloc(sizeof(thread_data_t));
         data->ctx = ctx;
         data->connection = connection;
-        data->factor = factor;
         data->filename = filename;
 
         // Create a new thread to handle the connection

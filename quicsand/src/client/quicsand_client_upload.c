@@ -23,8 +23,6 @@ struct args {
   char *ip_address;
   int port;
   char *file_path;
-  size_t data_size;
-  double duration;
 };
 
 // Function to convert binary data to a hexadecimal string
@@ -41,7 +39,6 @@ void *upload_file(void *args) {
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
     char *file_path = arguments->file_path;
-    size_t data_size = arguments->data_size;
 
     log_info("starting file upload");
 
@@ -135,8 +132,6 @@ int main(int argc, char *argv[]) {
     char *file_path = NULL;
     char *log_file = NULL;
     int port = 0;
-    int duration = 0;
-    int data_size = 0;
     int opt;
 
     // Parse command-line arguments
@@ -150,12 +145,6 @@ int main(int argc, char *argv[]) {
                 break;
                 case 'f':
                 file_path = strdup(optarg);
-                break;
-                case 'd':
-                duration = atoi(optarg);
-                break;
-                case 's':
-                data_size = atoi(optarg);
                 break;
                 case 'l':
                 log_file = strdup(optarg);
@@ -174,7 +163,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_INFO) != 0) {
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
@@ -193,8 +182,6 @@ int main(int argc, char *argv[]) {
     arguments->ip_address = ip_address;
     arguments->port = port;
     arguments->file_path = file_path;
-    arguments->duration = duration;
-    arguments->data_size = data_size;
     upload_file(arguments);
 
     log_info("client finished");

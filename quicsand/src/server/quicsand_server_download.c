@@ -23,8 +23,6 @@ typedef struct {
 } thread_data_t;
 
 typedef struct {
-    context_t ctx;
-    connection_t connection;
     int stream_fd;
 } thread_data_stream_t;
 
@@ -36,8 +34,6 @@ void bin_to_hex(const unsigned char *bin, size_t bin_len, char *hex) {
 
 void* handle_stream(void *arg) {
     thread_data_stream_t *data = (thread_data_stream_t *)arg;
-    context_t ctx = data->ctx;
-    connection_t connection = data->connection;
     int stream_fd = data->stream_fd;
     log_debug("handling stream");
 
@@ -92,7 +88,7 @@ void* handle_stream(void *arg) {
     unsigned char file_hash[EVP_MAX_MD_SIZE];
     unsigned int file_hash_len;
     EVP_DigestFinal_ex(file_hash_ctx, file_hash, &file_hash_len);
-    unsigned char file_hash_hex[file_hash_len * 2 + 1];
+    char file_hash_hex[file_hash_len * 2 + 1];
     bin_to_hex(file_hash, file_hash_len, file_hash_hex);
     log_info("file hash: %s", file_hash_hex);
 
@@ -106,7 +102,7 @@ void *handle_connection(void *arg) {
     log_debug("handling connection");
 
     while (1) {
-        int stream_fd = accept_stream(ctx, connection, 0);
+        int stream_fd = accept_stream(ctx, connection);
         if (stream_fd < 0) {
             log_error("error: %s", quic_error_message(quic_error));
             close_connection(ctx, connection);
@@ -115,8 +111,6 @@ void *handle_connection(void *arg) {
 
         // Allocate memory for thread data
         thread_data_stream_t *stream_data = (thread_data_stream_t *)malloc(sizeof(thread_data_stream_t));
-        stream_data->ctx = ctx;
-        stream_data->connection = connection;
         stream_data->stream_fd = stream_fd;
 
         // Create a new thread to handle the stream
@@ -139,7 +133,6 @@ int main(int argc, char *argv[]) {
     char *key_path = NULL;
     char *ip_address = NULL;
     char *log_file = NULL;
-    int factor = 1;
     int port = 0;
     int opt;
 
@@ -160,9 +153,6 @@ int main(int argc, char *argv[]) {
             break;
         case 'l':
             log_file = strdup(optarg);
-            break;
-        case 'm':
-            factor = atoi(optarg);
             break;
         default:
             fprintf(stdout, "usage: %s -c <cert_path> -k <key_path> -i <ip_address> -p <port>", argv[0]);
@@ -208,7 +198,7 @@ int main(int argc, char *argv[]) {
     log_info("server running...");
     while (1) {
         log_debug("waiting for connection");
-        connection_t connection = accept_connection(ctx, 0);
+        connection_t connection = accept_connection(ctx);
         if (!connection) {
             log_error("error: %s", quic_error_message(quic_error));
             continue;

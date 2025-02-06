@@ -49,7 +49,6 @@ void * request_response_test(void *args) {
     FILE *fp = arguments->fp;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
-    char *file_path = arguments->file_path;
     size_t data_size = arguments->data_size;
     double duration = arguments->duration;
 
@@ -171,12 +170,17 @@ void * request_response_test(void *args) {
     fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
     fflush(fp);
 
+    EVP_MD_CTX_free(req_sha256_ctx);
+    EVP_MD_CTX_free(res_sha256_ctx);
+
+    // Destroy the QUIC context
+    destroy_quic_context(ctx);
+
     return NULL;
 }
 
 int main(int argc, char *argv[]) {
   char *ip_address = NULL;
-  char *file_path = NULL;
   char *log_file = NULL;
   int port = 0;
   int duration = 0;
@@ -194,9 +198,6 @@ int main(int argc, char *argv[]) {
             case 'p':
             port = atoi(optarg);
             break;
-            case 'f':
-            file_path = strdup(optarg);
-            break;
             case 'd':
             duration = atoi(optarg);
             break;
@@ -207,7 +208,7 @@ int main(int argc, char *argv[]) {
             log_file = strdup(optarg);
             break;
           default:
-            fprintf(stdout, "usage: %s -i <ip_address> -p <port> [-f <file_path>]", argv[0]);
+            fprintf(stdout, "usage: %s -i <ip_address> -p <port>", argv[0]);
             exit(EXIT_FAILURE);
       }
   }
@@ -220,7 +221,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_INFO) != 0) {
+  if (log_add_fp(fp, LOG_TRACE) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }
@@ -238,7 +239,6 @@ int main(int argc, char *argv[]) {
   arguments->fp = fp;
   arguments->ip_address = ip_address;
   arguments->port = port;
-  arguments->file_path = file_path;
   arguments->duration = duration;
   arguments->data_size = data_size;
   request_response_test(arguments);
@@ -246,7 +246,8 @@ int main(int argc, char *argv[]) {
   log_info("client finished");
 
   free(ip_address);
-  free(file_path);
+  free(arguments);
+  free(log_file);
   fclose(fp);
   
   return 0;
