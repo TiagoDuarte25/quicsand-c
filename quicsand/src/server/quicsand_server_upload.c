@@ -112,9 +112,7 @@ void *handle_connection(void *arg)
 
         int stream_fd = accept_stream(ctx, connection);
         if (stream_fd < 0) {
-            log_error("error: %s", quic_error_message(quic_error));
-            close_connection(ctx, connection);
-            continue;
+            break;
         }
 
         // Allocate memory for thread data
@@ -128,13 +126,14 @@ void *handle_connection(void *arg)
         {
             log_error("error: failed to create thread");
             free(stream_data);
-            continue;
+            break;
         }
         log_debug("created thread to handle stream");
 
         // Detach the thread so that it cleans up after itself
         pthread_detach(thread_id);
     }
+
     return NULL;
 }
 

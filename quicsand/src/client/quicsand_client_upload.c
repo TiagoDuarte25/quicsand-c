@@ -96,8 +96,6 @@ void *upload_file(void *args) {
     //close the stream
     close(stream_fd);
 
-    // close_connection(ctx, connection);
-
     log_info("file upload completed");
 
     unsigned char hash[EVP_MAX_MD_SIZE];
@@ -107,8 +105,12 @@ void *upload_file(void *args) {
     bin_to_hex(hash, hash_len, hash_hex);
     log_info("file hash: %s", hash_hex);
 
+    EVP_MD_CTX_free(file_hash_ctx);
+
     statistics_t stats;
     get_conneciton_statistics(ctx, connection, &stats);
+
+    close_connection(ctx, connection);
 
     fprintf(fp, "\n");
     fprintf(fp, "\n");
@@ -123,6 +125,9 @@ void *upload_file(void *args) {
     fprintf(fp, "retransmitted packets: %ld\n", stats.total_retransmitted_packets);
     fprintf(fp, "total bytes sent: %ld\n", stats.total_sent_bytes);
     fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
+
+    // destroy the QUIC context
+    destroy_quic_context(ctx);
 
     return NULL;
 }
@@ -186,6 +191,10 @@ int main(int argc, char *argv[]) {
 
     log_info("client finished");
     fclose(fp);
+    free(arguments);
+    free(log_file);
+    free(ip_address);
+    free(file_path);
 
     return 0;
 }

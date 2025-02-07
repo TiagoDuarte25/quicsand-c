@@ -146,15 +146,15 @@ run_client_server() {
             ;;
         streaming)
             echo "starting streaming server..."
-            gnome-terminal -- bash -c "cd bin; ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -l $SERVER_LOG; exec bash"
+            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -l $SERVER_LOG; exec bash"
             ;;
         upload)
             echo "starting upload server..."
-            gnome-terminal -- bash -c "cd bin; ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; exec bash"
+            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; exec bash"
             ;;
         download)
             echo "starting download server..."
-            gnome-terminal -- bash -c "cd bin; ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG; exec bash"
+            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG; exec bash"
             ;;
         *)
             echo "Error: Unknown test type $TEST_TYPE"
@@ -179,11 +179,11 @@ run_client_server() {
                 ;;
             upload)
                 echo "starting upload client..."
-                gnome-terminal -- bash -c "cd bin; ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
+                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
                 ;;
             download)
                 echo "starting download client..."
-                gnome-terminal -- bash -c "cd bin; ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
+                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
                 ;;
             *)
                 echo "Error: Unknown test type $TEST_TYPE"

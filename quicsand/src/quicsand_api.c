@@ -1361,7 +1361,7 @@ void * stream_write(void *arg) {
     struct conn_io *conn_io = stream_ctx->conn_io;
     struct stream_io *stream_io = stream_ctx->stream_io;
 
-    char buffer[65536];
+    uint8_t buffer[65536];
     while (1) {
         log_trace("strm_write: reading from unix socket %d", stream_io->a_fd);
         int to_read = 0;
@@ -1373,14 +1373,13 @@ void * stream_write(void *arg) {
         }
         log_trace("strm_write: conn unlock", (void *)conn_io);
         pthread_mutex_unlock(&conn_io->mutex);
-        log_trace("to_read: %d", to_read);
         ssize_t len = read(stream_io->a_fd, buffer, to_read);
         uint64_t error_code;
         if (len <= 0) {
             log_trace("strm_write: stream %ld closed", stream_io->stream_id);
             flush_egress(conn_io);
             pthread_mutex_lock(&conn_io->mutex);
-            char* close_msg = "fin";
+            unsigned char* close_msg = "fin";
             if (stream_io->stream_id == -1) {
                 log_trace("stream already closed");
                 // g_hash_table_remove(conn_io->streams, uint64_to_ptr(stream_io->stream_id));
@@ -1399,10 +1398,6 @@ void * stream_write(void *arg) {
             log_trace("fin sent");
             pthread_mutex_unlock(&conn_io->mutex);
             flush_egress(conn_io);
-            // pthread_mutex_lock(&conn_io->mutex);
-            // g_hash_table_remove(conn_io->streams, uint64_to_ptr(stream_io->stream_id));
-            // stream_io = NULL;
-            // pthread_mutex_unlock(&conn_io->mutex);
 
             break;
         }
@@ -1745,28 +1740,6 @@ connection_t open_connection(context_t context, char* ip, int port) {
     pthread_mutex_unlock(&conn_io->mutex);
     flush_egress_thread(conn_io);
 
-    // print all transport parameters
-    quiche_transport_params params;
-    quiche_conn_peer_transport_params(conn_io->conn, &params);
-    log_trace("transport parameters:");
-    log_trace("  peer_max_idle_timeout: %" PRIu64, params.peer_max_idle_timeout);
-    log_trace("  peer_max_udp_payload_size: %" PRIu64, params.peer_max_udp_payload_size);
-    log_trace("  peer_initial_max_data: %" PRIu64, params.peer_initial_max_data);
-    log_trace("  peer_initial_max_stream_data_bidi_local: %" PRIu64, params.peer_initial_max_stream_data_bidi_local);
-    log_trace("  peer_initial_max_stream_data_bidi_remote: %" PRIu64, params.peer_initial_max_stream_data_bidi_remote);
-    log_trace("  peer_initial_max_stream_data_uni: %" PRIu64, params.peer_initial_max_stream_data_uni);
-    log_trace("  peer_initial_max_streams_bidi: %" PRIu64, params.peer_initial_max_streams_bidi);
-    log_trace("  peer_initial_max_streams_uni: %" PRIu64, params.peer_initial_max_streams_uni);
-    log_trace("  peer_ack_delay_exponent: %" PRIu64, params.peer_ack_delay_exponent);
-    log_trace("  peer_max_ack_delay: %" PRIu64, params.peer_max_ack_delay);
-    log_trace("  peer_disable_active_migration: %s", params.peer_disable_active_migration ? "true" : "false");
-    log_trace("  peer_active_conn_id_limit: %" PRIu64, params.peer_active_conn_id_limit);
-    log_trace("  peer_max_datagram_frame_size: %zd", params.peer_max_datagram_frame_size);
-
-    quiche_path_stats path_stats;
-    quiche_conn_path_stats(conn_io->conn, 0, &path_stats);
-    log_trace("cwnd size: %ld", path_stats.cwnd);
-    
     log_debug("connection established");
 
     free(peer->ai_addr);
@@ -1862,8 +1835,11 @@ int close_connection(context_t context, connection_t connection) {
 
     // Free the connection
     pthread_mutex_lock(&conn_io->mutex);
+
     quiche_conn_free(conn_io->conn);
+
     pthread_cancel(conn_io->conn_thread);
+
     pthread_mutex_unlock(&conn_io->mutex);
     
     g_hash_table_remove(ctx->conns->connections, conn_io->cid);
@@ -2203,28 +2179,6 @@ connection_t accept_connection(context_t context) {
     }
     pthread_mutex_unlock(&conn_io->mutex);
     flush_egress_thread(conn_io);
-
-    // print all transport parameters
-    quiche_transport_params params;
-    quiche_conn_peer_transport_params(conn_io->conn, &params);
-    log_trace("transport parameters:");
-    log_trace("  peer_max_idle_timeout: %" PRIu64, params.peer_max_idle_timeout);
-    log_trace("  peer_max_udp_payload_size: %" PRIu64, params.peer_max_udp_payload_size);
-    log_trace("  peer_initial_max_data: %" PRIu64, params.peer_initial_max_data);
-    log_trace("  peer_initial_max_stream_data_bidi_local: %" PRIu64, params.peer_initial_max_stream_data_bidi_local);
-    log_trace("  peer_initial_max_stream_data_bidi_remote: %" PRIu64, params.peer_initial_max_stream_data_bidi_remote);
-    log_trace("  peer_initial_max_stream_data_uni: %" PRIu64, params.peer_initial_max_stream_data_uni);
-    log_trace("  peer_initial_max_streams_bidi: %" PRIu64, params.peer_initial_max_streams_bidi);
-    log_trace("  peer_initial_max_streams_uni: %" PRIu64, params.peer_initial_max_streams_uni);
-    log_trace("  peer_ack_delay_exponent: %" PRIu64, params.peer_ack_delay_exponent);
-    log_trace("  peer_max_ack_delay: %" PRIu64, params.peer_max_ack_delay);
-    log_trace("  peer_disable_active_migration: %s", params.peer_disable_active_migration ? "true" : "false");
-    log_trace("  peer_active_conn_id_limit: %" PRIu64, params.peer_active_conn_id_limit);
-    log_trace("  peer_max_datagram_frame_size: %zd", params.peer_max_datagram_frame_size);
-
-    quiche_path_stats path_stats;
-    quiche_conn_path_stats(conn_io->conn, 0, &path_stats);
-    log_trace("cwnd size: %ld", path_stats.cwnd);
 
     log_debug("new connection accepted");
 

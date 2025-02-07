@@ -49,7 +49,7 @@ void * request_response_test(void *args) {
     FILE *fp = arguments->fp;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
-    size_t data_size = arguments->data_size;
+    size_t data_size = arguments->data_size / 4; // 4 bytes per character
     double duration = arguments->duration;
 
     int sum_rtt = 0;
