@@ -743,7 +743,6 @@ void* flush_egress(void *arg) {
     quiche_send_info send_info;
 
     while (1) {
-        log_warn("flush_egress: waiting for data");
         pthread_mutex_lock(&conn_io->mutex);
         ssize_t written = quiche_conn_send(conn_io->conn, out, sizeof(out),
                                            &send_info);
@@ -1356,7 +1355,7 @@ void* connect_unix_socket(void * args) {
     return (void *)&stream_io->c_fd;
 }
 
-void * stream_write(void *arg) {
+void *stream_write(void *arg) {
     struct stream_ctx *stream_ctx = (struct stream_ctx *)arg;
     struct conn_io *conn_io = stream_ctx->conn_io;
     struct stream_io *stream_io = stream_ctx->stream_io;
@@ -1364,33 +1363,23 @@ void * stream_write(void *arg) {
     uint8_t buffer[65536];
     while (1) {
         log_trace("strm_write: reading from unix socket %d", stream_io->a_fd);
-        int to_read = 0;
-        pthread_mutex_lock(&conn_io->mutex);
-        log_trace("strm_write: conn lock", (void *)conn_io);
-        while ((to_read = quiche_conn_stream_capacity(conn_io->conn, stream_io->stream_id)) <= 0) {
-            log_trace("strm_write: conn %ld is blocked", stream_io->stream_id);
-            pthread_cond_wait(&conn_io->cond, &conn_io->mutex); 
-        }
-        log_trace("strm_write: conn unlock", (void *)conn_io);
-        pthread_mutex_unlock(&conn_io->mutex);
-        ssize_t len = read(stream_io->a_fd, buffer, to_read);
-        uint64_t error_code;
+        ssize_t len = read(stream_io->a_fd, buffer, sizeof(buffer));
         if (len <= 0) {
             log_trace("strm_write: stream %ld closed", stream_io->stream_id);
             flush_egress(conn_io);
             pthread_mutex_lock(&conn_io->mutex);
-            unsigned char* close_msg = "fin";
+            char *close_msg = "fin";
             if (stream_io->stream_id == -1) {
                 log_trace("stream already closed");
-                // g_hash_table_remove(conn_io->streams, uint64_to_ptr(stream_io->stream_id));
                 pthread_mutex_unlock(&conn_io->mutex);
                 break;
             }
             while (quiche_conn_stream_writable(conn_io->conn, stream_io->stream_id, strlen(close_msg)) <= 0) {
                 pthread_cond_wait(&conn_io->cond, &conn_io->mutex);
             }
+            uint64_t error_code;
             if (quiche_conn_stream_send(conn_io->conn, stream_io->stream_id, (const uint8_t *)close_msg, strlen(close_msg), true, &error_code) < 0) {
-                log_error("failed to finish the stream: %" PRIu64 " to_read: %d", error_code, to_read);
+                log_error("failed to finish the stream: %" PRIu64, error_code);
                 quic_error = QUIC_ERROR_SEND_FAILED;
                 pthread_mutex_unlock(&conn_io->mutex);
                 break;
@@ -1398,29 +1387,38 @@ void * stream_write(void *arg) {
             log_trace("fin sent");
             pthread_mutex_unlock(&conn_io->mutex);
             flush_egress(conn_io);
-
             break;
         }
+        log_trace("strm_write: conn lock", (void *)conn_io);
 
-        pthread_mutex_lock(&conn_io->mutex);
-        if (!quiche_conn_is_closed(conn_io->conn)) {
-            while (quiche_conn_stream_writable(conn_io->conn, stream_io->stream_id, len) <= 0) {
+        
+        ssize_t bytes_sent = 0;
+        while (bytes_sent < len) {
+            pthread_mutex_lock(&conn_io->mutex);
+            ssize_t to_send = quiche_conn_stream_capacity(conn_io->conn, stream_io->stream_id);
+            while (to_send < MAX_DATAGRAM_SIZE) {
+                log_trace("strm_write: conn %ld is blocked", stream_io->stream_id);
+                log_trace("stream %ld capacity: %ld", stream_io->stream_id, to_send);
                 pthread_cond_wait(&conn_io->cond, &conn_io->mutex);
+                to_send = quiche_conn_stream_capacity(conn_io->conn, stream_io->stream_id);
             }
-            if (quiche_conn_stream_send(conn_io->conn, stream_io->stream_id, (const uint8_t *)buffer, len, false, &error_code) < 0) {
-                log_error("failed to send message: %" PRIu64 " to_read: %d", error_code, to_read);
+
+            if (to_send > len - bytes_sent) {
+                to_send = len - bytes_sent;
+            }
+
+            uint64_t error_code;
+            if (quiche_conn_stream_send(conn_io->conn, stream_io->stream_id, (const uint8_t *)buffer + bytes_sent, to_send, false, &error_code) < 0) {
+                log_error("failed to send message: %" PRIu64, error_code);
                 quic_error = QUIC_ERROR_SEND_FAILED;
                 pthread_mutex_unlock(&conn_io->mutex);
                 break;
             }
-            log_trace("strm_write: sent %d bytes", len);
-        } else {
-            log_error("connection is closed");
+            log_trace("strm_write: sent %zd bytes", to_send);
             pthread_mutex_unlock(&conn_io->mutex);
-            break;
+            flush_egress(conn_io);
+            bytes_sent += to_send;
         }
-        pthread_mutex_unlock(&conn_io->mutex);
-        flush_egress(conn_io);
     }
     free(stream_ctx);
     return NULL;
@@ -1456,9 +1454,12 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         // quiche_config_set_max_idle_timeout(ctx->config, 10000000);
         quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
-        quiche_config_set_initial_max_data(ctx->config, 1000000000);
-        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1000000000);
-        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 1000000000);
+        quiche_config_set_initial_max_data(ctx->config, 16777216);
+        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 16777216);
+        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 16777216);
+        // quiche_config_set_initial_max_data(ctx->config, 0);
+        // quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 0);
+        // quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 0);
         quiche_config_set_initial_max_streams_bidi(ctx->config, 10000);
         // quiche_config_set_initial_congestion_window_packets(ctx->config, 50);
         quiche_config_set_cc_algorithm(ctx->config, QUICHE_CC_CUBIC);
@@ -1945,6 +1946,7 @@ int open_stream(context_t context, connection_t connection) {
     pthread_detach(stream_io->w_thread);
 
     log_trace("sending open stream message to stream id: %d", conn_io->stream_count);
+
     pthread_mutex_lock(&conn_io->mutex);
     if (quiche_conn_stream_send(conn_io->conn, conn_io->stream_count, r, sizeof(r), false, &error_code) < 0) {
         log_error("failed to send message: %" PRIu64 "", error_code);

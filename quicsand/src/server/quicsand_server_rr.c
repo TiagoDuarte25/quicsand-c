@@ -74,11 +74,9 @@ void* handle_stream(void * arg) {
     EVP_MD_CTX *res_sha256_ctx = data->res_sha256_ctx;
 
     log_debug("handling stream");
-    log_warn("stream_fd: %d", stream_fd);
     while (1) {
         char buffer[65536];
         // receive data from the client
-        log_debug("waiting for data");
         ssize_t len = read(stream_fd, buffer, sizeof(buffer));
         if (len > 0) {
             EVP_DigestUpdate(req_sha256_ctx, buffer, len);
