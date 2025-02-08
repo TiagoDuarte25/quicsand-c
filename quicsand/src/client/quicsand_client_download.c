@@ -23,8 +23,6 @@ struct args {
   char *ip_address;
   int port;
   char *file_path;
-  size_t data_size;
-  double duration;
 };
 
 void bin_to_hex(const unsigned char *bin, size_t bin_len, char *hex) {
@@ -109,8 +107,12 @@ void *download_file(void *args) {
     bin_to_hex(file_hash, file_hash_len, file_hash_hex);
     log_info("file hash: %s", file_hash_hex);
 
+    EVP_MD_CTX_free(file_hash_ctx);
+
     statistics_t stats;
     get_conneciton_statistics(ctx, connection, &stats);
+
+    close_connection(ctx, connection);
 
     fprintf(fp, "\n");
     fprintf(fp, "\n");
@@ -126,6 +128,8 @@ void *download_file(void *args) {
     fprintf(fp, "total bytes sent: %ld\n", stats.total_sent_bytes);
     fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
 
+    destroy_quic_context(ctx);
+
     return NULL;
 }
 
@@ -139,7 +143,7 @@ int main(int argc, char *argv[]) {
   fprintf(stdout, "quicsand client\n");
 
   // Parse command-line arguments
-  while ((opt = getopt(argc, argv, "i:p:f:d:s:l:")) != -1) {
+  while ((opt = getopt(argc, argv, "i:p:f:l:")) != -1) {
       switch (opt) {
             case 'i':
             ip_address = strdup(optarg);
@@ -190,6 +194,8 @@ int main(int argc, char *argv[]) {
 
   free(ip_address);
   free(file_path);
+  free(arguments);
+  free(log_file);
   fclose(fp);
   return 0;
 }
