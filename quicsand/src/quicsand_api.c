@@ -356,9 +356,9 @@ stream_callback(
         pthread_mutex_lock(&stream_info->mutex);
         log_trace("[conn][%p][strm][%p] data receive", (void*)connection_info->connection, (void *)stream);
 
-        int len = event->RECEIVE.TotalBufferLength;
+        uint64_t len = event->RECEIVE.TotalBufferLength;
 
-        int sndbuf;
+        uint32_t sndbuf;
         socklen_t optlen = sizeof(sndbuf);
         if (getsockopt(stream_info->a_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == -1) {
             log_error("getsockopt failed: %s", strerror(errno));
@@ -368,7 +368,7 @@ stream_callback(
 
         size_t total_bytes_written = 0;
         
-        for (int i = 0; i < event->RECEIVE.BufferCount; i++) {
+        for (uint32_t i = 0; i < event->RECEIVE.BufferCount; i++) {
             size_t buffer_bytes_written = 0;
             while (buffer_bytes_written < event->RECEIVE.Buffers[i].Length) {
                 struct pollfd pfd;
@@ -449,7 +449,7 @@ stream_callback(
             stream_info->s_fd = -1;
         }
         unlink(stream_info->addr.sun_path);
-        free(stream_info);
+        ctx->msquic->StreamClose(stream);
         break;
     case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:
         log_trace("[strm][%p] ideal send buffer size: %u", (void *)stream, event->IDEAL_SEND_BUFFER_SIZE.ByteCount);
@@ -1665,6 +1665,7 @@ int bind_addr(context_t context, char* ip, int port) {
     }
     ctx->s.local_address.Ipv4.sin_family = QUIC_ADDRESS_FAMILY_INET;
     ctx->s.local_address.Ipv4.sin_port = htons(port);
+    return 0;
     #endif
 }
 
@@ -1815,7 +1816,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     }
 
     //get cid from connection
-    int32_t cid_len = sizeof(connection_info->cid);
+    uint32_t cid_len = sizeof(connection_info->cid);
     if (QUIC_FAILED(status = ctx->msquic->GetParam(connection_info->connection, QUIC_PARAM_CONN_ORIG_DEST_CID, &cid_len, connection_info->cid))) {
         log_error("failed to get connection local cid, 0x%x!", status);
         quic_error = QUIC_ERROR_CONNECTION_FAILED;
@@ -2284,6 +2285,8 @@ int accept_stream(context_t context, connection_t connection) {
     struct context *ctx = (struct context *)context;
     connection_info_t *connection_info = connection;
     stream_info_t *stream_info = NULL;
+
+    log_trace("context: %p", ctx);
     
     // Lock the mutex to wait for a connection
     g_mutex_lock(&connection_info->queue_mutex);
