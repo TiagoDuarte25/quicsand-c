@@ -169,7 +169,7 @@ GCond queue_cond;
 #define MAX_STREAMS 20000
 #define MAX_CONNECTIONS 50
 
-typedef struct {
+typedef struct stream_info {
     HQUIC stream;
     uint64_t stream_id;
 
@@ -185,28 +185,37 @@ typedef struct {
     pthread_cond_t cond;
     int ready; 
 
+    BOOLEAN fin;
+
     // to clear
     size_t bytes_received;
     size_t bytes_written;
 } stream_info_t;
 
-typedef struct {
+typedef struct connection_info {
     HQUIC connection;
+
     GQueue *stream_queue;
     GMutex queue_mutex;
     GCond queue_cond;
+
     uint8_t cid[20];
+
     UT_hash_handle hh;
+
     stream_info_t *h;
+    GHashTable *streams;
+
     struct context *ctx;
+
 } connection_info_t;
 
-typedef struct {
+typedef struct ctx_conn{
     struct context *ctx;
     connection_info_t *connection_info;
 } ctx_conn_t;
 
-typedef struct {
+typedef struct ctx_strm {
     struct context *ctx;
     connection_info_t *connection_info;
     stream_info_t *stream_info;
@@ -238,6 +247,7 @@ struct context
     GCond queue_cond;
 
     connection_info_t *h;
+    GHashTable *connections;
 };
 #endif
 
@@ -279,32 +289,38 @@ void * stream_write(void *arg) {
         log_trace("[strm][%p] stream_write: read %d bytes", (void *)stream_info->stream, len);
         if (len < 0) {
             log_error("failed to read from unix socket: %s", strerror(errno));
-            return NULL;
+            break;
         }
         if (len == 0) {
             log_trace("[strm][%p] stream_write: EOF");
             if (stream_info == NULL) {
                 log_trace("stream_write: stream_info is NULL");
-                return NULL;
+                break;
             }
             pthread_mutex_lock(&stream_info->mutex);
+            if (stream_info->fin == TRUE) {
+                log_trace("stream already finished");
+                pthread_mutex_unlock(&stream_info->mutex);
+                g_hash_table_remove(ctx->connections, stream_info->stream);
+                break;
+            }
             log_trace("[strm][%p] stream_write: shutting down stream %p gracefully", (void *)stream_info->stream , stream_info->stream);
             ctx->msquic->StreamShutdown(stream_info->stream, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0);
             pthread_mutex_unlock(&stream_info->mutex);
-            return NULL;
+            break;
         }
         
         log_trace("[strm][%p] stream_write: preparing to send %d bytes", (void *)stream_info->stream , len);
         QUIC_BUFFER *send_buffer = malloc(sizeof(QUIC_BUFFER));
         if (!send_buffer) {
             log_error("failed to allocate memory for send_buffer");
-            return NULL;
+            break;
         }
         send_buffer->Buffer = malloc(len);
         if (!send_buffer->Buffer) {
             log_error("failed to allocate memory for send_buffer->Buffer");
             free(send_buffer);
-            return NULL;
+            break;
         }
         memcpy(send_buffer->Buffer, buffer, len);
         send_buffer->Length = len;
@@ -318,7 +334,7 @@ void * stream_write(void *arg) {
         if (QUIC_FAILED(status)) {
             log_error("send stream failed, 0x%x!", status);
             // free(send_buffer);
-            return NULL;
+            break;
         }
         pthread_mutex_lock(&stream_info->mutex);
         if (stream_info->ready == 0) {
@@ -327,7 +343,11 @@ void * stream_write(void *arg) {
         }  
         log_trace("[strm][%p] stream_write: sent %d bytes", (void *)stream_info->stream, len);
         pthread_mutex_unlock(&stream_info->mutex);
+        free(send_buffer->Buffer);
+        free(send_buffer);
     }
+    free(ctx_strm);
+    return NULL;
 }
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -410,19 +430,24 @@ stream_callback(
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         pthread_mutex_lock(&stream_info->mutex);
         log_trace("[conn][%p][strm][%p] peer send shutdown", (void*)connection_info->connection, (void *)stream);
+        ctx->msquic->StreamShutdown(stream, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0);
         shutdown(stream_info->a_fd, SHUT_WR);
+        close(stream_info->a_fd);
+        close(stream_info->c_fd);
+        close(stream_info->s_fd);
+        unlink(stream_info->addr.sun_path);
+        stream_info->fin = TRUE;
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         pthread_mutex_lock(&stream_info->mutex);
-        ctx->msquic->StreamShutdown(stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
         log_trace("[conn][%p][strm][%p] peer send aborted", (void*)connection_info->connection, (void *)stream);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         pthread_mutex_lock(&stream_info->mutex);
         log_trace("[conn][%p][strm][%p] peer receive aborted", (void*)connection_info->connection, (void *)stream);
-        ctx->msquic->StreamClose(stream);
+        ctx->msquic->StreamShutdown(stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
         pthread_mutex_unlock(&stream_info->mutex);
         break;
     case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
@@ -432,24 +457,8 @@ stream_callback(
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
         log_trace("[conn][%p][strm] all done", (void*)connection_info->connection);
-        HASH_DELETE(hh, connection_info->h, stream_info);
-        if (stream_info->a_fd >= 0) {
-            shutdown(stream_info->a_fd, SHUT_RDWR);
-            close(stream_info->a_fd);
-            stream_info->a_fd = -1;
-        }
-        if (stream_info->c_fd >= 0) {
-            shutdown(stream_info->c_fd, SHUT_RDWR);
-            close(stream_info->c_fd);
-            stream_info->c_fd = -1;
-        }
-        if (stream_info->s_fd >= 0) {
-            shutdown(stream_info->s_fd, SHUT_RDWR);
-            close(stream_info->s_fd);
-            stream_info->s_fd = -1;
-        }
-        unlink(stream_info->addr.sun_path);
         ctx->msquic->StreamClose(stream);
+        free(ctx_strm);
         break;
     case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:
         log_trace("[strm][%p] ideal send buffer size: %u", (void *)stream, event->IDEAL_SEND_BUFFER_SIZE.ByteCount);
@@ -490,6 +499,10 @@ connection_callback(
         g_mutex_unlock(&ctx->queue_mutex);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
+        g_mutex_lock(&connection_info->queue_mutex);
+        g_queue_push_tail(connection_info->stream_queue, NULL);
+        g_cond_signal(&connection_info->queue_cond);
+        g_mutex_unlock(&connection_info->queue_mutex);
         log_trace("[conn][%p] shutdown initiated by transport, 0x%x", (void *)connection, event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
         if (event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status == QUIC_STATUS_CONNECTION_IDLE)
         {
@@ -502,16 +515,14 @@ connection_callback(
         g_cond_signal(&connection_info->queue_cond);
         g_mutex_unlock(&connection_info->queue_mutex);
         log_trace("[conn][%p] shutdown initiated by peer, 0x%llu", (void *)connection, (unsigned long long)event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+        ctx->msquic->ConnectionShutdown(connection_info->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         log_trace("[conn][%p] shutdown complete", (void *)connection);
-        HASH_DELETE(hh, ctx->h, connection_info);
-        if (!event->SHUTDOWN_COMPLETE.AppCloseInProgress)
-        {
-            log_trace("[conn][%p] app close not in progress", (void *)connection);
-            ctx->msquic->ConnectionClose(connection);  
-            free(connection_info);  
-        }
+        ctx->msquic->ConnectionClose(connection);
+        g_hash_table_destroy(connection_info->streams);
+        g_hash_table_remove(ctx->connections, connection_info);
+        free(ctx_conn);
         break;
     case QUIC_CONNECTION_EVENT_LOCAL_ADDRESS_CHANGED:
         log_trace("[conn][%p] local address changed", (void *)connection);
@@ -559,6 +570,8 @@ connection_callback(
 
         log_trace("server socket path: %s", addr.sun_path);
 
+        unlink(addr.sun_path);
+
 
         // Create directory if it does not exist
         if (mkdir(path, 0777) && errno != EEXIST) {
@@ -585,6 +598,8 @@ connection_callback(
         stream_info->c_fd = c_fd;
         stream_info->addr = addr;
 
+        stream_info->fin = FALSE;
+
         pthread_t accept_thread, connect_thread;
         pthread_create(&accept_thread, NULL, accept_unix_socket, (void *)stream_info);
         pthread_create(&connect_thread, NULL, connect_unix_socket, (void *)stream_info);
@@ -592,18 +607,24 @@ connection_callback(
         pthread_join(accept_thread, NULL);
         pthread_join(connect_thread, NULL);
 
-        ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
-        ctx_strm->ctx = ctx;
-        ctx_strm->connection_info = connection_info;
-        ctx_strm->stream_info = stream_info;
+        ctx_strm_t *stream_write_ctx = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
+        stream_write_ctx->ctx = ctx;
+        stream_write_ctx->connection_info = connection_info;
+        stream_write_ctx->stream_info = stream_info;
 
-        pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)ctx_strm);
+        pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)stream_write_ctx);
         pthread_detach(stream_info->w_thread);
 
         g_mutex_lock(&connection_info->queue_mutex);
         g_queue_push_tail(connection_info->stream_queue, stream_info);
         g_cond_signal(&connection_info->queue_cond);
         g_mutex_unlock(&connection_info->queue_mutex);
+
+        ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
+        ctx_strm->ctx = ctx;
+        ctx_strm->connection_info = connection_info;
+        ctx_strm->stream_info = stream_info;
+
         ctx->msquic->SetCallbackHandler(stream_info->stream, (void *)stream_callback, ctx_strm);
         log_trace("[strm][%p] peer started", (void *)event->PEER_STREAM_STARTED.Stream);
         break;
@@ -675,6 +696,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL)
         connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
         connection_info->connection = event->NEW_CONNECTION.Connection;
         connection_info->h = NULL;
+        connection_info->streams = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, free);
         connection_info->stream_queue = g_queue_new();
         g_mutex_init(&connection_info->queue_mutex);
         g_cond_init(&connection_info->queue_cond);
@@ -1568,6 +1590,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         cred_config.CertificateFile = &CertFile;
     }
     ctx->h = NULL;
+    ctx->connections = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, free);
     ctx->conn_queue = g_queue_new();
     g_mutex_init(&ctx->queue_mutex);
     g_cond_init(&ctx->queue_cond);
@@ -1791,6 +1814,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
 
     connection_info_t *connection_info = (connection_info_t *)malloc(sizeof(connection_info_t));
     connection_info->h = NULL;
+    connection_info->streams = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, free);
     connection_info->stream_queue = g_queue_new();
     g_mutex_init(&connection_info->queue_mutex);
     g_cond_init(&connection_info->queue_cond);
@@ -1838,7 +1862,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
 
     log_trace("connection established, cid: %s", cid_hex);
 
-    HASH_ADD(hh, ctx->h, connection, sizeof(HQUIC), connection_info);
+    g_hash_table_insert(ctx->connections, connection_info->connection, connection_info);
 
     return (connection_t) connection_info;
     #endif
@@ -1890,7 +1914,9 @@ int close_connection(context_t context, connection_t connection) {
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
     connection_info_t *connection_info = connection;
+    log_trace("closing connection");
     ctx->msquic->ConnectionShutdown(connection_info->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+    g_queue_free(connection_info->stream_queue);
     return 0;
     #endif
 }
@@ -2023,6 +2049,7 @@ int open_stream(context_t context, connection_t connection) {
         stream_info->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
         stream_info->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         stream_info->ready = 0;
+        stream_info->fin = FALSE;
 
         ctx_strm_t *ctx_strm = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
         if (!ctx_strm) {
@@ -2161,11 +2188,20 @@ int open_stream(context_t context, connection_t connection) {
         log_debug("unix socket connection established");
 
         pthread_mutex_lock(&stream_info->mutex);
-        HASH_ADD(hh, connection_info->h, s_fd, sizeof(int), stream_info);
+        g_hash_table_insert(connection_info->streams, stream_info->stream, stream_info);
         pthread_mutex_unlock(&stream_info->mutex);
         log_debug("stream_info added to hash table");
 
-        pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)ctx_strm);
+        ctx_strm_t *stream_write_ctx = (ctx_strm_t *)malloc(sizeof(ctx_strm_t));
+        if (!ctx_strm) {
+            log_error("failed to allocate memory for ctx_strm");
+            free(stream_info);
+            return -1;
+        }
+        stream_write_ctx->ctx = ctx;
+        stream_write_ctx->connection_info = connection_info;
+        stream_write_ctx->stream_info = stream_info;
+        pthread_create(&stream_info->w_thread, NULL, stream_write, (void *)stream_write_ctx);
         pthread_detach(stream_info->w_thread);
         log_debug("write thread created and detached");
 
@@ -2249,7 +2285,7 @@ connection_t accept_connection(context_t context) {
     connection_info = g_queue_pop_head(ctx->conn_queue);
     g_mutex_unlock(&ctx->queue_mutex);
 
-    HASH_ADD(hh, ctx->h, connection, sizeof(HQUIC), connection_info);
+    g_hash_table_insert(ctx->connections, connection_info->connection, connection_info);
 
     log_debug("new connection accepted");
     return (connection_t)connection_info;
@@ -2301,7 +2337,7 @@ int accept_stream(context_t context, connection_t connection) {
     }
     g_mutex_unlock(&connection_info->queue_mutex);
 
-    HASH_ADD(hh, connection_info->h, s_fd, sizeof(int), stream_info);
+    g_hash_table_insert(connection_info->streams, stream_info->stream, stream_info);
 
     log_debug("new stream accepted");
     return stream_info->c_fd;
@@ -2335,11 +2371,30 @@ void destroy_quic_context(context_t context) {
     free(ctx);
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
-    if (ctx->msquic != NULL) {
-        ctx->msquic->RegistrationClose(ctx->registration);
-        MsQuicClose(ctx->msquic);
+    log_trace("destroying context: %p", ctx);
+    if (ctx == NULL) {
+        return;
     }
+    if (ctx->msquic != NULL) {
+        ctx->msquic->ConfigurationClose(ctx->configuration);
+        log_trace("shutting down registration");
+        ctx->msquic->RegistrationShutdown(ctx->registration, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+        log_trace("closing registration");
+        ctx->msquic->RegistrationClose(ctx->registration);
+
+        if (ctx->connections != NULL) {
+            log_trace("destroying connections");
+            g_hash_table_destroy(ctx->connections);
+        }
+        if (ctx->conn_queue != NULL) {
+            log_trace("destroying connection queue");
+            g_queue_free(ctx->conn_queue);
+        }
+    }
+    MsQuicClose(ctx->msquic);
     free(ctx);
+    log_trace("context destroyed");
+    return;
     #endif
 }
 
