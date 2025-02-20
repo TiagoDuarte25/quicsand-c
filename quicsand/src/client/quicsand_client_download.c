@@ -91,6 +91,7 @@ void *download_file(void *args) {
         total_bytes_read += bytes_read;
         fwrite(buffer, 1, bytes_read, file);
         EVP_DigestUpdate(file_hash_ctx, buffer, bytes_read);
+        log_debug("bytes_read=%ld, total_bytes_read=%ld", bytes_read, total_bytes_read);
     }
 
     fclose(file);
@@ -171,7 +172,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Add file callback with the level
-  if (log_add_fp(fp, LOG_INFO) != 0) {
+  if (log_add_fp(fp, LOG_TRACE) != 0) {
       fprintf(fp, "Failed to add file callback\n");
       return 1;
   }

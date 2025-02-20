@@ -26,7 +26,7 @@ IF (CMAKE_BUILD_TYPE STREQUAL Debug)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wshadow -Wformat=2 -Werror")
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstack-protector-all -fno-omit-frame-pointer")
 ELSEIF (CMAKE_BUILD_TYPE STREQUAL Release)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")   
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -DOPENSSL_DEBUG -DDEBUG")   
 ENDIF()
 
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} $ENV{EXTRA_CFLAGS}")

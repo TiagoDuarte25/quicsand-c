@@ -15,6 +15,8 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 
+#include <errno.h>
+
 #define CHUNK_SIZE 1024
 
 typedef struct {
@@ -38,7 +40,13 @@ void* handle_stream(void *arg) {
     log_debug("handling stream");
 
     char file_path[256];
-    read(stream_fd, file_path, sizeof(file_path));
+    if (read(stream_fd, file_path, sizeof(file_path)) < 0) {
+        log_error("error: %s", strerror(errno));
+        close(stream_fd);
+        free(data);
+        return NULL;
+    }
+    log_debug("file path: %s", file_path);
 
     // Open file for reading
     FILE *file = fopen(file_path, "r");
@@ -55,7 +63,7 @@ void* handle_stream(void *arg) {
 
     // Send file size to the client
     if (write(stream_fd, &file_size, sizeof(size_t)) < 0) {
-        log_error("error: %s", quic_error_message(quic_error));
+        log_error("error: %s", strerror(errno));
         fclose(file);
         close(stream_fd);
         return NULL;
@@ -80,7 +88,7 @@ void* handle_stream(void *arg) {
             bytes_sent += len;
             EVP_DigestUpdate(file_hash_ctx, buffer, len);
         }
-        log_debug("sent %zu bytes", bytes_sent);
+        log_debug("stream_fd %d: sent %zu bytes", stream_fd, bytes_sent);
     }
     fclose(file);
     log_info("file download completed");
@@ -105,9 +113,9 @@ void *handle_connection(void *arg) {
         int stream_fd = accept_stream(ctx, connection);
         if (stream_fd < 0) {
             log_error("error: %s", quic_error_message(quic_error));
-            close_connection(ctx, connection);
             continue;
         }
+        log_debug("accepted stream %d", stream_fd);
 
         // Allocate memory for thread data
         thread_data_stream_t *stream_data = (thread_data_stream_t *)malloc(sizeof(thread_data_stream_t));
@@ -168,7 +176,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Add file callback with the level
-    if (log_add_fp(fp, LOG_INFO) != 0) {
+    if (log_add_fp(fp, LOG_TRACE) != 0) {
         fprintf(fp, "Failed to add file callback\n");
         return 1;
     }
@@ -203,7 +211,7 @@ int main(int argc, char *argv[]) {
             log_error("error: %s", quic_error_message(quic_error));
             continue;
         }
-        log_debug("connection accepted");
+        log_debug("connection accepted %p", (void *)connection);
 
         // Allocate memory for thread data
         thread_data_t *data = (thread_data_t *)malloc(sizeof(thread_data_t));

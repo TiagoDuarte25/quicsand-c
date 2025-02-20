@@ -190,11 +190,12 @@ int main(int argc, char *argv[]) {
     upload_file(arguments);
 
     log_info("client finished");
-    fclose(fp);
+    
     free(arguments);
     free(log_file);
     free(ip_address);
     free(file_path);
+    fclose(fp);
 
     return 0;
 }
