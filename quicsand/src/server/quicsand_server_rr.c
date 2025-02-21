@@ -83,7 +83,7 @@ void* handle_stream(void * arg) {
             log_debug("received %d bytes", len);
 
             // response size multiplied by factor
-            size_t response_len = len * data->factor / 4; // 4 bytes per character
+            size_t response_len = len * data->factor; // 4 bytes per character
             char* response;
             random_data(response_len, &response);
             log_debug("generated response of %d bytes", response_len);

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <arpa/inet.h> // inet_addr()
 #include <sys/times.h>
+#include <sys/time.h>
 #include <sys/resource.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -45,8 +46,18 @@ void *stream_data(void *args) {
 
     log_info("starting streaming client");
 
+    clock_t start_time, end_time;
+    start_time = clock();
+
+    // Capture resource usage before create_quic_context
+    struct rusage usage_start;
+    getrusage(RUSAGE_SELF, &usage_start);
+
     context_t ctx = create_quic_context(NULL, NULL);
     log_debug("context created");
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
     connection_t connection = open_connection(ctx, ip_address, port);
     log_debug("connection opened");
 
@@ -87,15 +98,41 @@ void *stream_data(void *args) {
 
     EVP_MD_CTX_free(mdctx);
 
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    // Calculate the elapsed time
+    double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    log_info("elapsed time: %f seconds", elapsed);
+
     statistics_t stats;
     get_conneciton_statistics(ctx, connection, &stats);
 
     close_connection(ctx, connection);
 
+    end_time = clock();
+    double cpu_time_used = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
+
+    // Capture resource usage before printing statistics
+    struct rusage usage_end;
+    getrusage(RUSAGE_SELF, &usage_end);
+
+    // Calculate the difference in resource usage
+    struct rusage usage_diff;
+    timersub(&usage_end.ru_utime, &usage_start.ru_utime, &usage_diff.ru_utime);
+    timersub(&usage_end.ru_stime, &usage_start.ru_stime, &usage_diff.ru_stime);
+    usage_diff.ru_maxrss = usage_end.ru_maxrss - usage_start.ru_maxrss;
+    usage_diff.ru_ixrss = usage_end.ru_ixrss - usage_start.ru_ixrss;
+    usage_diff.ru_idrss = usage_end.ru_idrss - usage_start.ru_idrss;
+    usage_diff.ru_isrss = usage_end.ru_isrss - usage_start.ru_isrss;
+
     fprintf(fp, "\n");
     fprintf(fp, "\n");
     fprintf(fp, "-------------- Applicational Statistics --------------\n");
     fprintf(fp, "total bytes received: %ld\n", total_bytes_received);
+    fprintf(fp, "receive throughput: %ld bytes/s\n", (size_t)(total_bytes_received / elapsed));
+    fprintf(fp, "cpu time used: %f s\n", cpu_time_used);
+    fprintf(fp, "user cpu time used: %ld.%06ld s\n", usage_diff.ru_utime.tv_sec, usage_diff.ru_utime.tv_usec);
+    fprintf(fp, "system cpu time used: %ld.%06ld s\n", usage_diff.ru_stime.tv_sec, usage_diff.ru_stime.tv_usec);
+    fprintf(fp, "maximum resident set size: %ld KB\n", usage_diff.ru_maxrss);
     fprintf(fp, "\n");
     fprintf(fp, "-------------- Protocol Statistics --------------\n");
     fprintf(fp, "rtt: %ld ms\n", stats.avg_rtt);
@@ -105,6 +142,8 @@ void *stream_data(void *args) {
     fprintf(fp, "retransmitted packets: %ld\n", stats.total_retransmitted_packets);
     fprintf(fp, "total bytes sent: %ld\n", stats.total_sent_bytes);
     fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
+    fprintf(fp, "received throughput: %ld bytes/s\n", (size_t)(stats.total_received_bytes / elapsed));
+    fprintf(fp, "\n");
 
     destroy_quic_context(ctx);
 

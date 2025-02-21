@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <arpa/inet.h> // inet_addr()
 #include <sys/times.h>
+#include <sys/time.h>
 #include <sys/resource.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -29,6 +30,9 @@ struct args {
 
 int random_data(size_t len, char **data) {
     *data = (char *)malloc(len);
+    if (*data == NULL) {
+        return -1; // Return an error if memory allocation fails
+    }
     for (size_t i = 0; i < len - 1; i++) {
         (*data)[i] = 'A' + (rand() % 26);
     }
@@ -49,7 +53,7 @@ void * request_response_test(void *args) {
     FILE *fp = arguments->fp;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
-    size_t data_size = arguments->data_size / 4; // 4 bytes per character
+    size_t data_size = arguments->data_size;
     double duration = arguments->duration;
 
     int sum_rtt = 0;
@@ -58,6 +62,13 @@ void * request_response_test(void *args) {
     struct timespec rtt_start, rtt_end;
 
     log_info("testing request/response communication");
+
+    clock_t start_time, end_time;
+    start_time = clock();
+
+    // Capture resource usage before create_quic_context
+    struct rusage usage_start;
+    getrusage(RUSAGE_SELF, &usage_start);
 
     struct timespec start, current;
     double elapsed_time = 0;
@@ -87,6 +98,7 @@ void * request_response_test(void *args) {
         // generate random data
         char *data;
         random_data(data_size, &data);
+
         EVP_DigestUpdate(req_sha256_ctx, data, data_size);
 
         // start the round-trip timer
@@ -153,12 +165,29 @@ void * request_response_test(void *args) {
 
     rtt = sum_rtt / num_requests;
 
+    end_time = clock();
+    double cpu_time_used = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
+
+    // Capture resource usage before printing statistics
+    struct rusage usage_end;
+    getrusage(RUSAGE_SELF, &usage_end);
+
+    // Calculate the difference in resource usage
+    struct rusage usage_diff;
+    timersub(&usage_end.ru_utime, &usage_start.ru_utime, &usage_diff.ru_utime);
+    timersub(&usage_end.ru_stime, &usage_start.ru_stime, &usage_diff.ru_stime);
+    usage_diff.ru_maxrss = usage_end.ru_maxrss - usage_start.ru_maxrss;
+
     fprintf(fp, "\n");
     fprintf(fp, "\n");
     fprintf(fp, "-------------- Applicational Statistics --------------\n");
     fprintf(fp, "rtt: %d ms\n", rtt);
     fprintf(fp, "total bytes sent: %d\n", total_bytes_sent);
     fprintf(fp, "total bytes received: %d\n", total_bytes_received);
+    fprintf(fp, "cpu time used: %f s\n", cpu_time_used);
+    fprintf(fp, "user cpu time used: %ld.%06ld s\n", usage_diff.ru_utime.tv_sec, usage_diff.ru_utime.tv_usec);
+    fprintf(fp, "system cpu time used: %ld.%06ld s\n", usage_diff.ru_stime.tv_sec, usage_diff.ru_stime.tv_usec);
+    fprintf(fp, "maximum resident set size: %ld KB\n", usage_diff.ru_maxrss);
     fprintf(fp, "\n");
     fprintf(fp, "-------------- Protocol Statistics --------------\n");
     fprintf(fp, "rtt: %ld ms\n", stats.avg_rtt);

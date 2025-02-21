@@ -1470,7 +1470,7 @@ void *stream_write(void *arg) {
 
             if (to_send > len - bytes_sent) {
                 to_send = len - bytes_sent;
-            }new to_send
+            }
             log_trace("conn_io [%p] bytes to send: %ld", conn_io, to_send);
 
             uint64_t error_code;
@@ -1557,16 +1557,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
     //
     if (QUIC_FAILED(status = MsQuicOpen2(&ctx->msquic)))
     {
-        log_error("failed to open MsQuic, 0
-            }
-            log_trace("fin sent");
-            stream_io->fin = true;
-            g_hash_table_remove(conn_io->streams, uint64_to_ptr(stream_io->stream_id));
-            pthread_mutex_unlock(&conn_io->mutex);
-            
-            flush_egress(conn_io);
-            break;
-        }x%x", status);
+        log_error("failed to open MsQuic, 0x%x", status);
         quic_error = QUIC_ERROR_INITIALIZATION_FAILED;
         return NULL;
     }
@@ -1906,31 +1897,13 @@ int close_connection(context_t context, connection_t connection) {
     close(conn_io->sock);
 
     // Wait for client_recv_cb to finish
-    void *res;
-    int s = pthread_join(conn_io->conn_thread, &res);
+    int s = pthread_join(conn_io->conn_thread, NULL);
     if (s != 0) {
         log_error("pthread_join failed: %s", strerror(s));
         return -1;
     }
-    if (res == PTHREAD_CANCELED) {
-        log_trace("Thread was canceled");
-    } else {
-        log_trace("Thread terminated normally");
-    }
 
     pthread_mutex_lock(&conn_io->mutex);
-
-    log_trace("conn_io address: %p", (void *)conn_io);
-    log_trace("conn_io->conn: %p", (void *)conn_io->conn);
-    log_trace("conn_io->streams: %p", (void *)conn_io->streams);
-    log_trace("conn_io->stream_io_queue: %p", (void *)conn_io->stream_io_queue);
-    log_trace("conn_io->conn_thread: %p", (void *)&conn_io->conn_thread);
-    log_trace("conn_io->mutex: %p", (void *)&conn_io->mutex);
-    log_trace("conn_io->cond: %p", (void *)&conn_io->cond);
-    log_trace("conn_io->sock: %p", &conn_io->sock);
-    log_trace("conn_io->local_addr: %p", (void *)&conn_io->local_addr);
-    log_trace("conn_io->peer_addr: %p", (void *)&conn_io->peer_addr);
-    log_trace("cid: %p", conn_io->cid);
 
     for (GList *streams = g_hash_table_get_keys(conn_io->streams); streams != NULL; streams = streams->next) {
         uint64_t stream_id = GPOINTER_TO_UINT(streams->data);
