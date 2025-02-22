@@ -73,8 +73,16 @@ void * request_response_test(void *args) {
     struct timespec start, current;
     double elapsed_time = 0;
     context_t ctx = create_quic_context(NULL, NULL);
+    if (ctx == NULL) {
+        log_error("failed to create context");
+        return NULL;
+    }
     log_debug("context created");
     connection_t connection = open_connection(ctx, ip_address, port);
+    if (connection == NULL) {
+        log_error("failed to open connection");
+        return NULL;
+    }
     log_debug("connection opened");
     char buffer[65536];
 
@@ -93,6 +101,10 @@ void * request_response_test(void *args) {
         num_requests++;
         // open a new stream
         int stream_fd = open_stream(ctx, connection);
+        if (stream_fd < 0) {
+            log_error("failed to open stream");
+            return NULL;
+        }
         log_debug("stream opened");
 
         // generate random data

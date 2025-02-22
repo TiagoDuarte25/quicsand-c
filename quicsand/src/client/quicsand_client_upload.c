@@ -51,12 +51,20 @@ void *upload_file(void *args) {
     getrusage(RUSAGE_SELF, &usage_start);
 
     context_t ctx = create_quic_context(NULL, NULL);
+    if (ctx == NULL) {
+        log_error("failed to create context");
+        return NULL;
+    }
     log_debug("context created");
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     connection_t connection = open_connection(ctx, ip_address, port);
+    if (connection == NULL) {
+        log_error("failed to open connection");
+        return NULL;
+    }
     log_debug("connection opened");
 
     FILE *file = fopen(file_path, "r");
@@ -75,6 +83,10 @@ void *upload_file(void *args) {
 
     // open a new stream
     int stream_fd = open_stream(ctx, connection);
+    if (stream_fd < 0) {
+        log_error("failed to open stream");
+        return NULL;
+    }
     log_debug("stream opened");
 
     // send the file size
