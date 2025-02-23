@@ -135,12 +135,14 @@ void *download_file(void *args) {
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
-    log_info("elapsed time: %f seconds", elapsed);
+    log_debug("elapsed time: %f seconds", elapsed);
 
     statistics_t stats;
-    get_conneciton_statistics(ctx, connection, &stats);
+    get_connection_statistics(ctx, connection, &stats);
 
+    log_debug("closing connection");
     close_connection(ctx, connection);
+    log_debug("connection closed");
 
     end_time = clock();
     double cpu_time_used = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;

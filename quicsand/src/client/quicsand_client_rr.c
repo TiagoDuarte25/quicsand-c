@@ -154,7 +154,7 @@ void * request_response_test(void *args) {
 
     // Get connection statistics
     statistics_t stats;
-    get_conneciton_statistics(ctx, connection, &stats);
+    get_connection_statistics(ctx, connection, &stats);
 
     close_connection(ctx, connection);
 

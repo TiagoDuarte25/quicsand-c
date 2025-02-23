@@ -193,6 +193,7 @@ run_client_server() {
                 return
                 ;;
         esac
+        sleep 1
     done
 
     # Get the parent process IDs of the quicsand_client processes

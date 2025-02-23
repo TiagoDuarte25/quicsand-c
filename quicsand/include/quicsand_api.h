@@ -92,7 +92,7 @@ int accept_stream(context_t context, connection_t connection);
 // common functions
 int print_context(context_t context);
 char* quic_error_message(quic_error_code_t quic_error);
-int get_conneciton_statistics(context_t context, connection_t connection, statistics_t *stats);
+int get_connection_statistics(context_t context, connection_t connection, statistics_t *stats);
 
 void destroy_quic_context(context_t context);
 
