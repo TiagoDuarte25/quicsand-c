@@ -53,9 +53,9 @@ tests:
   #   type: upload
   #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
 
-  # ai_up_10mb:
-  #   type: upload
-  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
+  ai_up_10mb:
+    type: upload
+    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
 
   # aj_up_1gb:
   #   type: upload
