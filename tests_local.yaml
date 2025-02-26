@@ -5,7 +5,7 @@ info:
 configs:
   globalVariables:
     implementation: msquic
-    num_clients: 5
+    num_clients: 10
     num_servers: 1
 
 tests:
@@ -45,45 +45,45 @@ tests:
     data_size: 1000
     factor: 1000
 
-  ag_up_100kb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
+  # ag_up_100kb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
 
-  ah_up_100mb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
+  # ah_up_100mb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
 
-  ai_up_10mb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
+  # ai_up_10mb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
 
-  aj_up_1gb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1gb_hex.txt
+  # aj_up_1gb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1gb_hex.txt
 
-  ak_up_1mb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1mb_hex.txt
+  # ak_up_1mb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/1mb_hex.txt
 
-  al_up_500kb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/500kb_hex.txt
+  # al_up_500kb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/500kb_hex.txt
 
-  am_up_50mb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/50mb_hex.txt
+  # am_up_50mb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/50mb_hex.txt
 
-  an_up_5gb:
-    type: upload
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/5gb_hex.txt
+  # an_up_5gb:
+  #   type: upload
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/5gb_hex.txt
 
-  ao_dw_100kb:
-    type: download
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
+  # ao_dw_100kb:
+  #   type: download
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100kb_hex.txt
 
-  ap_dw_100mb:
-    type: download
-    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
+  # ap_dw_100mb:
+  #   type: download
+  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
 
   # aq_dw_10mb:
   #   type: download
