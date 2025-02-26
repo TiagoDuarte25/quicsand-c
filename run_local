@@ -193,7 +193,6 @@ run_client_server() {
                 return
                 ;;
         esac
-        sleep 1
     done
 
     # Get the parent process IDs of the quicsand_client processes
@@ -254,5 +253,5 @@ for TEST_KEY in $(echo $TESTS | yq 'keys | .[]' - | tr -d '"'); do
     FILE_PATH=$(echo $TESTS | yq ".${TEST_KEY}.file_path" - | tr -d '"')
     FACTOR=$(echo $TESTS | yq ".${TEST_KEY}.factor" - | tr -d '"')
     BITRATE=$(echo $TESTS | yq ".${TEST_KEY}.bitrate" - | tr -d '"')
-    run_client_server $TEST_KEY $TEST_TYPE $DURATION $DATA_SIZE $FILE_PATH $FACTOR $BITRATE $NUM_CLIENTS  
+    run_client_server $TEST_KEY $TEST_TYPE $DURATION $DATA_SIZE $FILE_PATH $FACTOR $BITRATE $NUM_CLIENTS 
 done

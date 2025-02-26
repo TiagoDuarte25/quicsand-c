@@ -113,7 +113,7 @@ void *handle_connection(void *arg) {
         int stream_fd = accept_stream(ctx, connection);
         if (stream_fd < 0) {
             log_error("error: %s", quic_error_message(quic_error));
-            continue;
+            break;
         }
         log_debug("accepted stream %d", stream_fd);
 
