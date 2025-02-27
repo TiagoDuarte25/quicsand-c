@@ -97,9 +97,6 @@ void *stream_data(void *args) {
         total_bytes_received += bytes_received;
     }
 
-    // // Close the connection
-    // close_connection(ctx, connection);
-
     log_info("streaming client completed");
     
     unsigned char hash[EVP_MAX_MD_SIZE];

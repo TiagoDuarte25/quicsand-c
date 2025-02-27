@@ -267,8 +267,8 @@ void * stream_write(void *arg) {
     ctx_strm_t *ctx_strm = (ctx_strm_t *)arg;
     stream_io_t *stream_io = ctx_strm->stream_io;
     struct context *ctx = ctx_strm->ctx;
-    // char buffer[65536];
-    char buffer[1350];
+    char buffer[65536];
+    // char buffer[1350];
 
     stream_io->bytes_received = 0;
     stream_io->bytes_written = 0;
@@ -276,11 +276,11 @@ void * stream_write(void *arg) {
     while (1) {
         log_trace("stream_write: waiting for data");
         int len = read(stream_io->a_fd, buffer, sizeof(buffer));
-        if (len < 0) {
-            log_error("failed to read from unix socket: %s", strerror(errno));
-            break;
-        }
-        if (len == 0) {
+        // if (len < 0) {
+        //     log_error("failed to read from unix socket: %s", strerror(errno));
+        //     break;
+        // }
+        if (len <= 0) {
             log_trace("[strm][%p] stream_write: EOF", stream_io->stream);
             if (stream_io == NULL) {
                 log_trace("stream_write: stream_io is NULL");
@@ -312,16 +312,19 @@ void * stream_write(void *arg) {
         }
         memcpy(send_buffer->Buffer, buffer, len);
         send_buffer->Length = len;
-        log_warn("stream_write: sending %d bytes", len);
         pthread_mutex_lock(&stream_io->mutex);
         stream_io->buffer_count++;
         stream_io->ready = 0;
         log_trace("[strm][%p] stream_write: sending %d bytes", (void *)stream_io->stream , len);
-        QUIC_STATUS status = ctx->msquic->StreamSend(stream_io->stream, send_buffer, 1, QUIC_SEND_FLAG_NONE, send_buffer);
+        QUIC_STATUS status;
+        while ((status = ctx->msquic->StreamSend(stream_io->stream, send_buffer, 1, QUIC_SEND_FLAG_NONE, send_buffer)) == QUIC_STATUS_INVALID_STATE) {
+            pthread_cond_timedwait(&stream_io->cond, &stream_io->mutex, &(struct timespec){time(NULL) + 1, 0});
+        }
         pthread_mutex_unlock(&stream_io->mutex);
         if (QUIC_FAILED(status)) {
             log_error("send stream failed, 0x%x!", status);
-            // free(send_buffer);
+            free(send_buffer->Buffer);
+            free(send_buffer);
             break;
         }
         pthread_mutex_lock(&stream_io->mutex);
@@ -354,9 +357,7 @@ stream_callback(
     switch (event->Type)
     {
     case QUIC_STREAM_EVENT_START_COMPLETE:
-        pthread_mutex_lock(&stream_io->mutex);
         log_trace("[strm][%p] start complete", (void *)stream);
-        pthread_mutex_unlock(&stream_io->mutex);
         break;
     case QUIC_STREAM_EVENT_RECEIVE:
 
@@ -411,23 +412,18 @@ stream_callback(
             }
         }
         pthread_mutex_unlock(&stream_io->mutex);
-        log_warn("leaving receive");
         break;  
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
         pthread_mutex_lock(&stream_io->mutex);
         stream_io->ready = 1;
         pthread_cond_signal(&stream_io->cond);
-        log_trace("[strm][%p] send complete", (void *)stream);
         pthread_mutex_unlock(&stream_io->mutex);
+        log_trace("[strm][%p] send complete", (void *)stream);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         pthread_mutex_lock(&stream_io->mutex);
         log_trace("[strm][%p] peer send shutdown", (void *)stream);
-        if (stream_io->c_fd != -1) {
-            close(stream_io->c_fd);
-        }
         if (stream_io->fin == TRUE) {
-            log_warn("stream already finished");
             pthread_mutex_unlock(&stream_io->mutex);
             break;
         }
@@ -499,16 +495,22 @@ connection_callback(
         pthread_mutex_lock(&conns->mutex);
         g_queue_push_tail(conns->conn_queue, conn_io);
         pthread_cond_signal(&conns->cond);
-        log_trace("[conn][%p] connected", (void *)connection);
         pthread_mutex_unlock(&conns->mutex);
+        log_trace("[conn][%p] connected", (void *)connection);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
 
         // stop the looking for new streams
         pthread_mutex_lock(&conn_io->mutex);
-
         g_queue_push_tail(conn_io->stream_queue, NULL);
         pthread_cond_signal(&conn_io->cond);
+        pthread_mutex_unlock(&conn_io->mutex);
+
+        // stop the looking for new connections
+        pthread_mutex_lock(&conns->mutex);
+        g_queue_push_tail(conns->conn_queue, NULL);
+        pthread_cond_signal(&conns->cond);
+        pthread_mutex_unlock(&conns->mutex);
 
         log_trace("[conn][%p] shutdown initiated by transport, 0x%x", (void *)connection, event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
         if (event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status == QUIC_STATUS_CONNECTION_TIMEOUT)
@@ -520,26 +522,14 @@ connection_callback(
             log_trace("[conn][%p] successfully shut down on idle.", (void *)connection);
         }
 
-        pthread_mutex_unlock(&conn_io->mutex);
-
-        // stop the looking for new connections
-        pthread_mutex_lock(&conns->mutex);
-        g_queue_push_tail(conns->conn_queue, NULL);
-        pthread_cond_signal(&conns->cond);
-        pthread_mutex_unlock(&conns->mutex);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
         pthread_mutex_lock(&conn_io->mutex);
-        log_debug("Pushing NULL to stream_queue and signaling condition variable");
         g_queue_push_tail(conn_io->stream_queue, NULL);
-        int res = pthread_cond_signal(&conn_io->cond);
-        if (res != 0) {
-            log_error("pthread_cond_signal failed: %s", strerror(res));
-        }
-        log_trace("[conn][%p] shutdown initiated by peer, 0x%llu", (void *)connection, (unsigned long long)event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+        pthread_cond_signal(&conn_io->cond);
         pthread_mutex_unlock(&conn_io->mutex);
         ctx->msquic->ConnectionShutdown(conn_io->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
-        
+        log_trace("[conn][%p] shutdown initiated by peer, 0x%llu", (void *)connection, (unsigned long long)event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         // Iterate over each stream_io in conn_io->streams and join the thread
@@ -557,25 +547,25 @@ connection_callback(
                 }
             }
         }
+
         ctx->msquic->ConnectionClose(connection);
+
         pthread_mutex_lock(&conn_io->mutex);
         g_hash_table_destroy(conn_io->streams);
-        while (g_queue_is_empty(conn_io->stream_queue) == FALSE) {
+        while (conn_io->stream_queue != NULL) {
             pthread_cond_timedwait(&conn_io->cond, &conn_io->mutex, &(struct timespec){time(NULL) + 1, 0});
         }
-        g_queue_free(conn_io->stream_queue);
-        log_trace("[conn][%p] shutdown complete", (void *)connection);
         pthread_mutex_unlock(&conn_io->mutex);
+        
         pthread_mutex_lock(&conns->mutex);
         g_hash_table_remove(conns->conn_ht, conn_io);
         pthread_mutex_unlock(&conns->mutex);
+        log_trace("[conn][%p] shutdown complete", (void *)connection);
         conn_io = NULL;
         free(ctx_conn);
         break;
     case QUIC_CONNECTION_EVENT_LOCAL_ADDRESS_CHANGED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] local address changed", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_PEER_ADDRESS_CHANGED:
         log_trace("[conn][%p] peer address changed", (void *)connection);
@@ -673,64 +663,42 @@ connection_callback(
         ctx_strm->stream_io = stream_io;
 
         ctx->msquic->SetCallbackHandler(stream_io->stream, (void *)stream_callback, ctx_strm);
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p][strm][%p] peer started", conn_io, (void *)event->PEER_STREAM_STARTED.Stream);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_STREAMS_AVAILABLE:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] streams available", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_PEER_NEEDS_STREAMS:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] peer needs streams", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_IDEAL_PROCESSOR_CHANGED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] ideal processor changed", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_DATAGRAM_STATE_CHANGED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] datagram state changed", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_DATAGRAM_RECEIVED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] datagram received", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_DATAGRAM_SEND_STATE_CHANGED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] datagram send state changed", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_RESUMED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] resumed", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] resumption ticket received (%u bytes):", (void *)connection, event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
         for (uint32_t i = 0; i < event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength; i++)
         {
             printf("%.2X", (uint8_t)event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket[i]);
         }
         printf("\n");
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] peer certificate received", (void *)connection);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     default:
-        pthread_mutex_lock(&conn_io->mutex);
         log_trace("[conn][%p] unknown event type: %d", (void *)connection, event->Type);
-        pthread_mutex_unlock(&conn_io->mutex);
         break;
     }
     return QUIC_STATUS_SUCCESS;
@@ -1979,10 +1947,10 @@ connection_t open_connection(context_t context, char* ip, int port) {
     // wait for connection to be established
     connections_t *conns = ctx->connections;
     pthread_mutex_lock(&conns->mutex);
-    if (g_queue_is_empty(conns->conn_queue)) {
+    while (g_queue_is_empty(conns->conn_queue)) {
         pthread_cond_wait(&conns->cond, &conns->mutex);
-        result = (void *)g_queue_pop_head(conns->conn_queue);
     }
+    result = (void *)g_queue_pop_head(conns->conn_queue);
     pthread_mutex_unlock(&conns->mutex);
 
     if (result == NULL) {
@@ -2063,6 +2031,8 @@ int close_connection(context_t context, connection_t connection) {
     log_trace("closing connection");
     pthread_mutex_lock(&conn_io->mutex);
     ctx->msquic->ConnectionShutdown(conn_io->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+    g_queue_free(conn_io->stream_queue);
+    conn_io->stream_queue = NULL;
     pthread_mutex_unlock(&conn_io->mutex);
     return 0;
     #endif
@@ -2493,6 +2463,8 @@ int accept_stream(context_t context, connection_t connection) {
     }
     stream_io = g_queue_pop_head(conn_io->stream_queue);
     if (stream_io == NULL) {
+        g_queue_free(conn_io->stream_queue);
+        conn_io->stream_queue = NULL;
         log_error("failed to accept stream");
         pthread_mutex_unlock(&conn_io->mutex);
         return -1;
@@ -2612,13 +2584,10 @@ int get_connection_statistics(context_t context, connection_t connection, statis
         log_error("connection is NULL");
         return -1;
     }
-    pthread_mutex_lock(&conn_io->mutex);
     if (QUIC_FAILED(ctx->msquic->GetParam(conn_io->connection, QUIC_PARAM_CONN_STATISTICS, &statistics_length, &statistics))) {
         log_error("failed to get connection statistics");
-        pthread_mutex_unlock(&conn_io->mutex);
         return -1;
     }
-    pthread_mutex_unlock(&conn_io->mutex);
     stats->avg_rtt = statistics.Rtt / 1000;
     stats->max_rtt = statistics.MaxRtt / 1000;
     stats->min_rtt = statistics.MinRtt / 1000;
@@ -2628,7 +2597,6 @@ int get_connection_statistics(context_t context, connection_t connection, statis
     stats->total_retransmitted_packets = statistics.Send.RetransmittablePackets;
     stats->total_sent_bytes = statistics.Send.TotalBytes;
     stats->total_received_bytes = statistics.Recv.TotalBytes;
-    log_warn("connection statistics retrieved");
     return 0;
     #endif
 }

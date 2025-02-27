@@ -37,94 +37,6 @@ if [ -z "$CONFIG_FILE" ]; then
     usage
 fi
 
-# # Function to run client and server
-# run_client_server() {
-#     local TEST_NAME=$1
-#     local TEST_TYPE=$2
-#     local DURATION=$3
-#     local DATA_SIZE=$4
-#     local FILE_PATH=$5
-#     local FACTOR=$6
-#     local BITRATE=$7
-#     local NUM_CLIENTS=$8
-
-#     # Define log file names
-#     local SERVER_LOG="${TEST_NAME}_server.log"
-
-#     # Start a new tmux session
-#     tmux new-session -d -s quicsand_session
-
-#     echo "server log: $SERVER_LOG"
-
-#     # Start the server in a new tmux window
-#     case $TEST_TYPE in
-#         request-response)
-#             echo "starting request-response server..."
-#             tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -m $FACTOR; exec bash"
-#             ;;
-#         streaming)
-#             echo "starting streaming server..."
-#             tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -l $SERVER_LOG; exec bash"
-#             ;;
-#         upload)
-#             echo "starting upload server..."
-#             tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; exec bash"
-#             ;;
-#         download)
-#             echo "starting download server..."
-#             tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG; exec bash"
-#             ;;
-#         *)
-#             echo "Error: Unknown test type $TEST_TYPE"
-#             tmux kill-session -t quicsand_session
-#             return
-#             ;;
-#     esac
-
-#     # Give the server some time to start
-#     sleep 2
-
-#     # Start the clients in new tmux windows based on the test type
-#     local RUNNING_CLIENTS=0
-#     while [ $RUNNING_CLIENTS -lt $NUM_CLIENTS ]; do
-#         RUNNING_CLIENTS=$((RUNNING_CLIENTS + 1))
-#         local CLIENT_LOG="${TEST_NAME}_client_$RUNNING_CLIENTS.log"
-#         case $TEST_TYPE in
-#             request-response)
-#                 echo "starting request-response client..."
-#                 tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
-#                 ;;
-#             streaming)
-#                 echo "starting streaming client..."
-#                 tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG; exec bash"
-#                 ;;
-#             upload)
-#                 echo "starting upload client..."
-#                 tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
-#                 ;;
-#             download)
-#                 echo "starting download client..."
-#                 tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
-#                 ;;
-#             *)
-#                 echo "Error: Unknown test type $TEST_TYPE"
-#                 tmux kill-session -t quicsand_session
-#                 return
-#                 ;;
-#         esac
-#     done
-
-#     # Check if the client script is still running
-#     while pgrep -f "quicsand_client" > /dev/null; do
-#         sleep 1
-#     done
-
-#     # Stop the server process
-#     echo "Stopping server process..."
-#     pkill -f "quicsand_server"
-#     tmux kill-session -t quicsand_session
-# }
-
 # Function to run client and server
 run_client_server() {
     local TEST_NAME=$1
@@ -139,26 +51,32 @@ run_client_server() {
     # Define log file names
     local SERVER_LOG="${TEST_NAME}_server.log"
 
-    # Start the server in a new gnome terminal window
+    # Start a new tmux session
+    tmux new-session -d -s quicsand_session
+
+    echo "server log: $SERVER_LOG"
+
+    # Start the server in a new tmux window
     case $TEST_TYPE in
         request-response)
             echo "starting request-response server..."
-            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -m $FACTOR; exec bash"
             ;;
         streaming)
             echo "starting streaming server..."
-            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -l $SERVER_LOG; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -l $SERVER_LOG; exec bash"
             ;;
         upload)
             echo "starting upload server..."
-            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; exec bash"
             ;;
         download)
             echo "starting download server..."
-            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG; exec bash"
+            tmux new-window -t quicsand_session -n server "cd bin; ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG; exec bash"
             ;;
         *)
             echo "Error: Unknown test type $TEST_TYPE"
+            tmux kill-session -t quicsand_session
             return
             ;;
     esac
@@ -166,7 +84,7 @@ run_client_server() {
     # Give the server some time to start
     sleep 2
 
-    # Start the clients in new gnome terminal windows based on the test type
+    # Start the clients in new tmux windows based on the test type
     local RUNNING_CLIENTS=0
     while [ $RUNNING_CLIENTS -lt $NUM_CLIENTS ]; do
         RUNNING_CLIENTS=$((RUNNING_CLIENTS + 1))
@@ -174,56 +92,138 @@ run_client_server() {
         case $TEST_TYPE in
             request-response)
                 echo "starting request-response client..."
-                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
                 ;;
             streaming)
                 echo "starting streaming client..."
-                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG; exec bash"
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG; exec bash"
                 ;;
             upload)
                 echo "starting upload client..."
-                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
                 ;;
             download)
                 echo "starting download client..."
-                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
+                tmux new-window -t quicsand_session -n client_$RUNNING_CLIENTS "cd bin; ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
                 ;;
             *)
                 echo "Error: Unknown test type $TEST_TYPE"
+                tmux kill-session -t quicsand_session
                 return
                 ;;
         esac
     done
-
-    # Get the parent process IDs of the quicsand_client processes
-    CLIENT_PPIDS=$(pgrep -f "quicsand_client" | xargs -I {} ps -o ppid= -p {} | sort -u)
-    if [ -n "$CLIENT_PPIDS" ]; then
-        echo "Parent process IDs of quicsand_client: $CLIENT_PPIDS"
-        
-        # Get the second parent process ID (bash process)
-        BASH_PPID=$(echo "$CLIENT_PPIDS" | sed -n '2p')
-        if [ -n "$BASH_PPID" ]; then
-            echo "Second parent process ID (bash) of quicsand_client: $BASH_PPID"
-        else
-            echo "No second parent process ID found."
-        fi
-    fi
-
-    # Get the parent process ID of the quicsand_server process
-    SERVER_PPID=$(pgrep -f "quicsand_server" | xargs -I {} ps -o ppid= -p {} | sort -u)
-    if [ -n "$SERVER_PPID" ]; then
-        echo "Parent process ID of quicsand_server: $SERVER_PPID"
-    fi
 
     # Check if the client script is still running
     while pgrep -f "quicsand_client" > /dev/null; do
         sleep 1
     done
 
-    # kill -9 $BASH_PPID
-
+    # Stop the server process
+    echo "Stopping server process..."
     pkill -f "quicsand_server"
+    tmux kill-session -t quicsand_session
 }
+
+# # Function to run client and server
+# run_client_server() {
+#     local TEST_NAME=$1
+#     local TEST_TYPE=$2
+#     local DURATION=$3
+#     local DATA_SIZE=$4
+#     local FILE_PATH=$5
+#     local FACTOR=$6
+#     local BITRATE=$7
+#     local NUM_CLIENTS=$8
+
+#     # Define log file names
+#     local SERVER_LOG="${TEST_NAME}_server.log"
+
+#     # Start the server in a new gnome terminal window
+#     case $TEST_TYPE in
+#         request-response)
+#             echo "starting request-response server..."
+#             gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_rr -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -m $FACTOR -l $SERVER_LOG; exec bash"
+#             ;;
+#         streaming)
+#             echo "starting streaming server..."
+#             gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_streaming -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -l $SERVER_LOG; exec bash"
+#             ;;
+#         upload)
+#             echo "starting upload server..."
+#             gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; exec bash"
+#             ;;
+#         download)
+#             echo "starting download server..."
+#             gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_download -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG; exec bash"
+#             ;;
+#         *)
+#             echo "Error: Unknown test type $TEST_TYPE"
+#             return
+#             ;;
+#     esac
+
+#     # Give the server some time to start
+#     sleep 2
+
+#     # Start the clients in new gnome terminal windows based on the test type
+#     local RUNNING_CLIENTS=0
+#     while [ $RUNNING_CLIENTS -lt $NUM_CLIENTS ]; do
+#         RUNNING_CLIENTS=$((RUNNING_CLIENTS + 1))
+#         local CLIENT_LOG="${TEST_NAME}_client_$RUNNING_CLIENTS.log"
+#         case $TEST_TYPE in
+#             request-response)
+#                 echo "starting request-response client..."
+#                 gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             streaming)
+#                 echo "starting streaming client..."
+#                 gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_streaming -i 127.0.0.1 -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             upload)
+#                 echo "starting upload client..."
+#                 gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_upload -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             download)
+#                 echo "starting download client..."
+#                 gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_download -i 127.0.0.1 -p 4567 -f $FILE_PATH -l $CLIENT_LOG; exec bash"
+#                 ;;
+#             *)
+#                 echo "Error: Unknown test type $TEST_TYPE"
+#                 return
+#                 ;;
+#         esac
+#     done
+
+#     # Get the parent process IDs of the quicsand_client processes
+#     CLIENT_PPIDS=$(pgrep -f "quicsand_client" | xargs -I {} ps -o ppid= -p {} | sort -u)
+#     if [ -n "$CLIENT_PPIDS" ]; then
+#         echo "Parent process IDs of quicsand_client: $CLIENT_PPIDS"
+        
+#         # Get the second parent process ID (bash process)
+#         BASH_PPID=$(echo "$CLIENT_PPIDS" | sed -n '2p')
+#         if [ -n "$BASH_PPID" ]; then
+#             echo "Second parent process ID (bash) of quicsand_client: $BASH_PPID"
+#         else
+#             echo "No second parent process ID found."
+#         fi
+#     fi
+
+#     # Get the parent process ID of the quicsand_server process
+#     SERVER_PPID=$(pgrep -f "quicsand_server" | xargs -I {} ps -o ppid= -p {} | sort -u)
+#     if [ -n "$SERVER_PPID" ]; then
+#         echo "Parent process ID of quicsand_server: $SERVER_PPID"
+#     fi
+
+#     # Check if the client script is still running
+#     while pgrep -f "quicsand_client" > /dev/null; do
+#         sleep 1
+#     done
+
+#     # kill -9 $BASH_PPID
+
+#     pkill -f "quicsand_server"
+# }
 
 # Read the YAML file and execute the tests
 IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
