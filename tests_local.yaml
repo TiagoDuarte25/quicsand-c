@@ -5,7 +5,7 @@ info:
 configs:
   globalVariables:
     implementation: msquic
-    num_clients: 40
+    num_clients: 20
     num_servers: 1
 
 tests:

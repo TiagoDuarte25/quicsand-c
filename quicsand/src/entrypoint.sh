@@ -24,25 +24,24 @@ if [ "$#" -eq 0 ]; then
     case $TEST_TYPE in
         request-response)
             echo "starting request-response server..." >> /tmp/log
-            ./bin/quicsand_server_rr -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i "0.0.0.0" -p 4567 -m $FACTOR -l $SERVER_LOG
+            ./bin/quicsand_server_rr -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -m $FACTOR
             ;;
         streaming)
             echo "starting streaming server..." >> /tmp/log
-            ./bin/quicsand_server_streaming -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i "0.0.0.0" -p 4567 -d $DURATION -m $FACTOR -l $SERVER_LOG
+            ./bin/quicsand_server_streaming -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -d $DURATION -l $SERVER_LOG
             ;;
         upload)
             echo "starting upload server..." >> /tmp/log
-            ./bin/quicsand_server_upload -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i "0.0.0.0" -p 4567 -m $FACTOR -l $SERVER_LOG -t $TEST
+            ./bin/quicsand_server_upload -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST
             ;;
         download)
             echo "starting download server..." >> /tmp/log
-            ./bin/quicsand_server_download -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i "0.0.0.0" -p 4567 -m $FACTOR -l $SERVER_LOG
+            ./bin/quicsand_server_download -c /app/quicsand/certs/quicsand-server.pem -k /app/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG
             ;;
         *)
             echo "Error: Unknown test type $TEST_TYPE" >> /tmp/log
             ;;
     esac
-
 else
     echo 'Starting client container...' >> /tmp/log
 
@@ -78,11 +77,11 @@ else
             ;;
         upload)
             echo "starting upload client..." >> /tmp/log
-            ./bin/quicsand_client_upload -i "$server_ip_k" -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG
+            ./bin/quicsand_client_upload -i "$server_ip_k" -p 4567 -f $FILE_PATH -l $CLIENT_LOG
             ;;
         download)
             echo "starting download client..." >> /tmp/log
-            ./bin/quicsand_client_download -i "$server_ip_k" -p 4567 -f $FILE_PATH -d $DURATION -l $CLIENT_LOG
+            ./bin/quicsand_client_download -i "$server_ip_k" -p 4567 -f $FILE_PATH -l $CLIENT_LOG
             ;;
         *)
             echo "Error: Unknown test type $TEST_TYPE" >> /tmp/log

@@ -2,29 +2,29 @@ version: "3.3"
 services:
   bootstrapper:
     image: kollaps:2.0
-    command: ["-s", "f77c0191-ea42-4ed3-87a3-853354728fea"]
+    command: ["-s", "2482c847-d5ae-4601-9649-cf005309f245"]
     deploy:
       mode: global
     environment:
-      KOLLAPS_UUID: 'f77c0191-ea42-4ed3-87a3-853354728fea'
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
       KOLLAPS_ORCHESTRATOR: swarm
       NUMBER_OF_GODS: 1
       POOL_PERIOD: 0.05
       MAX_FLOW_AGE: 2
     labels:
-      bootf77c0191-ea42-4ed3-87a3-853354728fea: "true"
+      boot2482c847-d5ae-4601-9649-cf005309f245: "true"
     volumes:
       - '/lib/modules:/lib/modules/'
       - '/usr/src:/usr/src/'
       - '/sys/:/sys/'
-      - '/home/tiagoduarte25/Desktop/thesis/quicsand-c/ag_low_lat_high_bw_1_1.xml:/topology.xml'
+      - '/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/topologies/bj_low_lat_mid_bw_10_1.xml:/topology.xml'
       - type: bind
         source: /var/run/docker.sock
         target: /var/run/docker.sock
     networks:
       - KollapsNet
 
-  dashboard-f77c0191-ea42-4ed3-87a3-853354728fea:
+  dashboard-2482c847-d5ae-4601-9649-cf005309f245:
     image: kollaps/dashboard:1.0
     ports:
       - "8088:8088"
@@ -32,39 +32,183 @@ services:
     deploy:
       replicas: 1
     environment:
-      KOLLAPS_UUID: 'f77c0191-ea42-4ed3-87a3-853354728fea'
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet
       - outside
 
-  client1-f77c0191-ea42-4ed3-87a3-853354728fea:
+  client1-2482c847-d5ae-4601-9649-cf005309f245:
     image: quicsand
     entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
     command: ['server','1']
     hostname: client1
     labels:
-      f77c0191-ea42-4ed3-87a3-853354728fea: "true"
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
     deploy:
       replicas: 1
       endpoint_mode: dnsrr
     environment:
-      KOLLAPS_UUID: 'f77c0191-ea42-4ed3-87a3-853354728fea'
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet
 
-  server-f77c0191-ea42-4ed3-87a3-853354728fea:
+  client2-2482c847-d5ae-4601-9649-cf005309f245:
     image: quicsand
     entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
-    hostname: server
+    command: ['server','1']
+    hostname: client2
     labels:
-      f77c0191-ea42-4ed3-87a3-853354728fea: "true"
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
     deploy:
       replicas: 1
       endpoint_mode: dnsrr
     environment:
-      KOLLAPS_UUID: 'f77c0191-ea42-4ed3-87a3-853354728fea'
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client3-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client3
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client4-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client4
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client5-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client5
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client6-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client6
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client7-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client7
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client8-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client8
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client9-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client9
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  client10-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    command: ['server','1']
+    hostname: client10
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
+      KOLLAPS_ORCHESTRATOR: swarm
+    networks:
+      - KollapsNet
+
+  server-2482c847-d5ae-4601-9649-cf005309f245:
+    image: quicsand
+    entrypoint: ["/bin/sh", "-c", "mkfifo /tmp/Kollaps_hang; exec /bin/sh <> /tmp/Kollaps_hang #"]
+    hostname: server
+    labels:
+      2482c847-d5ae-4601-9649-cf005309f245: "true"
+    deploy:
+      replicas: 1
+      endpoint_mode: dnsrr
+    environment:
+      KOLLAPS_UUID: '2482c847-d5ae-4601-9649-cf005309f245'
       KOLLAPS_ORCHESTRATOR: swarm
     networks:
       - KollapsNet

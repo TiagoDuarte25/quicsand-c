@@ -61,17 +61,13 @@ run_test() {
     local directory=$3
     local clients_num
     local servers_num
-    clients_num=$(docker ps | grep "quicsand_testing_client" | wc -l)
-    servers_num=$(docker ps | grep "quicsand_testing_server" | wc -l)
-
-    
 
     echo "Setting up..."
 
     rm -f experiment.yaml
 
     # build topology
-    ./KollapsDeploymentGenerator $topology_file.xml -s experiment.yaml
+    ./KollapsDeploymentGenerator resources/topologies/$topology_file.xml -s experiment.yaml
 
     # Check if the node is already part of a swarm
     if ! docker info | grep -q "Swarm: active"; then
@@ -97,53 +93,54 @@ run_test() {
         sleep 2
     done
 
+    clients_num=$(docker ps | grep "quicsand_testing_client" | wc -l)
+    servers_num=$(docker ps | grep "quicsand_testing_server" | wc -l)
+    echo "Clients: $clients_num"
+    echo "Servers: $servers_num"
+
     curl http://127.0.0.1:8088/start >& /dev/null
 
     echo "Experiment started."
 
     sleep 2
 
-    {
-        while true; do
-            all_finished=true
-            # get every container stats and save it to a file
-            for i in $(seq 1 $num_clients); do
-                # get the container id
-                container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
-                curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/client$i.json
+    # {
+    #     while true; do
+    #         all_finished=true
+    #         # get every container stats and save it to a file
+    #         for i in $(seq 1 $clients_num); do
+    #             # get the container id
+    #             container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
+    #             curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/client$i.json
 
-            done
-            for i in $(seq 1 $num_servers); do
-                # get the container id
-                container_id=$(docker ps | grep "quicsand_testing_server" | awk '{print $1}' | sed -n "$i"p)
-                curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/server$i.json
-            done
-            sleep 1
-        done
-    } &
-    pid=$!
+    #         done
+    #         for i in $(seq 1 $num_servers); do
+    #             # get the container id
+    #             container_id=$(docker ps | grep "quicsand_testing_server" | awk '{print $1}' | sed -n "$i"p)
+    #             curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/server$i.json
+    #         done
+    #         sleep 1
+    #     done
+    # } &
+    # pid=$!
 
     while true; do
-        all_finished=true
-        for i in $(seq 1 $num_clients); do
+        running=0
+        for i in $(seq 1 $clients_num); do
             # get the container id
-            container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
+            container_id=$(docker ps | grep "quicsand_testing_client$i-" | awk '{print $1}')
             if [ -n "$container_id" ]; then
                 if docker exec $container_id pgrep "quicsand_client" > /dev/null; then
-                    # echo "Container quicsand_testing_client$i is still running."
-                    all_finished=false
+                    running=$((running + 1))
                     break
                 fi
-            else
-                echo "Container quicsand_testing_client$i not found."
             fi
         done
-
-        if $all_finished; then
+        if [ $running -eq 0 ]; then
             echo "All quicsand_client scripts have finished."
             sleep 1
-            kill $pid
-            wait $pid
+            # kill $pid
+            # wait $pid
             break
         else
             sleep 1
@@ -163,7 +160,7 @@ get_logs() {
     # get files from every container
     for i in $(seq 1 $clients_num); do
         # get the container id
-        container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
+        container_id=$(docker ps | grep "quicsand_testing_client$i-" | awk '{print $1}')
         docker cp $container_id:/app/build/client.log $directory/client$i.log
     done
 

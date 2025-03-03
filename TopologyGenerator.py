@@ -9,8 +9,12 @@ def generate_topology(number_of_clients, number_of_servers, middle_endpoint, ima
     services = ET.SubElement(experiment, 'services')
     ET.SubElement(services, 'service', name="dashboard", image="kollaps/dashboard:1.0", supervisor="true", port="8088")
 
-    for i in range(1, number_of_servers + 1):
-        ET.SubElement(services, 'service', name=f"client{i}", image=image, command=f"['server','{i}']")
+    if number_of_servers > 1:
+        for i in range(1, number_of_clients + 1):
+            ET.SubElement(services, 'service', name=f"client{i}", image=image, command=f"['server','{i}']")
+    else:
+        for i in range(1, number_of_clients + 1):
+            ET.SubElement(services, 'service', name=f"client{i}", image=image, command=f"['server','1']")
 
     ET.SubElement(services, 'service', name="server", image=image, share="false")
     
@@ -33,7 +37,7 @@ def generate_topology(number_of_clients, number_of_servers, middle_endpoint, ima
     parsed_str = minidom.parseString(xml_str)
     pretty_xml_as_string = parsed_str.toprettyxml(indent="    ")
     
-    with open(topology_name, "w") as f:
+    with open(f"resources/topologies/{topology_name}", "w") as f:
         f.write(pretty_xml_as_string)
 
 if __name__ == "__main__":
