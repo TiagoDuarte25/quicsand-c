@@ -34,7 +34,7 @@ quic_error_code_t quic_error = QUIC_SUCCESS;
 
 #define MAX_DATAGRAM_SIZE 1350
 
-#define THREADS 100
+#define THREADS 1
 
 #define MAX_TOKEN_LEN \
     sizeof("quiche") - 1 + \
@@ -1000,13 +1000,13 @@ void* read_socket_cb(void *arg)
                                 &peer_addr_len);
 
         if (read <= 0) {
-            // if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
-            //     continue;
-            // }
-            // else {
+            if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
+                continue;
+            }
+            else {
                 log_error("failed to read, error: %s", strerror(errno));
                 return NULL;
-            // }
+            }
         }
 
         uint8_t type;
@@ -1314,13 +1314,20 @@ void* client_recv_cb(void *arg) {
         struct sockaddr_storage peer_addr;
         socklen_t peer_addr_len = sizeof(peer_addr);
         memset(&peer_addr, 0, peer_addr_len);
+        // log_warn("waiting for recv");
+        // get connection packet loss rate
+        // quiche_stats stats;
+        // pthread_mutex_lock(&conn_io->mutex);
+        // quiche_conn_stats(conn_io->conn, &stats);
+        // pthread_mutex_unlock(&conn_io->mutex);
+        // log_warn("packet loss rate: %ld", stats.lost);
         ssize_t read = recvfrom(conn_io->sock, buf, sizeof(buf), 0,
                                 (struct sockaddr *) &peer_addr,
                                 &peer_addr_len);
         if (read < 0) {
-            // if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
-            //     continue;
-            // }
+            if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
+                continue;
+            }
             log_error("failed to read, error: %s", strerror(errno));
             return NULL;
         }
@@ -1728,11 +1735,11 @@ int bind_addr(context_t context, char* ip, int port) {
             return -1;
         }
 
-        // if (fcntl(ctx->conns->sockfds[i], F_SETFL, O_NONBLOCK) != 0)
-        // {
-        //     log_error("failed to make socket non-blocking: %s", strerror(errno));
-        //     return -1;
-        // }
+        if (fcntl(ctx->conns->sockfds[i], F_SETFL, O_NONBLOCK) != 0)
+        {
+            log_error("failed to make socket non-blocking: %s", strerror(errno));
+            return -1;
+        }
 
         int optval = 1;
         setsockopt(ctx->conns->sockfds[i], SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
@@ -1819,10 +1826,10 @@ connection_t open_connection(context_t context, char* ip, int port) {
         return NULL;
     }
 
-    // if (fcntl(sock, F_SETFL, O_NONBLOCK) != 0) {
-    //     log_error("failed to make socket non-blocking: %s", strerror(errno));
-    //     return NULL;
-    // }
+    if (fcntl(sock, F_SETFL, O_NONBLOCK) != 0) {
+        log_error("failed to make socket non-blocking: %s", strerror(errno));
+        return NULL;
+    }
     log_debug("socket created");
 
     struct conn_io *conn_io = (struct conn_io *)malloc(sizeof(struct conn_io));
@@ -1996,10 +2003,13 @@ int close_connection(context_t context, connection_t connection) {
 
     pthread_mutex_lock(&conn_io->mutex);
 
-    log_trace("closing connection sock %d", conn_io->sock);
-    shutdown(conn_io->sock, SHUT_RD);
-    close(conn_io->sock);
+    // log_trace("closing connection sock %d", conn_io->sock);
+    // shutdown(conn_io->sock, SHUT_RD);
+    // close(conn_io->sock);
+    log_trace("closing connection thread");
+    pthread_kill(conn_io->conn_thread, SIGKILL);
 
+    log_trace("joining connection thread");
     // Wait for client_recv_cb to finish
     int s = pthread_join(conn_io->conn_thread, NULL);
     if (s != 0) {
@@ -2007,6 +2017,7 @@ int close_connection(context_t context, connection_t connection) {
         return -1;
     }
 
+    log_trace("closing queue and ht");
     if (conn_io->streams != NULL) {
         g_hash_table_destroy(conn_io->streams);
     }
