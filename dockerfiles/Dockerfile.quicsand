@@ -1,15 +1,19 @@
 # FILE: Dockerfile.quicsand
 ARG IMPLEMENTATION="msquic"
+ARG TEST="no-test"
 
 FROM ${IMPLEMENTATION}:latest
 ENV DEBIAN_FRONTEND=noninteractive
 ARG IMPLEMENTATION
+ARG TEST
+ENV TEST=${TEST}
 
 COPY quicsand /app/quicsand
 COPY CMakeLists.txt /app/CMakeLists.txt
 COPY resources/testing_files /app/resources/testing_files
+COPY tests.yaml /app/tests.yaml
 
-RUN apt update && apt install -y bind9 bind9utils bind9-doc dnsutils libglib2.0-dev
+RUN apt update && apt install -y bind9 bind9utils bind9-doc dnsutils libglib2.0-dev yq procps libssl-dev
 
 # Copy configuration and certificates
 RUN mkdir -p /app/build && \
@@ -19,7 +23,7 @@ RUN mkdir -p /app/build && \
 WORKDIR /app
 
 # Run cmake and build quicsand
-RUN cmake -S . -B build -DIMPL=${IMPLEMENTATION} -DBUILD_IN_DOCKER=ON
+RUN cmake -S . -B build -DIMPL=${IMPLEMENTATION} -DBUILD_IN_DOCKER=ON -DCMAKE_BUILD_TYPE=Debug
 
 WORKDIR /app/build
 

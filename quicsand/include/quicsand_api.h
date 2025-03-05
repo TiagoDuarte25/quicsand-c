@@ -1,14 +1,33 @@
 #ifndef QUICSAN_API_H
 #define QUICSAN_API_H
 
-#include <time.h>
-#include <stdio.h>
+#define _POSIX_C_SOURCE 200809L
+#include <arpa/inet.h> // inet_addr()
+#include <sys/resource.h>
+#include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <time.h>
 
 typedef void *context_t;
 typedef void *connection_t;
-typedef void *stream_t;
 typedef void *config_t;
+typedef void *stream_t;
+
+typedef struct statistics
+{
+    ssize_t min_rtt;
+    ssize_t max_rtt;
+    ssize_t avg_rtt;
+    ssize_t total_sent_packets;
+    ssize_t total_received_packets;
+    ssize_t total_lost_packets;
+    ssize_t total_retransmitted_packets;
+    ssize_t total_sent_bytes;
+    ssize_t total_received_bytes;
+} statistics_t;
 
 enum mode_t
 {
@@ -58,23 +77,23 @@ extern quic_error_code_t quic_error;
 #define CONTROL_SINGLE "SINGLE"
 
 context_t create_quic_context(char *cert_path, char *key_path);
-int bind_addr(context_t context, char* ip, int port);
 
 // client functions
 connection_t open_connection(context_t context, char* ip, int port);
 int close_connection(context_t context, connection_t connection);
-stream_t open_stream(context_t context, connection_t connection);
-int close_stream(context_t context, connection_t connection, stream_t stream);
-int send_data(context_t context, connection_t connection, stream_t stream, void* data, int len);
-ssize_t recv_data(context_t context, connection_t connection, stream_t stream, void* buf, ssize_t n_bytes, time_t timeout);
+int open_stream(context_t context, connection_t connection);
 
 // server functions
+int bind_addr(context_t context, char* ip, int port);
 int set_listen(context_t context);
-connection_t accept_connection(context_t context, time_t timeout);
-stream_t accept_stream(context_t context, connection_t connection, time_t timeout);
+connection_t accept_connection(context_t context);
+int accept_stream(context_t context, connection_t connection);
 
 // common functions
 int print_context(context_t context);
 char* quic_error_message(quic_error_code_t quic_error);
+int get_connection_statistics(context_t context, connection_t connection, statistics_t *stats);
+
+void destroy_quic_context(context_t context);
 
 #endif 

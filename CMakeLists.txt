@@ -13,15 +13,22 @@ else()
     message(FATAL_ERROR "No recognizable OS version file found.")
 endif()
 
+# Default to Debug build if not set
 IF(CMAKE_BUILD_TYPE STREQUAL "")
-    SET(CMAKE_BUILD_TYPE Debug)
+    SET(CMAKE_BUILD_TYPE Release)
 ENDIF()
+
 MESSAGE(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+
 IF (CMAKE_BUILD_TYPE STREQUAL Debug)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -DOPENSSL_DEBUG -DDEBUG")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address,undefined,leak")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wshadow -Wformat=2 -Werror")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstack-protector-all -fno-omit-frame-pointer")
 ELSEIF (CMAKE_BUILD_TYPE STREQUAL Release)
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -DOPENSSL_DEBUG -DDEBUG")   
 ENDIF()
+
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} $ENV{EXTRA_CFLAGS}")
 
 MESSAGE(STATUS "Compiler flags: ${CMAKE_C_FLAGS}")
@@ -30,18 +37,16 @@ option(BUILD_IN_DOCKER "Build in Docker container" OFF)
 
 add_definitions(-D_GNU_SOURCE)
 
-
-FILE(GLOB CLIENT_SRC "quicsand/src/client/*.c")
-FILE(GLOB SERVER_SRC "quicsand/src/server/*.c")
 FILE(GLOB SRC "quicsand/src/*.c")
-INCLUDE_DIRECTORIES(quicsand/include)
-
-# Create executables targets
-ADD_EXECUTABLE(client ${SRC} ${CLIENT_SRC})
-ADD_EXECUTABLE(server ${SRC} ${SERVER_SRC})
+include_directories(quicsand/include)
 
 set(THREAD_POOL_DIR ${CMAKE_BINARY_DIR}/C-Thread-Pool)
 set(LIBEV_DIR ${CMAKE_BINARY_DIR}/libev)
+
+if(NOT DEFINED IMPL)
+    message(FATAL_ERROR "IMPL variable is not set. Please set it to either 'msquic' or 'quiche'.")
+endif()
+message(STATUS "IMPL: ${IMPL}")
 
 # Clone and build C-Thread-Pool
 if(NOT EXISTS ${THREAD_POOL_DIR})
@@ -85,6 +90,8 @@ find_library(THREAD_POOL_LIBRARY NAMES thpool PATHS ${THREAD_POOL_DIR} NO_DEFAUL
 
 if("${IMPL}" STREQUAL "msquic")
 
+    add_definitions(-DMSQUIC)
+
     if(BUILD_IN_DOCKER)
         set(MSQUIC_DIR /msquic)
     else()
@@ -94,20 +101,14 @@ if("${IMPL}" STREQUAL "msquic")
     # Add msquic include directories
     include_directories(${MSQUIC_DIR}/src/inc)
 
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
-    target_link_libraries(server PkgConfig::GLIB)
-    target_link_libraries(client PkgConfig::GLIB)
-    
-
     # Set libraries
     SET(LIBS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} m)
 
-    target_compile_definitions(client PRIVATE MSQUIC)
-    target_compile_definitions(server PRIVATE MSQUIC)
-
+    set(DEF MSQUIC)
 
 ELSEIF("${IMPL}" STREQUAL "quiche")
+
+    add_definitions(-DQUICHE)
 
     if(BUILD_IN_DOCKER)
         set(QUICHE_DIR /quiche)
@@ -120,25 +121,34 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
 
     include_directories(${QUICHE_DIR}/quiche/include)
 
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
-    target_link_libraries(server PkgConfig::deps)
-    target_link_libraries(client PkgConfig::deps)
-
     # Set libraries
     SET(LIBS ${QUICHE_LIB_DIR} ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} m)
 
-    target_compile_definitions(client PRIVATE QUICHE)
-    target_compile_definitions(server PRIVATE QUICHE)
+    set(DEF QUICHE)
 
 ELSE()
     message(FATAL_ERROR "IMPL must be either msquic or quiche")
 ENDIF()
-    
-TARGET_INCLUDE_DIRECTORIES(server PRIVATE quicsand/include)
-TARGET_LINK_LIBRARIES(server ${LIBS})
-SET_TARGET_PROPERTIES(server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-TARGET_INCLUDE_DIRECTORIES(client PRIVATE quicsand/include)
-TARGET_LINK_LIBRARIES(client ${LIBS})
-SET_TARGET_PROPERTIES(client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+find_package(OpenSSL REQUIRED)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
+
+# Include both client and server source files
+file(GLOB CLIENT_SOURCES quicsand/src/client/*.c)
+file(GLOB SERVER_SOURCES quicsand/src/server/*.c)
+set(APP_SOURCES ${CLIENT_SOURCES} ${SERVER_SOURCES})
+foreach(testsourcefile ${APP_SOURCES})
+    # Cut off the file extension and directory path
+    get_filename_component(testname ${testsourcefile} NAME_WE)
+    add_executable( ${testname} ${SRC} ${testsourcefile} )
+    # Make sure YourLib is linked to each app
+    target_include_directories(${testname} PRIVATE quicsand/include)
+    target_include_directories(${testname} PRIVATE ${OPENSSL_INCLUDE_DIR})
+    target_link_libraries(${testname} ${LIBS})
+    target_link_libraries(${testname} PkgConfig::deps)
+    target_link_libraries(${testname} OpenSSL::SSL OpenSSL::Crypto)
+    target_compile_definitions(${testname} PRIVATE ${DEF})
+    set_target_properties(${testname} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endforeach(testsourcefile ${APP_SOURCES})
