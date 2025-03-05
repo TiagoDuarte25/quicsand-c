@@ -23,6 +23,12 @@ build_images() {
     local TEST=$1
     docker build -f dockerfiles/Dockerfile.$IMPLEMENTATION -t $IMPLEMENTATION:latest .
     docker build -f dockerfiles/Dockerfile.quicsand -t quicsand:latest . --build-arg IMPLEMENTATION="$IMPLEMENTATION" --build-arg TEST=$TEST
+    docker build -f dockerfiles/Dockerfile.topology_generator -t topology_generator:latest .
+}
+
+generate_topology() {
+    local topology_name=$1
+    docker run --rm -v "$(pwd)/resources/topologies:/app/resources/topologies" topology_generator:latest "$topology_name"
 }
 
 prepare_environment() {
@@ -65,6 +71,8 @@ run_test() {
     echo "Setting up..."
 
     rm -f experiment.yaml
+
+    generate_topology "$topology_file"
 
     # build topology
     ./KollapsDeploymentGenerator resources/topologies/$topology_file.xml -s experiment.yaml

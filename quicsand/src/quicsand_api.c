@@ -262,8 +262,8 @@ void * stream_write(void *arg) {
     ctx_strm_t *ctx_strm = (ctx_strm_t *)arg;
     stream_io_t *stream_io = ctx_strm->stream_io;
     struct context *ctx = ctx_strm->ctx;
-    char buffer[65536];
-    // char buffer[1350];
+    // char buffer[65536];
+    char buffer[1350];
 
     stream_io->bytes_received = 0;
     stream_io->bytes_written = 0;
