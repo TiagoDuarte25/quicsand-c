@@ -28,7 +28,7 @@ build_images() {
 
 generate_topology() {
     local topology_name=$1
-    docker run --rm -v "$(pwd)/resources/topologies:/app/resources/topologies" topology_generator:latest "$topology_name"
+    docker run --rm -v "$(pwd)/resources/topologies":"/app/resources/topologies" topology_generator:latest "$topology_name"
 }
 
 prepare_environment() {
@@ -74,6 +74,7 @@ run_test() {
 
     generate_topology "$topology_file"
 
+    echo "$(pwd)/tmp_result/"
     # build topology
     ./KollapsDeploymentGenerator resources/topologies/$topology_file.xml -s experiment.yaml
 
@@ -112,33 +113,13 @@ run_test() {
 
     sleep 2
 
-    # {
-    #     while true; do
-    #         all_finished=true
-    #         # get every container stats and save it to a file
-    #         for i in $(seq 1 $clients_num); do
-    #             # get the container id
-    #             container_id=$(docker ps | grep "quicsand_testing_client$i" | awk '{print $1}')
-    #             curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/client$i.json
-
-    #         done
-    #         for i in $(seq 1 $num_servers); do
-    #             # get the container id
-    #             container_id=$(docker ps | grep "quicsand_testing_server" | awk '{print $1}' | sed -n "$i"p)
-    #             curl --unix-socket /var/run/docker.sock "http://localhost/containers/$container_id/stats?stream=false" >> $directory/server$i.json
-    #         done
-    #         sleep 1
-    #     done
-    # } &
-    # pid=$!
-
     while true; do
         running=0
         for i in $(seq 1 $clients_num); do
             # get the container id
             container_id=$(docker ps | grep "quicsand_testing_client$i-" | awk '{print $1}')
             if [ -n "$container_id" ]; then
-                if docker exec $container_id pgrep "quicsand_client" > /dev/null; then
+                if docker exec $container_id ps -A | grep "quicsand_client" > /dev/null; then
                     running=$((running + 1))
                     break
                 fi
@@ -147,8 +128,6 @@ run_test() {
         if [ $running -eq 0 ]; then
             echo "All quicsand_client scripts have finished."
             sleep 1
-            # kill $pid
-            # wait $pid
             break
         else
             sleep 1
@@ -177,9 +156,6 @@ get_logs() {
         container_id=$(docker ps | grep "quicsand_testing_server" | awk '{print $1}' | sed -n "$i"p)
         docker cp $container_id:/app/build/server.log $directory/server$i.log
     done
-
-    # get docker stats from all containers and save it to a file
-    docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}" $(docker ps --filter "name=client" --filter "name=server" -q) > $directory/stats.log
 }
 
 # Parse command-line arguments
@@ -223,7 +199,6 @@ fi
 rm -rf resources/logs/*
 for TEST_KEY in $(echo "$TESTS" | yq 'keys | .[]' - | tr -d '"'); do
     for TOPOLOGY_KEY in $(echo "$TOPOLOGIES" | yq 'keys | .[]' - | tr -d '"'); do
-        python3 TopologyGenerator.py $TOPOLOGY_KEY
         echo "Running test $TEST_KEY with topology $TOPOLOGY_KEY"
         prepare_environment
         build_images $TEST_KEY

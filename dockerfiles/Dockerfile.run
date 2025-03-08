@@ -1,0 +1,37 @@
+FROM ubuntu:latest
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    yq \
+    curl \
+    python3 \
+    python3-pip \
+    apt-transport-https \
+    ca-certificates \
+    gnupg-agent \
+    software-properties-common \
+    && apt-get clean
+
+# Install Docker
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - \
+    && add-apt-repository \
+       "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+       $(lsb_release -cs) \
+       stable" \
+    && apt-get update \
+    && apt-get install -y docker-ce docker-ce-cli containerd.io \
+    && apt-get clean
+
+# Create a non-root user and add to the Docker group
+RUN if ! getent group docker; then groupadd -g 999 docker; fi && \
+    if ! id -u 1000 > /dev/null 2>&1; then useradd -m -u 1000 -g docker appuser; else useradd -m -u 1001 -g docker appuser; fi
+
+# Copy the script and other necessary files
+COPY . /app
+WORKDIR /app
+
+# Make the script executable
+RUN chmod +x run_kollaps
+
+# Entry point
+ENTRYPOINT ["/app/run_kollaps"]

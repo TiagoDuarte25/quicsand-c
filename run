@@ -1,0 +1,11 @@
+#!/bin/bash
+
+docker build -t kollaps-runner . -f dockerfiles/Dockerfile.run
+
+docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v /var/lib/docker:/var/lib/docker \
+                -v "$(pwd)":"/app" \
+                -v "$(pwd)/tmp_result":"/app/tmp_result" \
+                -v "$(pwd)/resources/topologies":"/app/resources/topologies" kollaps-runner \
+                -c /app/tests.yaml -t /app/topologies.yaml
