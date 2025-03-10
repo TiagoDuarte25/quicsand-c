@@ -1,3 +1,6 @@
 [submodule "kollaps"]
     path = Kollaps
     url = https://github.com/miguelammatos/kollaps.git
+[submodule "shadow"]
+	path = shadow
+	url = https://github.com/shadow/shadow.git
