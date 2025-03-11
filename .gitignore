@@ -32,3 +32,5 @@ resources/
 implementations/
 
 env/
+
+tmp_result/

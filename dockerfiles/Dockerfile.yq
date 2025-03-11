@@ -1,0 +1,19 @@
+FROM ubuntu:latest
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    yq \
+    curl \
+    && apt-get clean
+
+RUN mkdir -p /app
+
+WORKDIR /app
+
+COPY topologies.yaml /app/topologies.yaml
+COPY tests.yaml /app/tests.yaml
+
+RUN mkdir -p /result
+
+CMD yq '.tests | keys' /app/tests.yaml | tr -d '[],' | tr -d '"' | tr -d ' ' > /result/tests_keys.txt && \
+    yq '.topologies | keys' /app/topologies.yaml | tr -d '[],' | tr -d '"' | tr -d ' ' > /result/topologies_keys.txt

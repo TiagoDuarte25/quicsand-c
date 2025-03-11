@@ -2,7 +2,7 @@
 ARG IMPLEMENTATION="msquic"
 ARG TEST="no-test"
 
-FROM ${IMPLEMENTATION}:latest
+FROM ${IMPLEMENTATION}:latest AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ARG IMPLEMENTATION
 ARG TEST
@@ -13,21 +13,16 @@ COPY CMakeLists.txt /app/CMakeLists.txt
 COPY resources/testing_files /app/resources/testing_files
 COPY tests.yaml /app/tests.yaml
 
-RUN apt update && apt install -y bind9 bind9utils bind9-doc dnsutils libglib2.0-dev yq procps libssl-dev
-
-# Copy configuration and certificates
-RUN mkdir -p /app/build && \
-    cp /app/quicsand/config.yaml /app/build/config.yaml && \
-    cp -r /app/quicsand/certs /app/build/certs
+RUN apt install -y bind9 bind9utils bind9-doc dnsutils libglib2.0-dev yq procps libssl-dev
 
 WORKDIR /app
 
 # Run cmake and build quicsand
-RUN cmake -S . -B build -DIMPL=${IMPLEMENTATION} -DBUILD_IN_DOCKER=ON -DCMAKE_BUILD_TYPE=Debug
+RUN cmake -S . -B build -DIMPL=${IMPLEMENTATION} -DBUILD_IN_DOCKER=ON -DCMAKE_BUILD_TYPE=Debug && \
+    cmake --build build
 
 WORKDIR /app/build
 
-RUN make
-
+# Set the entrypoint
 ENTRYPOINT ["/bin/bash", "/app/quicsand/src/entrypoint.sh"]
 

@@ -10,7 +10,6 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <time.h>
-#include <thpool.h>
 
 #include "quicsand_api.h"
 #include "log.h"
@@ -20,11 +19,45 @@
 #include <openssl/evp.h>
 
 struct args {
-  FILE *fp;
   char *ip_address;
   int port;
   char *file_path;
 };
+
+// Function to check if the file is empty
+bool is_file_empty(FILE *file) {
+    long saved_offset = ftell(file);
+    fseek(file, 0, SEEK_END);
+    bool is_empty = (ftell(file) == 0);
+    fseek(file, saved_offset, SEEK_SET);
+    return is_empty;
+}
+
+void write_metrics_to_csv(int rtt, int total_bytes_sent, int total_bytes_received, 
+                          double cpu_time_used, struct rusage usage_diff, statistics_t *stats) {
+    
+    FILE *fp = fopen("client.csv", "a");
+    if (!fp) {
+        perror("Failed to open log file");
+        return;
+    }
+
+    // Check if the file is empty and write the header if it is
+    if (is_file_empty(fp)) {
+        fprintf(fp, "rtt,total_bytes_sent,total_bytes_received,cpu_time_used,user_cpu_time_used,system_cpu_time_used,max_resident_set_size,avg_rtt,max_rtt,min_rtt,packet_loss,retransmitted_packets,total_sent_bytes,total_received_bytes\n");
+    }
+
+    // Write the metrics
+    fprintf(fp, "%d,%d,%d,%f,%ld.%06ld,%ld.%06ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld\n",
+            rtt, total_bytes_sent, total_bytes_received, cpu_time_used,
+            usage_diff.ru_utime.tv_sec, usage_diff.ru_utime.tv_usec,
+            usage_diff.ru_stime.tv_sec, usage_diff.ru_stime.tv_usec,
+            usage_diff.ru_maxrss, stats->avg_rtt, stats->max_rtt, stats->min_rtt,
+            (size_t)((stats->total_lost_packets / stats->total_sent_packets) * 100),
+            stats->total_retransmitted_packets, stats->total_sent_bytes, stats->total_received_bytes);
+    
+    fclose(fp);
+}
 
 // Function to convert binary data to a hexadecimal string
 void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
@@ -36,7 +69,6 @@ void bin_to_hex(const unsigned char *bin, size_t len, char *hex) {
 
 void *upload_file(void *args) {
     struct args *arguments = (struct args *)args;
-    FILE *fp = arguments->fp;
     char *ip_address = arguments->ip_address;
     int port = arguments->port;
     char *file_path = arguments->file_path;
@@ -162,26 +194,7 @@ void *upload_file(void *args) {
     timersub(&usage_end.ru_stime, &usage_start.ru_stime, &usage_diff.ru_stime);
     usage_diff.ru_maxrss = usage_end.ru_maxrss - usage_start.ru_maxrss;
 
-    fprintf(fp, "\n");
-    fprintf(fp, "\n");
-    fprintf(fp, "-------------- Applicational Statistics --------------\n");
-    fprintf(fp, "total bytes sent: %ld\n", file_size);
-    fprintf(fp, "throughput: %ld bytes/s\n", (size_t)(file_size / elapsed));
-    fprintf(fp, "cpu time used: %f s\n", cpu_time_used);
-    fprintf(fp, "user cpu time used: %ld.%06ld s\n", usage_diff.ru_utime.tv_sec, usage_diff.ru_utime.tv_usec);
-    fprintf(fp, "system cpu time used: %ld.%06ld s\n", usage_diff.ru_stime.tv_sec, usage_diff.ru_stime.tv_usec);
-    fprintf(fp, "maximum resident set size: %ld KB\n", usage_diff.ru_maxrss);
-    fprintf(fp, "\n");
-    fprintf(fp, "-------------- Protocol Statistics --------------\n");
-    fprintf(fp, "rtt: %ld ms\n", stats.avg_rtt);
-    fprintf(fp, "total sent packets: %ld\n", stats.total_sent_packets);
-    fprintf(fp, "total received packets: %ld\n", stats.total_received_packets);
-    fprintf(fp, "packet loss (%c): %ld\n", '%', (size_t)((stats.total_lost_packets / stats.total_sent_packets) * 100));
-    fprintf(fp, "retransmitted packets: %ld\n", stats.total_retransmitted_packets);
-    fprintf(fp, "total bytes sent: %ld\n", stats.total_sent_bytes);
-    fprintf(fp, "total bytes received: %ld\n", stats.total_received_bytes);
-    fprintf(fp, "throughput: %ld bytes/s\n", (size_t)(stats.total_sent_bytes / elapsed));
-    fprintf(fp, "\n");
+    write_metrics_to_csv(-1, bytes_sent, -1, cpu_time_used, usage_diff, &stats);
 
     // destroy the QUIC context
     destroy_quic_context(ctx);
@@ -240,7 +253,6 @@ int main(int argc, char *argv[]) {
     log_info("starting client");
 
     struct args *arguments = (struct args *)malloc(sizeof(struct args));
-    arguments->fp = fp;
     arguments->ip_address = ip_address;
     arguments->port = port;
     arguments->file_path = file_path;

@@ -1,3 +1,3 @@
-[submodule "kollaps"]
-    path = Kollaps
-    url = https://github.com/miguelammatos/kollaps.git
+[submodule "gone"]
+	path = gone
+	url = https://github.com/David-Antunes/gone.git

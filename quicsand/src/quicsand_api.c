@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <log.h>
 #include <poll.h>
+#include <sys/stat.h>
 
 quic_error_code_t quic_error = QUIC_SUCCESS;
 
@@ -27,7 +28,6 @@ quic_error_code_t quic_error = QUIC_SUCCESS;
 #include <sys/socket.h>
 #include <sys/un.h>
 
-#include <ev.h>
 #include <quiche.h>
 
 #define LOCAL_CONN_ID_LEN 16
@@ -135,7 +135,6 @@ typedef struct server_cb_ctx {
 #include <unistd.h>
 #include <limits.h>
 #include <arpa/inet.h>
-#include <ev.h>
 #include <time.h>
 #include <uthash.h>
 #include <glib.h>

@@ -1,810 +1,434 @@
 topologies:
   aa_low_lat_mid_bw_1_1:
     latency: 50
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 1
     number_of_servers: 1
   
   ab_high_lat_mid_bw_1_1:
     latency: 200
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 1
     number_of_servers: 1
 
   ac_mid_lat_low_bw_1_1:
     latency: 400
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 1
     number_of_servers: 1
   
   ad_mid_lat_high_bw_1_1:
     latency: 400
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 1
     number_of_servers: 1
 
   ae_mid_lat_mid_bw_1_1:
     latency: 400
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 1
     number_of_servers: 1
 
   af_high_lat_low_bw_1_1:
     latency: 200
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 1
     number_of_servers: 1
   
   ag_low_lat_high_bw_1_1:
     latency: 50
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 1
     number_of_servers: 1
 
   ah_low_lat_mid_bw_10_10:
     latency: 50
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 10
     number_of_servers: 10
   
   ai_high_lat_mid_bw_10_10:
     latency: 200
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 10
     number_of_servers: 10
 
   aj_mid_lat_low_bw_10_10:
     latency: 400
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 10
     number_of_servers: 10
 
   ak_mid_lat_high_bw_10_10:
     latency: 400
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 10
     number_of_servers: 10
   
   al_mid_lat_mid_bw_10_10:
     latency: 400
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 10
     number_of_servers: 10
   
   am_high_lat_low_bw_10_10:
     latency: 200
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 10
     number_of_servers: 10
   
   an_low_lat_high_bw_10_10:
     latency: 50
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 10
     number_of_servers: 10
 
   ao_low_lat_mid_bw_25_25:
     latency: 50
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 25
     number_of_servers: 25
 
   ap_mid_lat_low_bw_25_25:
     latency: 400
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 25
     number_of_servers: 25
   
   aq_mid_lat_high_bw_25_25:
     latency: 400
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 25
     number_of_servers: 25
 
   ar_mid_lat_mid_bw_25_25:
     latency: 400
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 25
     number_of_servers: 25
 
   as_high_lat_low_bw_25_25:
     latency: 200
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 25
     number_of_servers: 25
   
   at_low_lat_high_bw_25_25:
     latency: 50
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 25
     number_of_servers: 25
 
   au_low_lat_mid_bw_50_50:
     latency: 50
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 50
     number_of_servers: 50
 
   av_high_lat_mid_bw_50_50:
     latency: 200
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 50
     number_of_servers: 50
 
   aw_mid_lat_low_bw_50_50:
     latency: 400
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 50
     number_of_servers: 50
   
   ax_mid_lat_high_bw_50_50:
     latency: 400
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 50
     number_of_servers: 50
 
   ay_mid_lat_mid_bw_50_50:
     latency: 400
-    upload: 500Mbps
-    download: 500Mbps
-    middle_endpoint: true
+    bandwidth: 500M
     image: quicsand
     number_of_clients: 50
     number_of_servers: 50
 
   az_high_lat_low_bw_50_50:
     latency: 200
-    upload: 100Mbps
-    download: 100Mbps
-    middle_endpoint: true
+    bandwidth: 100M
     image: quicsand
     number_of_clients: 50
     number_of_servers: 50
   
   ba_low_lat_high_bw_50_50:
     latency: 50
-    upload: 1000Mbps
-    download: 1000Mbps
-    middle_endpoint: true
+    bandwidth: 1000M
     image: quicsand
     number_of_clients: 50
     number_of_servers: 50
 
   bb_low_lat_mid_bw_100_100:
       latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 100
 
   bc_high_lat_mid_bw_100_100:
       latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 100
 
   bd_mid_lat_low_bw_100_100:
       latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 100
 
   be_mid_lat_high_bw_100_100:
       latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 100
 
   bf_mid_lat_mid_bw_100_100:
       latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 100
 
   bg_high_lat_low_bw_100_100:
       latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 100
 
   bh_low_lat_high_bw_100_100:
       latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 100
 
   bi_low_lat_mid_bw_10_1:
       latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 10
       number_of_servers: 1
 
   bj_high_lat_mid_bw_10_1:
       latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 10
       number_of_servers: 1
 
   bk_mid_lat_low_bw_10_1:
       latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 10
       number_of_servers: 1
 
   bl_mid_lat_high_bw_10_1:
       latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 10
       number_of_servers: 1
 
   bm_mid_lat_mid_bw_10_1:
       latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 10
       number_of_servers: 1
 
   bn_high_lat_low_bw_10_1:
       latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 10
       number_of_servers: 1
 
   bo_low_lat_high_bw_10_1:
       latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 10
       number_of_servers: 1
 
   bp_low_lat_mid_bw_25_1:
       latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 25
       number_of_servers: 1
 
   bq_high_lat_mid_bw_25_1:
       latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 25
       number_of_servers: 1
 
   br_mid_lat_low_bw_25_1:
       latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 25
       number_of_servers: 1
 
   bs_mid_lat_high_bw_25_1:
       latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 25
       number_of_servers: 1
 
   bt_mid_lat_mid_bw_25_1:
       latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 25
       number_of_servers: 1
 
   bu_high_lat_low_bw_25_1:
       latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 25
       number_of_servers: 1
 
   bv_low_lat_high_bw_25_1:
       latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 25
       number_of_servers: 1
 
   bw_low_lat_mid_bw_50_1:
       latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 50
       number_of_servers: 1
 
   bx_high_lat_mid_bw_50_1:
       latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 50
       number_of_servers: 1
 
   by_mid_lat_low_bw_50_1:
       latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 50
       number_of_servers: 1
 
   bz_mid_lat_high_bw_50_1:
       latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 50
       number_of_servers: 1
 
   ca_mid_lat_mid_bw_50_1:
       latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 50
       number_of_servers: 1
 
   cb_high_lat_low_bw_50_1:
       latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 50
       number_of_servers: 1
 
   cc_low_lat_high_bw_50_1:
       latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 50
       number_of_servers: 1
 
   cd_low_lat_mid_bw_100_1:
       latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 1
 
   ce_high_lat_mid_bw_100_1:
       latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 1
 
   cf_mid_lat_low_bw_100_1:
       latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 1
 
   cg_mid_lat_high_bw_100_1:
       latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 1
 
   ch_mid_lat_mid_bw_100_1:
       latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: true
+      bandwidth: 500M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 1
 
   ci_high_lat_low_bw_100_1:
       latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: true
+      bandwidth: 100M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 1
 
   cj_low_lat_high_bw_100_1:
       latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: true
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
-
-  ck_low_lat_mid_bw_10_1_no_middle:
-      latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
-
-  cl_high_lat_mid_bw_10_1_no_middle:
-      latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
-
-  cm_mid_lat_low_bw_10_1_no_middle:
-      latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
-
-  cn_mid_lat_high_bw_10_1_no_middle:
-      latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
-
-  co_mid_lat_mid_bw_10_1_no_middle:
-      latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
-
-  cp_high_lat_low_bw_10_1_no_middle:
-      latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
-
-  cq_low_lat_high_bw_10_1_no_middle:
-      latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
-
-  cr_low_lat_mid_bw_25_1_no_middle:
-      latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
-
-  cs_high_lat_mid_bw_25_1_no_middle:
-      latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
-
-  ct_mid_lat_low_bw_25_1_no_middle:
-      latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
-
-  cu_mid_lat_high_bw_25_1_no_middle:
-      latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
-
-  cv_mid_lat_mid_bw_25_1_no_middle:
-      latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
-
-  cw_high_lat_low_bw_25_1_no_middle:
-      latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
-
-  cx_low_lat_high_bw_25_1_no_middle:
-      latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
-
-  cy_low_lat_mid_bw_50_1_no_middle:
-      latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
-
-  cz_high_lat_mid_bw_50_1_no_middle:
-      latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
-
-  da_mid_lat_low_bw_50_1_no_middle:
-      latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
-
-  db_mid_lat_high_bw_50_1_no_middle:
-      latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
-
-  dc_mid_lat_mid_bw_50_1_no_middle:
-      latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
-
-  dd_high_lat_low_bw_50_1_no_middle:
-      latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
-
-  de_low_lat_high_bw_50_1_no_middle:
-      latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
-
-  df_low_lat_mid_bw_100_1_no_middle:
-      latency: 50
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
-
-  dg_high_lat_mid_bw_100_1_no_middle:
-      latency: 200
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
-
-  dh_mid_lat_low_bw_100_1_no_middle:
-      latency: 400
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
-
-  di_mid_lat_high_bw_100_1_no_middle:
-      latency: 400
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
-
-  dj_mid_lat_mid_bw_100_1_no_middle:
-      latency: 400
-      upload: 500Mbps
-      download: 500Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
-
-  dk_high_lat_low_bw_100_1_no_middle:
-      latency: 200
-      upload: 100Mbps
-      download: 100Mbps
-      middle_endpoint: false
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
-
-  dl_low_lat_high_bw_100_1_no_middle:
-      latency: 50
-      upload: 1000Mbps
-      download: 1000Mbps
-      middle_endpoint: false
+      bandwidth: 1000M
       image: quicsand
       number_of_clients: 100
       number_of_servers: 1

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-echo "Entrypoint script started" >> /tmp/log
-echo "Number of arguments: $#" >> /tmp/log
-echo "Test: $TEST" >> /tmp/log
+echo "Entrypoint script started"
+echo "Number of arguments: $#"
+echo "Test: $TEST"
 
 # Load the tests file
 TESTS=$(yq '.tests' /app/tests.yaml)
@@ -14,13 +14,19 @@ FILE_PATH=$(echo "$TESTS" | yq ".${TEST}.file_path" - | tr -d '"')
 FACTOR=$(echo "$TESTS" | yq ".${TEST}.factor" - | tr -d '"')
 BITRATE=$(echo "$TESTS" | yq ".${TEST}.bitrate" - | tr -d '"')
 
+echo "Test type: $TEST_TYPE"
+echo "Duration: $DURATION"
+echo "Data size: $DATA_SIZE"
+echo "File path: $FILE_PATH"
+echo "Factor: $FACTOR"
+echo "Bitrate: $BITRATE"
+
 # check if there are any arguments
 if [ "$#" -eq 0 ]; then
     echo 'Starting server container...' >> /tmp/log
 
     SERVER_LOG="server.log"
 
-    # Start the server in a new tmux window
     case $TEST_TYPE in
         request-response)
             echo "starting request-response server..." >> /tmp/log
@@ -43,51 +49,58 @@ if [ "$#" -eq 0 ]; then
             ;;
     esac
 else
-    echo 'Starting client container...' >> /tmp/log
+    echo 'Starting client container...'
 
     trap 'exit 0' INT
-   
-    echo "${*: -2}" >> /tmp/log
 
-    echo "Launched!" >> /tmp/log
-    host_id="${*: -1}"
+    echo "Container to connect to: $1"
 
-    echo "Test: $1" >> /tmp/log
+    # Read the test name and container name
+    SERVER_IP="$1"
+    CONTAINER_NAME="$2"
 
-    #obtain the service identifier
-    service="${*: -2:1}-$KOLLAPS_UUID"
-
-    echo ID $host_id >> /tmp/log
-    echo Service $service >> /tmp/log
-
-    #find out the IP of the servers through the experiment UUID 
-    server_ip_k=$(host $service | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u | sed -n "${host_id}p")
-    echo SERVER_IP $server_ip_k >> /tmp/log
+    echo "Server IP: $SERVER_IP"
+    echo "Test type: $TEST_TYPE"
+    echo "Duration: $DURATION"
+    echo "Data size: $DATA_SIZE"
+    echo "File path: $FILE_PATH"
+    echo "Factor: $FACTOR"
+    echo "Bitrate: $BITRATE"
 
     CLIENT_LOG="client.log"
     
     case $TEST_TYPE in
         request-response)
             echo "starting request-response client..." >> /tmp/log
-            ./bin/quicsand_client_rr -i "$server_ip_k" -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG
+            ./bin/quicsand_client_rr -i "$SERVER_IP" -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG
             ;;
         streaming)
             echo "starting streaming client..." >> /tmp/log
-            ./bin/quicsand_client_streaming -i "$server_ip_k" -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG
+            ./bin/quicsand_client_streaming -i "$SERVER_IP" -p 4567 -d $DURATION -b $BITRATE -l $CLIENT_LOG
             ;;
         upload)
             echo "starting upload client..." >> /tmp/log
-            ./bin/quicsand_client_upload -i "$server_ip_k" -p 4567 -f $FILE_PATH -l $CLIENT_LOG
+            ./bin/quicsand_client_upload -i "$SERVER_IP" -p 4567 -f $FILE_PATH -l $CLIENT_LOG
             ;;
         download)
             echo "starting download client..." >> /tmp/log
-            ./bin/quicsand_client_download -i "$server_ip_k" -p 4567 -f $FILE_PATH -l $CLIENT_LOG
+            ./bin/quicsand_client_download -i "$SERVER_IP" -p 4567 -f $FILE_PATH -l $CLIENT_LOG
             ;;
         *)
-            echo "Error: Unknown test type $TEST_TYPE" >> /tmp/log
+            echo "Error: Unknown test type $TEST_TYPE"
             return
             ;;
     esac
 
-    echo "Client finished" >> /tmp/log
+    echo "Client finished"
+
+    mkdir -p /result
+
+    # Check if client.csv exists before copying
+    if [ -f client.csv ]; then
+        cp client.csv /result/$CONTAINER_NAME.csv
+    else
+        echo "Error: client.csv not found."
+        exit 1
+    fi
 fi

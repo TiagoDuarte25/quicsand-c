@@ -1,0 +1,169 @@
+#!/bin/bash
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 [-i <implementation>] [-m <mode>]" 1>&2
+    echo "Options:" 1>&2
+    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
+    echo "  -m, --mode <mode>                       Specify the mode (debug or test)" 1>&2
+    exit 1
+}
+
+build_images() {
+    # Build the images
+    local TEST=$1
+    docker build -f dockerfiles/Dockerfile.$IMPLEMENTATION -t $IMPLEMENTATION:latest .
+    docker build -f dockerfiles/Dockerfile.quicsand -t quicsand:latest . --build-arg IMPLEMENTATION="$IMPLEMENTATION" --build-arg TEST=$TEST
+    docker build -f dockerfiles/Dockerfile.topology_generator -t topology_generator:latest .
+}
+
+generate_topology() {
+    if [ -f "resources/topologies/$1.sh" ]; then
+        return
+    fi
+    python3 TopologyGenerator.py $1
+    mv -f $1.sh resources/topologies/
+    chmod +x resources/topologies/$1.sh
+}
+
+prepare_environment() {
+    docker system prune -f
+
+    echo "Preparing the environment..."
+    docker images | awk '$1 == "<none>" {print $3}' | xargs -I {} docker rmi -f {}
+
+    docker network create --driver=overlay --attachable --subnet=10.1.0.0/16 gone_net
+
+    # grep eth0 interface inside the container beacause is eth0@...
+
+    ./gone/start.sh -i wlp0s20f3 -N tiagoduarte25 -P -A -n gone_net
+
+    echo "Environment prepared."
+}
+
+run_test() {
+    local topology_file=$1
+    local test_name=$2
+    local directory=$3
+    local clients_num
+    local servers_num
+
+    echo "Setting up..."
+
+    rm -rf tmp_result
+
+    mkdir -p tmp_result
+
+    generate_topology "$topology_file"
+
+    # Check if the node is already part of a swarm
+    if ! docker info | grep -q "Swarm: active"; then
+        echo "Initialize swarm before testing"
+        exit 1
+    fi
+
+    # Check if the kollaps_network already exists
+    if ! docker network ls | grep -q "gone_net"; then
+        docker network create --driver=overlay --attachable --subnet=10.1.0.0/16 gone_net
+    fi
+
+    ./resources/topologies/${topology_file}.sh
+
+    clients_num=$(docker ps | grep "client" | wc -l)
+    servers_num=$(docker ps | grep "server" | wc -l)
+
+    sleep 2
+
+    while true; do
+        running=0
+        for i in $(seq 1 $clients_num); do
+            # get the container id
+            container_id=$(docker ps | grep "client" | awk '{print $1}')
+            if [ -n "$container_id" ]; then
+                running=$((running + 1))
+                break
+            fi
+        done
+        if [ $running -eq 0 ]; then
+            echo "All quicsand_client scripts have finished."
+            sleep 1
+            break
+        else
+            sleep 1
+        fi
+    done
+
+}
+
+get_logs() {
+    directory=$1
+    local clients_num
+    local servers_num
+    mv -f tmp_result/* $directory
+}
+
+# Parse command-line arguments
+while [[ "$#" -eq 0 ]]; do
+    usage
+done
+
+# Parse command-line arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -c|--config)
+            CONFIG_FILE="$2"
+            shift
+            ;;
+        -t|--topologies)
+            TOPOLOGIES_FILE="$2"
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Error: Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+# Read the YAML file and execute the tests
+echo "Reading the configuration file..."
+IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
+TESTS=$(yq '.tests' $CONFIG_FILE)
+TOPOLOGIES=$(yq '.topologies' $TOPOLOGIES_FILE)
+
+GONE_URL=http://gone-$(hostname):3000
+
+# Check if the implementation is valid
+if [ ! -d "implementations/$IMPLEMENTATION" ]; then
+    echo "Error: Invalid implementation specified."
+    usage
+fi
+
+# cd gone
+# ./setup.sh
+# cd ..
+
+docker image build -t quicsand-yq -f dockerfiles/Dockerfile.yq .
+
+rm -rf keys
+mkdir -p keys
+docker run --rm -v "$(pwd)/keys:/result" quicsand-yq
+
+# rm -rf resources/logs/*
+for TEST_KEY in $(cat $(pwd)/keys/tests_keys.txt); do
+    for TOPOLOGY_KEY in $(cat $(pwd)/keys/topologies_keys.txt); do
+        echo "Running test $TEST_KEY with topology $TOPOLOGY_KEY"
+        prepare_environment
+        build_images $TEST_KEY
+        DIRECTORY=resources/logs/$IMPLEMENTATION/$TEST_KEY\_$TOPOLOGY_KEY
+        mkdir -p $DIRECTORY
+        run_test $TOPOLOGY_KEY $TEST_KEY $DIRECTORY
+        get_logs $DIRECTORY
+    done
+done
+
+rm -rf keys

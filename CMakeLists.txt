@@ -13,25 +13,23 @@ else()
     message(FATAL_ERROR "No recognizable OS version file found.")
 endif()
 
-# Default to Debug build if not set
-IF(CMAKE_BUILD_TYPE STREQUAL "")
-    SET(CMAKE_BUILD_TYPE Release)
-ENDIF()
+# Default to Release build if not set
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 
-MESSAGE(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
-IF (CMAKE_BUILD_TYPE STREQUAL Debug)
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -DOPENSSL_DEBUG -DDEBUG")
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address,undefined,leak")
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wshadow -Wformat=2 -Werror")
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstack-protector-all -fno-omit-frame-pointer")
-ELSEIF (CMAKE_BUILD_TYPE STREQUAL Release)
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0 -DOPENSSL_DEBUG -DDEBUG")   
-ENDIF()
+# Set compiler flags for Debug and Release builds
+set(CMAKE_C_FLAGS_DEBUG "-g -O0 -DOPENSSL_DEBUG -DDEBUG -fsanitize=address,undefined,leak -Wall -Wextra -Wshadow -Wformat=2 -Werror -fstack-protector-all -fno-omit-frame-pointer")
+set(CMAKE_C_FLAGS_RELEASE "-g -O0")
 
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} $ENV{EXTRA_CFLAGS}")
+# Optionally, set C++ flags if you are using C++
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
 
-MESSAGE(STATUS "Compiler flags: ${CMAKE_C_FLAGS}")
+message(STATUS "Compiler flags (Debug): ${CMAKE_C_FLAGS_DEBUG}")
+message(STATUS "Compiler flags (Release): ${CMAKE_C_FLAGS_RELEASE}")
 
 option(BUILD_IN_DOCKER "Build in Docker container" OFF)
 
@@ -40,53 +38,10 @@ add_definitions(-D_GNU_SOURCE)
 FILE(GLOB SRC "quicsand/src/*.c")
 include_directories(quicsand/include)
 
-set(THREAD_POOL_DIR ${CMAKE_BINARY_DIR}/C-Thread-Pool)
-set(LIBEV_DIR ${CMAKE_BINARY_DIR}/libev)
-
 if(NOT DEFINED IMPL)
     message(FATAL_ERROR "IMPL variable is not set. Please set it to either 'msquic' or 'quiche'.")
 endif()
 message(STATUS "IMPL: ${IMPL}")
-
-# Clone and build C-Thread-Pool
-if(NOT EXISTS ${THREAD_POOL_DIR})
-execute_process(
-    COMMAND git clone https://github.com/Pithikos/C-Thread-Pool.git ${THREAD_POOL_DIR}
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-)
-# Compile the source files into a shared library
-execute_process(
-    COMMAND gcc -fPIC -shared thpool.c -o libthpool.so -pthread
-    WORKING_DIRECTORY ${THREAD_POOL_DIR}
-)
-endif()
-
-# Clone and build libev
-if(NOT EXISTS ${LIBEV_DIR})
-execute_process(
-    COMMAND git clone https://github.com/enki/libev.git ${LIBEV_DIR}
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-)
-execute_process(
-    COMMAND ./autoreconf -vfi
-    WORKING_DIRECTORY ${LIBEV_DIR}
-)
-execute_process(
-    COMMAND ./configure --prefix=/usr --enable-shared
-    WORKING_DIRECTORY ${LIBEV_DIR}
-)
-execute_process(
-    COMMAND make
-    WORKING_DIRECTORY ${LIBEV_DIR}
-)
-endif()
-
-include_directories(${LIBEV_DIR})
-include_directories(${THREAD_POOL_DIR})
-
-# Find the libev library
-find_library(EVENT_LIBRARY NAMES libev.so PATHS ${LIBEV_DIR}/.libs NO_DEFAULT_PATH)
-find_library(THREAD_POOL_LIBRARY NAMES thpool PATHS ${THREAD_POOL_DIR} NO_DEFAULT_PATH)
 
 if("${IMPL}" STREQUAL "msquic")
 
@@ -102,7 +57,7 @@ if("${IMPL}" STREQUAL "msquic")
     include_directories(${MSQUIC_DIR}/src/inc)
 
     # Set libraries
-    SET(LIBS ${MSQUIC_DIR}/build/bin/Release/libmsquic.so bpf ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} m)
+    SET(LIBS msquic bpf m)
 
     set(DEF MSQUIC)
 
@@ -122,7 +77,7 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
     include_directories(${QUICHE_DIR}/quiche/include)
 
     # Set libraries
-    SET(LIBS ${QUICHE_LIB_DIR} ${EVENT_LIBRARY} ${THREAD_POOL_LIBRARY} m)
+    SET(LIBS quiche m)
 
     set(DEF QUICHE)
 

@@ -1,5 +1,5 @@
 # FILE: Dockerfile.quiche
-FROM ubuntu:latest
+FROM ubuntu:latest AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -16,3 +16,10 @@ RUN git clone --recursive https://github.com/cloudflare/quiche /quiche && \
 
 # Set environment variables for quiche
 ENV QUICHE_DIR=/quiche
+
+# get just the quiche library image and ubuntu
+FROM ubuntu:latest
+
+# Copy the quiche library and headers from the builder stage
+COPY --from=builder /quiche/target/release/libquiche.so /usr/local/lib/libquiche.so
+COPY --from=builder /quiche/include/ /quiche/include/

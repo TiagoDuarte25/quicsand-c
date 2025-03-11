@@ -1,5 +1,5 @@
 # FILE: Dockerfile.msquic
-FROM ubuntu:latest
+FROM ubuntu:latest AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -35,3 +35,20 @@ RUN git clone https://github.com/microsoft/msquic.git /msquic && \
 
 # Set environment variables for msquic
 ENV MSQUIC_DIR=/msquic
+
+# get just the msquic library image and ubuntu
+FROM ubuntu:latest
+
+# Copy the msquic library and headers from the builder stage
+COPY --from=builder /msquic/build/bin/Release/libmsquic.so /usr/local/lib/libmsquic.so
+COPY --from=builder /msquic/src/inc/ /msquic/src/inc/
+
+# # Install only the necessary runtime dependencies
+RUN apt update && \
+    apt install -y bash gcc g++ make libc6-dev dpkg-dev cmake git liblttng-ust-dev lttng-tools && \
+    apt install -y libc6-dev-i386 libbpf-dev libnl-3-dev llvm clang m4 libpcap-dev libbpf1 && \
+    apt install -y libnuma-dev software-properties-common wget pkg-config && \
+    apt clean
+
+# Set environment variables for msquic
+ENV LD_LIBRARY_PATH=/usr/local/lib

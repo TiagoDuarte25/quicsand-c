@@ -74,10 +74,6 @@ run_test() {
 
     generate_topology "$topology_file"
 
-    echo "$(pwd)/tmp_result/"
-    # build topology
-    ./KollapsDeploymentGenerator resources/topologies/$topology_file.xml -s experiment.yaml
-
     # Check if the node is already part of a swarm
     if ! docker info | grep -q "Swarm: active"; then
         echo "Initialize swarm before testing"
@@ -85,15 +81,9 @@ run_test() {
     fi
 
     # Check if the kollaps_network already exists
-    if ! docker network ls | grep -q "quicsand_network"; then
-        docker network create --driver=overlay --subnet=10.1.0.0/24 quicsand_network
+    if ! docker network ls | grep -q "gone_net"; then
+        docker network create --driver=overlay --subnet=10.1.0.0/24 gone_net
     fi
-
-    docker stack deploy -c experiment.yaml quicsand_testing
-
-    while ! docker ps | grep -q "dashboard"; do
-        sleep 1
-    done
 
     sleep 5
 
@@ -189,6 +179,8 @@ done
 IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
 TESTS=$(yq '.tests' $CONFIG_FILE)
 TOPOLOGIES=$(yq '.topologies' $TOPOLOGIES_FILE)
+
+GONE_URL=http://gone-$(hostname):3000
 
 # Check if the implementation is valid
 if [ ! -d "implementations/$IMPLEMENTATION" ]; then

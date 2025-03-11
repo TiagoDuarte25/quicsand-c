@@ -133,7 +133,7 @@ run_client_server() {
     local FILE_PATH=$5
     local FACTOR=$6
     local BITRATE=$7
-    local NUM_CLIENTS=$8
+    local NUM_CLIENTS=1
 
     local SERVER_LOG="${TEST_NAME}_server.log"
     local TERMINAL_PIDS=()
@@ -211,8 +211,6 @@ run_client_server() {
     pkill -f "quicsand_server"
 }
 
-
-
 # Read the YAML file and execute the tests
 IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
 NUM_CLIENTS=$(yq '.configs.globalVariables.num_clients' $CONFIG_FILE)
@@ -222,8 +220,7 @@ NUM_TESTS=$(echo "$TESTS" | yq 'length | .[]' -)
 
 # Build the implementation
 echo "Building $IMPLEMENTATION implementation"
-cmake -B build -DIMPL=$IMPLEMENTATION -DCMAKE_BUILD_TYPE=Debug
-# cmake -B build -DIMPL=$IMPLEMENTATION -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DIMPL=$IMPLEMENTATION -DCMAKE_BUILD_TYPE=Release
 
 cd build
 make
