@@ -163,7 +163,9 @@ for TEST_KEY in $(cat $(pwd)/keys/tests_keys.txt); do
         mkdir -p $DIRECTORY
         run_test $TOPOLOGY_KEY $TEST_KEY $DIRECTORY
         get_logs $DIRECTORY
+        break
     done
+    break
 done
 
 rm -rf keys

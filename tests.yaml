@@ -4,7 +4,7 @@ info:
 
 configs:
   globalVariables:
-    implementation: msquic
+    implementation: quiche
 
 tests:
   aa_rr_10_100:

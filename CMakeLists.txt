@@ -67,7 +67,7 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
 
     if(BUILD_IN_DOCKER)
         set(QUICHE_DIR /quiche)
-        set(QUICHE_LIB_DIR ${QUICHE_DIR}/target/release/libquiche.a)
+        set(QUICHE_LIB_DIR quiche)
     else()
         # build quiche
         set(QUICHE_DIR ${CMAKE_BINARY_DIR}/quiche)
@@ -77,7 +77,7 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
     include_directories(${QUICHE_DIR}/quiche/include)
 
     # Set libraries
-    SET(LIBS quiche m)
+    SET(LIBS ${QUICHE_LIB_DIR} m)
 
     set(DEF QUICHE)
 

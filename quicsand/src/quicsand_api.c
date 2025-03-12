@@ -82,6 +82,8 @@ struct conn_io {
     int stream_count;
 
     size_t bytes_sent;
+
+    pthread_t timeout_thread;
 };
 
 struct stream_io {
@@ -107,8 +109,6 @@ struct buffer {
 struct context
 {
     struct connections *conns;
-    struct ev_loop *loop;
-    struct ev_io watcher;
     char *hostname;
     quiche_config *config;
 };
@@ -787,6 +787,28 @@ void* flush_egress(void *arg);
 void* flush_egress_thread(struct conn_io *conn_io);
 void* read_socket_cb(void *arg);
 
+void* timeout_handler(void *arg) {
+    struct conn_io *conn_io = (struct conn_io *)arg;
+
+    while (1) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 10;
+
+        pthread_mutex_lock(&conn_io->mutex);
+        int rc = pthread_cond_timedwait(&conn_io->cond, &conn_io->mutex, &ts);
+        if (rc == ETIMEDOUT) {
+            log_error("connection timed out");
+            // Handle timeout (e.g., close connection, cleanup resources)
+            pthread_mutex_unlock(&conn_io->mutex);
+            flush_egress(conn_io);
+            break;
+        }
+        pthread_mutex_unlock(&conn_io->mutex);
+    }
+    return NULL;
+}
+
 void* flush_egress_loop(void *arg) {
     while (1) {
         struct conn_io *conn_io = (struct conn_io *)arg;
@@ -798,7 +820,8 @@ void* flush_egress_loop(void *arg) {
             pthread_mutex_lock(&conn_io->mutex);
             ssize_t written = quiche_conn_send(conn_io->conn, out, sizeof(out),
                                             &send_info);
-            pthread_mutex_unlock(&conn_io->mutex);;
+            pthread_mutex_unlock(&conn_io->mutex);
+            
 
             if (written == QUICHE_ERR_DONE) {
                 log_trace("done writing");
@@ -842,19 +865,32 @@ void* flush_egress(void *arg) {
         pthread_mutex_lock(&conn_io->mutex);
         ssize_t written = quiche_conn_send(conn_io->conn, out, sizeof(out),
                                            &send_info);
+        pthread_mutex_unlock(&conn_io->mutex);
 
         if (written == QUICHE_ERR_DONE) {
             log_trace("done writing");
-            pthread_mutex_unlock(&conn_io->mutex);
             break;
         }
 
         if (written < 0) {
             log_error("failed to create packet: %zd", written);
-            pthread_mutex_unlock(&conn_io->mutex);
             return NULL;
         }
 
+        struct timespec now;
+        clock_gettime(CLOCK_REALTIME, &now);
+
+        if ((send_info.at.tv_sec > now.tv_sec) ||
+            (send_info.at.tv_sec == now.tv_sec && send_info.at.tv_nsec > now.tv_nsec)) {
+            // Sleep until the specified time
+            int rc = clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &send_info.at, NULL);
+            if (rc != 0) {
+                log_error("clock_nanosleep failed: %s", strerror(rc));
+                return NULL;
+            }
+        }
+
+        pthread_mutex_lock(&conn_io->mutex);
         ssize_t sent = sendto(conn_io->sock, out, written, 0,
                               (struct sockaddr *) &send_info.to,
                               send_info.to_len);
@@ -1118,6 +1154,8 @@ void* read_socket_cb(void *arg)
             conn_io->sock = server_cb_ctx->sockfd;
 
             // flush_egress_thread(conn_io);
+
+            pthread_create(&conn_io->timeout_thread, NULL, timeout_handler, (void*)conn_io);
 
             pthread_mutex_lock(&conns->mutex);
             g_queue_push_tail(conns->conn_io_queue, conn_io);
@@ -1433,7 +1471,6 @@ void* client_recv_cb(void *arg) {
                     }
 
                     if (fin) {
-                        log_warn("FIN received");
                         stream_io->fin = true;
                         shutdown(stream_io->a_fd, SHUT_RDWR);
                         close(stream_io->c_fd);
@@ -1594,7 +1631,7 @@ context_t create_quic_context(char *cert_path, char *key_path) {
             fp = fopen("server_debug_logging.log", "w");
         }
 
-        quiche_enable_debug_logging(debug_log, fp);
+        // quiche_enable_debug_logging(debug_log, fp);
         
 
         quiche_config_set_application_protos(ctx->config,
@@ -1883,6 +1920,9 @@ connection_t open_connection(context_t context, char* ip, int port) {
 
     pthread_create(&conn_io->conn_thread, NULL, client_recv_cb, (void*)conn_io);
 
+    // Start the timeout thread
+    pthread_create(&conn_io->timeout_thread, NULL, timeout_handler, (void*)conn_io);
+
     flush_egress(conn_io);
 
     pthread_mutex_lock(&ctx->conns->mutex);
@@ -1979,70 +2019,72 @@ int close_connection(context_t context, connection_t connection) {
     log_debug("closing connection");
     struct context *ctx = (struct context *)context;
     struct conn_io *conn_io = (struct conn_io *)connection;
+    log_trace("closing connection %p", (void *)conn_io);
+    log_trace("context %p", context);
 
-    if (conn_io == NULL) {
-        log_error("connection is NULL");
-        return -1;
-    }
-
-    flush_egress(conn_io);
-
-    log_trace("closing any remaining stream");
-
-    pthread_mutex_lock(&conn_io->mutex);
-
-    // for (GList *streams = g_hash_table_get_keys(conn_io->streams); streams != NULL; streams = streams->next) {
-    //     uint64_t stream_id = GPOINTER_TO_UINT(streams->data);
-    //     struct stream_io *stream_io = g_hash_table_lookup(conn_io->streams, streams->data);
-    //     if (stream_io != NULL) {
-    //         log_trace("closing stream %ld", stream_id);
-    //         log_trace("stream_io: %p", stream_io);
-    //         log_trace("stream_io->stream_id: %p", &stream_io->stream_id);
-    //     }
+    // if (conn_io == NULL) {
+    //     log_error("connection is NULL");
+    //     return -1;
     // }
 
-    const uint8_t *error_code = (const uint8_t *) "conn closed";
-    quiche_conn_close(conn_io->conn, false, 0, error_code, strlen((const char *)error_code));
+    // flush_egress(conn_io);
 
-    pthread_mutex_unlock(&conn_io->mutex);
+    // log_trace("closing any remaining stream");
 
-    flush_egress(conn_io);
+    // pthread_mutex_lock(&conn_io->mutex);
 
-    pthread_mutex_lock(&conn_io->mutex);
+    // // for (GList *streams = g_hash_table_get_keys(conn_io->streams); streams != NULL; streams = streams->next) {
+    // //     uint64_t stream_id = GPOINTER_TO_UINT(streams->data);
+    // //     struct stream_io *stream_io = g_hash_table_lookup(conn_io->streams, streams->data);
+    // //     if (stream_io != NULL) {
+    // //         log_trace("closing stream %ld", stream_id);
+    // //         log_trace("stream_io: %p", stream_io);
+    // //         log_trace("stream_io->stream_id: %p", &stream_io->stream_id);
+    // //     }
+    // // }
 
-    // log_trace("closing connection sock %d", conn_io->sock);
-    // shutdown(conn_io->sock, SHUT_RD);
-    // close(conn_io->sock);
-    log_trace("closing connection thread");
-    pthread_kill(conn_io->conn_thread, SIGKILL);
+    // const uint8_t *error_code = (const uint8_t *) "conn closed";
+    // quiche_conn_close(conn_io->conn, false, 0, error_code, strlen((const char *)error_code));
 
-    log_trace("joining connection thread");
-    // Wait for client_recv_cb to finish
-    int s = pthread_join(conn_io->conn_thread, NULL);
-    if (s != 0) {
-        log_error("pthread_join failed: %s", strerror(s));
-        return -1;
-    }
+    // pthread_mutex_unlock(&conn_io->mutex);
 
-    log_trace("closing queue and ht");
-    if (conn_io->streams != NULL) {
-        g_hash_table_destroy(conn_io->streams);
-    }
+    // flush_egress(conn_io);
 
-    // Free stream_io_queue
-    if (conn_io->stream_io_queue != NULL) {
-        g_queue_free(conn_io->stream_io_queue);
-    }
+    // pthread_mutex_lock(&conn_io->mutex);
+
+    // // log_trace("closing connection sock %d", conn_io->sock);
+    // // shutdown(conn_io->sock, SHUT_RD);
+    // // close(conn_io->sock);
+    // log_trace("closing connection thread");
+    // pthread_kill(conn_io->conn_thread, SIGKILL);
+
+    // log_trace("joining connection thread");
+    // // Wait for client_recv_cb to finish
+    // int s = pthread_join(conn_io->conn_thread, NULL);
+    // if (s != 0) {
+    //     log_error("pthread_join failed: %s", strerror(s));
+    //     return -1;
+    // }
+
+    // log_trace("closing queue and ht");
+    // if (conn_io->streams != NULL) {
+    //     g_hash_table_destroy(conn_io->streams);
+    // }
+
+    // // Free stream_io_queue
+    // if (conn_io->stream_io_queue != NULL) {
+    //     g_queue_free(conn_io->stream_io_queue);
+    // }
     
-    quiche_conn_free(conn_io->conn);
-    log_trace("conn freed");
+    // quiche_conn_free(conn_io->conn);
+    // log_trace("conn freed");
 
-    pthread_mutex_unlock(&conn_io->mutex);
+    // pthread_mutex_unlock(&conn_io->mutex);
     
-    pthread_mutex_lock(&ctx->conns->mutex);
-    g_hash_table_remove(ctx->conns->connections, conn_io->cid);
-    pthread_mutex_unlock(&ctx->conns->mutex);
-    conn_io = NULL;
+    // pthread_mutex_lock(&ctx->conns->mutex);
+    // g_hash_table_remove(ctx->conns->connections, conn_io->cid);
+    // pthread_mutex_unlock(&ctx->conns->mutex);
+    // conn_io = NULL;
     return 0;
     #elif MSQUIC
     struct context *ctx = (struct context *)context;
