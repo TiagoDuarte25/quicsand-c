@@ -5,7 +5,7 @@ info:
 configs:
   globalVariables:
     implementation: quiche
-    num_clients: 3
+    num_clients: 15
     num_servers: 1
 
 tests:
@@ -39,11 +39,11 @@ tests:
   #   data_size: 100
   #   factor: 1000
 
-  af_rr_1000_1000:
-    type: request-response
-    duration: 30
-    data_size: 1000
-    factor: 1000
+  # af_rr_1000_1000:
+  #   type: request-response
+  #   duration: 30
+  #   data_size: 1000
+  #   factor: 1000
 
   # ag_up_100kb:
   #   type: upload
@@ -53,9 +53,9 @@ tests:
   #   type: upload
   #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/100mb_hex.txt
 
-  # ai_up_10mb:
-  #   type: upload
-  #   file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
+  ai_up_10mb:
+    type: upload
+    file_path: /home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/testing_files/10mb_hex.txt
 
   # aj_up_1gb:
   #   type: upload

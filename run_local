@@ -86,7 +86,7 @@ run_client_server() {
         case $TEST_TYPE in
             request-response)
                 echo "starting request-response client..."
-                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; /bin/bash" &
+                gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_client_rr -i 127.0.0.1 -p 4567 -d $DURATION -s $DATA_SIZE -l $CLIENT_LOG; exit" &
                 TERMINAL_PIDS+=($!)
                 ;;
             streaming)
@@ -132,7 +132,7 @@ NUM_TESTS=$(echo "$TESTS" | yq 'length | .[]' -)
 
 # Build the implementation
 echo "Building $IMPLEMENTATION implementation"
-cmake -B build -DIMPL=$IMPLEMENTATION -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DIMPL=$IMPLEMENTATION -DCMAKE_BUILD_TYPE=DEBUG
 
 cd build
 make

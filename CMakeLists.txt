@@ -71,7 +71,7 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
     else()
         # build quiche
         set(QUICHE_DIR ${CMAKE_BINARY_DIR}/quiche)
-        set(QUICHE_LIB_DIR ${QUICHE_DIR}/target/debug/libquiche.a)
+        set(QUICHE_LIB_DIR ${QUICHE_DIR}/target/debug/libquiche.a ev)
     endif()
 
     include_directories(${QUICHE_DIR}/quiche/include)
