@@ -49,15 +49,17 @@ if("${IMPL}" STREQUAL "msquic")
 
     if(BUILD_IN_DOCKER)
         set(MSQUIC_DIR /msquic)
+        set(MSQUIC_LIB_DIR msquic)
     else()
         set(MSQUIC_DIR ${CMAKE_BINARY_DIR}/msquic)
+        set(MSQUIC_LIB_DIR ${MSQUIC_DIR}/build/bin/Release/libmsquic.so)
     endif()
     
     # Add msquic include directories
     include_directories(${MSQUIC_DIR}/src/inc)
 
     # Set libraries
-    SET(LIBS msquic bpf m)
+    SET(LIBS ${MSQUIC_LIB_DIR} bpf m)
 
     set(DEF MSQUIC)
 
@@ -71,13 +73,13 @@ ELSEIF("${IMPL}" STREQUAL "quiche")
     else()
         # build quiche
         set(QUICHE_DIR ${CMAKE_BINARY_DIR}/quiche)
-        set(QUICHE_LIB_DIR ${QUICHE_DIR}/target/debug/libquiche.a ev)
+        set(QUICHE_LIB_DIR ${QUICHE_DIR}/target/debug/libquiche.a)
     endif()
 
     include_directories(${QUICHE_DIR}/quiche/include)
 
     # Set libraries
-    SET(LIBS ${QUICHE_LIB_DIR} m)
+    SET(LIBS ${QUICHE_LIB_DIR} ev m)
 
     set(DEF QUICHE)
 

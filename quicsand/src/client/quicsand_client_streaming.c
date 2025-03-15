@@ -36,8 +36,8 @@ bool is_file_empty(FILE *file) {
     return is_empty;
 }
 
-void write_metrics_to_csv(int rtt, int total_bytes_sent, int total_bytes_received, 
-                          double cpu_time_used, struct rusage usage_diff, statistics_t *stats) {
+void write_metrics_to_csv(int app_throughput, int total_bytes_sent, int total_bytes_received, 
+                          double cpu_time_used, struct rusage usage_diff, statistics_t *stats, double time) {
     
     FILE *fp = fopen("client.csv", "a");
     if (!fp) {
@@ -47,17 +47,17 @@ void write_metrics_to_csv(int rtt, int total_bytes_sent, int total_bytes_receive
 
     // Check if the file is empty and write the header if it is
     if (is_file_empty(fp)) {
-        fprintf(fp, "rtt,total_bytes_sent,total_bytes_received,cpu_time_used,user_cpu_time_used,system_cpu_time_used,max_resident_set_size,avg_rtt,max_rtt,min_rtt,packet_loss,retransmitted_packets,total_sent_bytes,total_received_bytes\n");
+        fprintf(fp, "time,app_throughput,total_bytes_sent,total_bytes_received,cpu_time_used,user_cpu_time_used,system_cpu_time_used,max_resident_set_size,avg_rtt,max_rtt,min_rtt,packet_loss,retransmitted_packets,total_sent_bytes,total_received_bytes, throughput\n");
     }
 
     // Write the metrics
-    fprintf(fp, "%d,%d,%d,%f,%ld.%06ld,%ld.%06ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld\n",
-            rtt, total_bytes_sent, total_bytes_received, cpu_time_used,
+    fprintf(fp, "%f,%d,%d,%d,%f,%ld.%06ld,%ld.%06ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld, %d\n",
+            time, app_throughput, total_bytes_sent, total_bytes_received, cpu_time_used,
             usage_diff.ru_utime.tv_sec, usage_diff.ru_utime.tv_usec,
             usage_diff.ru_stime.tv_sec, usage_diff.ru_stime.tv_usec,
             usage_diff.ru_maxrss, stats->avg_rtt, stats->max_rtt, stats->min_rtt,
             (size_t)((stats->total_lost_packets / stats->total_sent_packets) * 100),
-            stats->total_retransmitted_packets, stats->total_sent_bytes, stats->total_received_bytes);
+            stats->total_retransmitted_packets, stats->total_sent_bytes, stats->total_received_bytes, (int)((stats->total_received_bytes / time) * 8));
     
     fclose(fp);
 }
@@ -152,6 +152,8 @@ void *stream_data(void *args) {
     end_time = clock();
     double cpu_time_used = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
 
+    int throughput = (int)(total_bytes_received / elapsed) * 8;
+
     // Capture resource usage before printing statistics
     struct rusage usage_end;
     getrusage(RUSAGE_SELF, &usage_end);
@@ -165,7 +167,7 @@ void *stream_data(void *args) {
     usage_diff.ru_idrss = usage_end.ru_idrss - usage_start.ru_idrss;
     usage_diff.ru_isrss = usage_end.ru_isrss - usage_start.ru_isrss;
 
-    write_metrics_to_csv(-1, -1, total_bytes_received, cpu_time_used, usage_diff, &stats);
+    write_metrics_to_csv(throughput, -1, total_bytes_received, cpu_time_used, usage_diff, &stats, elapsed);
 
     destroy_quic_context(ctx);
 

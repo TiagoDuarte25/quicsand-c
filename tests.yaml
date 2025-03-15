@@ -7,41 +7,41 @@ configs:
     implementation: quiche
 
 tests:
-  aa_rr_10_100:
-    type: request-response
-    duration: 30
-    data_size: 10
-    factor: 100
+  # aa_rr_10_100:
+  #   type: request-response
+  #   duration: 30
+  #   data_size: 10
+  #   factor: 100
 
-  ab_rr_100_100:
-    type: request-response
-    duration: 30
-    data_size: 100
-    factor: 100
+  # ab_rr_100_100:
+  #   type: request-response
+  #   duration: 30
+  #   data_size: 100
+  #   factor: 100
 
-  ac_rr_1000_100:
-    type: request-response
-    duration: 30
-    data_size: 1000
-    factor: 100
+  # ac_rr_1000_100:
+  #   type: request-response
+  #   duration: 30
+  #   data_size: 1000
+  #   factor: 100
 
-  ad_rr_10_1000:
-    type: request-response
-    duration: 30
-    data_size: 10
-    factor: 1000
+  # ad_rr_10_1000:
+  #   type: request-response
+  #   duration: 30
+  #   data_size: 10
+  #   factor: 1000
 
-  ae_rr_100_1000:
-    type: request-response
-    duration: 30
-    data_size: 100
-    factor: 1000
+  # ae_rr_100_1000:
+  #   type: request-response
+  #   duration: 30
+  #   data_size: 100
+  #   factor: 1000
 
-  af_rr_1000_1000:
-    type: request-response
-    duration: 30
-    data_size: 1000
-    factor: 1000
+  # af_rr_1000_1000:
+  #   type: request-response
+  #   duration: 30
+  #   data_size: 1000
+  #   factor: 1000
 
   ag_up_100kb:
     type: upload

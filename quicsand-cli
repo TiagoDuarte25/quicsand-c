@@ -143,9 +143,11 @@ if [ ! -d "implementations/$IMPLEMENTATION" ]; then
     usage
 fi
 
-# cd gone
-# ./setup.sh
-# cd ..
+if ! docker ps --filter "name=neo" --format "{{.Names}}" | grep -q "^neo$"; then
+    cd gone
+    ./setup.sh
+    cd ..
+fi
 
 docker image build -t quicsand-yq -f dockerfiles/Dockerfile.yq .
 
@@ -163,9 +165,7 @@ for TEST_KEY in $(cat $(pwd)/keys/tests_keys.txt); do
         mkdir -p $DIRECTORY
         run_test $TOPOLOGY_KEY $TEST_KEY $DIRECTORY
         get_logs $DIRECTORY
-        break
     done
-    break
 done
 
 rm -rf keys

@@ -36,7 +36,7 @@ quic_error_code_t quic_error = QUIC_SUCCESS;
 
 #define MAX_DATAGRAM_SIZE 1350
 
-#define THREADS 1
+#define THREADS 100
 
 #define MAX_TOKEN_LEN \
     sizeof("quiche") - 1 + \
@@ -45,6 +45,7 @@ quic_error_code_t quic_error = QUIC_SUCCESS;
 
 struct connections {
     int sockfds[THREADS];
+    struct ev_loop *loop[THREADS];
 
     struct sockaddr_strorage *local_addr;
     socklen_t local_addr_len;
@@ -134,6 +135,7 @@ struct conn_io_ctx {
 typedef struct server_cb_ctx {
     struct context *ctx;
     int sockfd;
+    struct ev_loop *loop;
 } server_cb_ctx_t;
 
 #elif MSQUIC
@@ -795,10 +797,22 @@ static void flush_egress(struct ev_loop *loop, struct conn_io *conn_io);
 static void flush_egress_server(struct ev_loop *loop, struct context *ctx, struct conn_io *conn_io);
 static void recv_cb(EV_P_ ev_io *w, int revents);
 static void timeout_cb(EV_P_ ev_timer *w, int revents);
-void* event_loop_thread(void *arg);
+void* client_event_loop_thread(void *arg);
+void* server_event_loop_thread(void *arg);
+
+void* server_event_loop_thread(void *arg) {
+    struct server_cb_ctx *server_cb_ctx = (struct server_cb_ctx *)arg;
+    ev_io *watcher = (ev_io *)malloc(sizeof(ev_io));
+    ev_io_init(watcher, recv_cb, server_cb_ctx->sockfd, EV_READ);
+    ev_io_start(server_cb_ctx->loop, watcher);
+    watcher->data = arg;
+
+    ev_loop(server_cb_ctx->loop, 0);
+    return NULL;
+}
 
 
-void *event_loop_thread(void *arg) {
+void *client_event_loop_thread(void *arg) {
     struct context *ctx = (struct context *)arg;
     if (ctx == NULL || ctx->loop == NULL) {
         log_error("Invalid context or event loop");
@@ -1037,14 +1051,6 @@ static struct conn_io *create_conn(struct context *ctx, uint8_t *scid, size_t sc
     conn_io->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     conn_io->cond = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 
-    struct conn_io_ctx *conn_io_ctx = malloc(sizeof(struct conn_io_ctx));
-    conn_io_ctx->ctx = ctx;
-    conn_io_ctx->conn_io = conn_io;
-    // Ensure the timer is initialized and started correctly
-    ev_timer_init(&conn_io->timer, timeout_cb, 0, 0);
-    ev_timer_start(ctx->loop, &conn_io->timer);
-    conn_io->timer.data = conn_io_ctx;
-
     log_trace("created connection %p", (void *)conn_io);
 
     return conn_io;
@@ -1180,6 +1186,14 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
             conn_io = create_conn(ctx, dcid, dcid_len, odcid, odcid_len,
                                   (struct sockaddr *)&conns->local_addr, conns->local_addr_len,
                                   &peer_addr, peer_addr_len);
+
+            struct conn_io_ctx *conn_io_ctx = malloc(sizeof(struct conn_io_ctx));
+            conn_io_ctx->ctx = ctx;
+            conn_io_ctx->conn_io = conn_io;
+            // Ensure the timer is initialized and started correctly
+            ev_timer_init(&conn_io->timer, timeout_cb, 0, 0);
+            ev_timer_start(ctx->loop, &conn_io->timer);
+            conn_io->timer.data = conn_io_ctx;
 
             if (conn_io == NULL) {
                 log_error("failed to create connection", conn_io);
@@ -1372,7 +1386,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
         }
         pthread_mutex_unlock(&conn_io->mutex);
 
-        flush_egress_server(loop, ctx, conn_io);
+        flush_egress_server(ctx->loop, ctx, conn_io);
     }
 
     pthread_mutex_lock(&conns->mutex);
@@ -1381,7 +1395,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
     g_hash_table_iter_init(&iter, conns->connections);
     while (g_hash_table_iter_next(&iter, &key, &value)) {
         struct conn_io *conn_io = (struct conn_io *)value;
-        flush_egress(loop, conn_io);
+        flush_egress(ctx->loop, conn_io);
 
         if (quiche_conn_is_closed(conn_io->conn)) {
             quiche_stats stats;
@@ -1882,8 +1896,8 @@ int bind_addr(context_t context, char* ip, int port) {
             return -1;
         }
 
-        // int optval = 1;
-        // setsockopt(ctx->conns->sockfds[i], SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+        int optval = 1;
+        setsockopt(ctx->conns->sockfds[i], SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
 
         if (bind(ctx->conns->sockfds[i], local->ai_addr, local->ai_addrlen) < 0)
         {
@@ -2032,7 +2046,7 @@ connection_t open_connection(context_t context, char* ip, int port) {
     conn_io->timer.data = timeout_args;
 
     // Start the event loop in a separate thread
-    pthread_create(&ctx->loop_thread, NULL, event_loop_thread, (void *)ctx);
+    pthread_create(&ctx->loop_thread, NULL, client_event_loop_thread, (void *)ctx);
     pthread_detach(ctx->loop_thread);
 
     flush_egress(ctx->loop, conn_io);
@@ -2520,17 +2534,14 @@ int set_listen(context_t context) {
         server_cb_ctx_t *arg = (server_cb_ctx_t *)malloc(sizeof(server_cb_ctx_t));
         arg->ctx = ctx;
         arg->sockfd = ctx->conns->sockfds[i];
-
-        log_debug("listening fd: %d", ctx->conns->sockfds[i]);
-        ev_io_init(&ctx->watcher, recv_cb, ctx->conns->sockfds[i], EV_READ);
-        ev_io_start(ctx->loop, &ctx->watcher);
-        ctx->watcher.data = arg;
+        arg->loop = ev_loop_new(0);
 
         // Start the event loop in a separate thread
-        pthread_create(&ctx->loop_thread, NULL, event_loop_thread, (void *)ctx);
+        pthread_create(&ctx->loop_thread, NULL, server_event_loop_thread, (void *)arg);
     }
 
-    
+    ctx->loop = ev_loop_new(0);
+    pthread_create(&ctx->loop_thread, NULL, client_event_loop_thread, (void *)ctx);
 
     return 0;
     #elif MSQUIC

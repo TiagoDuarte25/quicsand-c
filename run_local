@@ -63,7 +63,7 @@ run_client_server() {
             ;;
         upload)
             echo "starting upload server..."
-            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; exit" &
+            gnome-terminal -- bash -c "cd bin; ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./quicsand_server_upload -c /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/quicsand-server.pem -k /home/tiagoduarte25/Desktop/thesis/quicsand-c/quicsand/certs/key.pem -i 0.0.0.0 -p 4567 -l $SERVER_LOG -t $TEST_NAME; /bin/bash" &
             TERMINAL_PIDS+=($!)
             ;;
         download)
@@ -132,7 +132,7 @@ NUM_TESTS=$(echo "$TESTS" | yq 'length | .[]' -)
 
 # Build the implementation
 echo "Building $IMPLEMENTATION implementation"
-cmake -B build -DIMPL=$IMPLEMENTATION -DCMAKE_BUILD_TYPE=DEBUG
+cmake -B build -DIMPL=$IMPLEMENTATION -DCMAKE_BUILD_TYPE=Release
 
 cd build
 make
