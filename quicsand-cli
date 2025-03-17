@@ -155,7 +155,6 @@ rm -rf keys
 mkdir -p keys
 docker run --rm -v "$(pwd)/keys:/result" quicsand-yq
 
-# rm -rf resources/logs/*
 for TEST_KEY in $(cat $(pwd)/keys/tests_keys.txt); do
     for TOPOLOGY_KEY in $(cat $(pwd)/keys/topologies_keys.txt); do
         echo "Running test $TEST_KEY with topology $TOPOLOGY_KEY"
