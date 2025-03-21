@@ -54,4 +54,11 @@ bz_mid_lat_high_bw_50_1
 ca_mid_lat_mid_bw_50_1
 cb_high_lat_low_bw_50_1
 cc_low_lat_high_bw_50_1
+cd_low_lat_mid_bw_100_1
+ce_high_lat_mid_bw_100_1
+cf_mid_lat_low_bw_100_1
+cg_mid_lat_high_bw_100_1
+ch_mid_lat_mid_bw_100_1
+ci_high_lat_low_bw_100_1
+cj_low_lat_high_bw_100_1
 

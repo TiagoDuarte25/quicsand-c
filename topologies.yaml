@@ -384,51 +384,51 @@ topologies:
       number_of_clients: 50
       number_of_servers: 1
 
-#   cd_low_lat_mid_bw_100_1:
-#       latency: 50
-#       bandwidth: 500M
-#       image: quicsand
-#       number_of_clients: 100
-#       number_of_servers: 1
+  cd_low_lat_mid_bw_100_1:
+      latency: 50
+      bandwidth: 500M
+      image: quicsand
+      number_of_clients: 100
+      number_of_servers: 1
 
-#   ce_high_lat_mid_bw_100_1:
-#       latency: 200
-#       bandwidth: 500M
-#       image: quicsand
-#       number_of_clients: 100
-#       number_of_servers: 1
+  ce_high_lat_mid_bw_100_1:
+      latency: 200
+      bandwidth: 500M
+      image: quicsand
+      number_of_clients: 100
+      number_of_servers: 1
 
-#   cf_mid_lat_low_bw_100_1:
-#       latency: 400
-#       bandwidth: 100M
-#       image: quicsand
-#       number_of_clients: 100
-#       number_of_servers: 1
+  cf_mid_lat_low_bw_100_1:
+      latency: 400
+      bandwidth: 100M
+      image: quicsand
+      number_of_clients: 100
+      number_of_servers: 1
 
-#   cg_mid_lat_high_bw_100_1:
-#       latency: 400
-#       bandwidth: 1000M
-#       image: quicsand
-#       number_of_clients: 100
-#       number_of_servers: 1
+  cg_mid_lat_high_bw_100_1:
+      latency: 400
+      bandwidth: 1000M
+      image: quicsand
+      number_of_clients: 100
+      number_of_servers: 1
 
-#   ch_mid_lat_mid_bw_100_1:
-#       latency: 400
-#       bandwidth: 500M
-#       image: quicsand
-#       number_of_clients: 100
-#       number_of_servers: 1
+  ch_mid_lat_mid_bw_100_1:
+      latency: 400
+      bandwidth: 500M
+      image: quicsand
+      number_of_clients: 100
+      number_of_servers: 1
 
-#   ci_high_lat_low_bw_100_1:
-#       latency: 200
-#       bandwidth: 100M
-#       image: quicsand
-#       number_of_clients: 100
-#       number_of_servers: 1
+  ci_high_lat_low_bw_100_1:
+      latency: 200
+      bandwidth: 100M
+      image: quicsand
+      number_of_clients: 100
+      number_of_servers: 1
 
-#   cj_low_lat_high_bw_100_1:
-#       latency: 50
-#       bandwidth: 1000M
-#       image: quicsand
-#       number_of_clients: 100
-#       number_of_servers: 1
+  cj_low_lat_high_bw_100_1:
+      latency: 50
+      bandwidth: 1000M
+      image: quicsand
+      number_of_clients: 100
+      number_of_servers: 1

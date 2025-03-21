@@ -16,12 +16,12 @@ def parse_file_size(size_str):
         return int(size_str)
 
 def parse_resolution(resolution_str):
-    if resolution_str.endswith(Kbps):
-        return int(resolution_str[:-3])
-    elif resolution_str.endswith(Mbps):
-        return int(resolution_str[:-3]) * 1000
-    elif resolution_str.endswith(Gbps):
-        return int(resolution_str[:-3]) * 1000000
+    if resolution_str.endswith("Kbps"):
+        return int(resolution_str[:-4])
+    elif resolution_str.endswith("Mbps"):
+        return int(resolution_str[:-4]) * 1000
+    elif resolution_str.endswith("Gbps"):
+        return int(resolution_str[:-4]) * 1000000
     else:
         return int(resolution_str)
 
@@ -37,7 +37,7 @@ def parse_directory_name(directory_name):
                 'response_size': int(parts[3]) * int(parts[2]),
                 'latency': 50 if parts[5] == 'low' else 200 if parts[5] == 'mid' else 400,
                 'bandwidth': 100 if parts[7] == 'low' else 500 if parts[7] == 'mid' else 1000,
-                'number_of_clients': int(parts[9]),
+                'number_clients': int(parts[9]),
                 'number_servers': int(parts[10])
             }
         case 'up':
@@ -46,7 +46,7 @@ def parse_directory_name(directory_name):
                 'file_size': parse_file_size(parts[2]),
                 'latency': 50 if parts[4] == 'low' else 200 if parts[5] == 'mid' else 400,
                 'bandwidth': 100 if parts[6] == 'low' else 500 if parts[7] == 'mid' else 1000,
-                'number_of_clients': int(parts[8]),
+                'number_clients': int(parts[8]),
                 'number_servers': int(parts[9])
             }
         case 'dw':
@@ -55,7 +55,7 @@ def parse_directory_name(directory_name):
                 'file_size': parse_file_size(parts[2]),
                 'latency': 50 if parts[4] == 'low' else 200 if parts[5] == 'mid' else 400,
                 'bandwidth': 100 if parts[6] == 'low' else 500 if parts[7] == 'mid' else 1000,
-                'number_of_clients': int(parts[9]),
+                'number_clients': int(parts[9]),
                 'number_servers': int(parts[9])
             }
         case 'strm':
@@ -64,7 +64,7 @@ def parse_directory_name(directory_name):
                 'resolution': parse_resolution(parts[2]),
                 'latency': 50 if parts[4] == 'low' else 200 if parts[5] == 'mid' else 400,
                 'bandwidth': 100 if parts[6] == 'low' else 500 if parts[7] == 'mid' else 1000,
-                'number_of_clients': int(parts[8]),
+                'number_clients': int(parts[8]),
                 'number_servers': int(parts[9])
             }
 
@@ -96,11 +96,10 @@ def process_experiment(base_directory, directory, implementation):
 
     params = parse_directory_name(experiment_name)
     mean_values['implementation'] = implementation
-    mean_values['experiment'] = experiment_name
     mean_values['workload_type'] = params['workload_type']
     mean_values['latency'] = params['latency']
     mean_values['bandwidth'] = params['bandwidth']
-    mean_values['number_of_clients'] = params['number_of_clients']
+    mean_values['number_clients'] = params['number_clients']
     mean_values['number_servers'] = params['number_servers']
     
     match params['workload_type']:
@@ -117,6 +116,8 @@ def process_experiment(base_directory, directory, implementation):
         case 'strm':
             mean_values['resolution'] = params['resolution']
             summary_file = os.path.join(base_directory, "strm_metrics_summary.csv")
+
+    mean_values.drop(['total_bytes_sent','total_bytes_received','user_cpu_time_used','system_cpu_time_used','max_rtt','min_rtt','packet_loss','retransmitted_packets','total_sent_bytes','total_received_bytes'], inplace=True)
 
     # Append the mean values to the summary file
     if os.path.exists(summary_file):
