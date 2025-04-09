@@ -98,6 +98,7 @@ else
 
     # Check if client.csv exists before copying
     if [ -f client.csv ]; then
+        echo "Copying client.csv to /result/$CONTAINER_NAME.csv"
         cp client.csv /result/$CONTAINER_NAME.csv
     else
         echo "Error: client.csv not found."

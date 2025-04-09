@@ -2,27 +2,50 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [-i <implementation>] [-m <mode>]" 1>&2
+    echo "Usage: $0 [-c <tests> [-t <topologies>]" 1>&2
     echo "Options:" 1>&2
-    echo "  -i, --implementation <implementation>   Specify the implementation (lsquic or msquic)" 1>&2
-    echo "  -m, --mode <mode>                       Specify the mode (debug or test)" 1>&2
+    echo "  -c, --tests <tests>" 1>&2
+    echo "  -t, --topologies <topologies>                     " 1>&2
     exit 1
 }
 
 build_images() {
     # Build the images
     local TEST=$1
-    docker build -f dockerfiles/Dockerfile.$IMPLEMENTATION -t $IMPLEMENTATION:latest .
-    docker build -f dockerfiles/Dockerfile.quicsand -t quicsand:latest . --build-arg IMPLEMENTATION="$IMPLEMENTATION" --build-arg TEST=$TEST
-    docker build -f dockerfiles/Dockerfile.topology_generator -t topology_generator:latest .
+    if ! docker images | grep -q "$IMPLEMENTATION"; then
+        docker build -f dockerfiles/Dockerfile.$IMPLEMENTATION -t $IMPLEMENTATION:latest .
+    fi
+    
+    if ! docker images | grep -q "topology_generator"; then
+        docker build -f dockerfiles/Dockerfile.topology_generator -t topology_generator:latest .
+    fi
+    
+    docker build -f dockerfiles/Dockerfile.quicsand -t quicsand:latest . --build-arg IMPLEMENTATION="$IMPLEMENTATION" --build-arg TEST=$TEST --build-arg TESTS_FILE=$CONFIG_FILE
 }
 
 generate_topology() {
-    if [ -f "resources/topologies/$1.sh" ]; then
-        return
-    fi
-    python3 TopologyGenerator.py $1
-    mv -f $1.sh resources/topologies/
+    local TOPOLOGY_KEY=$1
+    local TEST_NAME=$2
+    local CONFIG_FILE=$3
+    local TOPOLOGIES_FILE=$4
+
+    # if [ -f "resources/topologies/$1.sh" ]; then
+    #     return
+    # fi
+
+    # create a random volume name dir to receive the topology file
+    local DIRECTORY=$(mktemp -d "$(pwd)/tmp.XXXXXX")
+
+    docker run --rm \
+        -v "$(pwd)/$4:/app/topologies.yaml" \
+        -v "/$DIRECTORY:/result" \
+        --user $(id -u):$(id -g) \
+        topology_generator:latest $1 $2
+    
+    mv -f $DIRECTORY/topology.sh resources/topologies/$1.sh
+
+    rm -rf $DIRECTORY
+
     chmod +x resources/topologies/$1.sh
 }
 
@@ -36,25 +59,28 @@ prepare_environment() {
 
     # grep eth0 interface inside the container beacause is eth0@...
 
-    ./gone/start.sh -i wlp0s20f3 -N tiagoduarte25 -P -A -n gone_net
+    ./gone/start.sh -i wlp0s20f3 -N $(hostname) -P -A -n gone_net
 
     echo "Environment prepared."
 }
 
 run_test() {
-    local topology_file=$1
-    local test_name=$2
+    local TOPOLOGY_KEY=$1
+    local TEST_KEY=$2
     local directory=$3
+    local CONFIG_FILE=$4
+    local TOPOLOGIES_FILE=$5
     local clients_num
     local servers_num
 
     echo "Setting up..."
 
-    rm -rf tmp_result
+    rm -rf $TEST_KEY\_$TOPOLOGY_KEY
 
-    mkdir -p tmp_result
+    mkdir -p $TEST_KEY\_$TOPOLOGY_KEY
 
-    generate_topology "$topology_file"
+    echo "Generating the topology..."
+    generate_topology $TOPOLOGY_KEY $TEST_KEY $CONFIG_FILE $TOPOLOGIES_FILE
 
     # Check if the node is already part of a swarm
     if ! docker info | grep -q "Swarm: active"; then
@@ -67,7 +93,7 @@ run_test() {
         docker network create --driver=overlay --attachable --subnet=10.1.0.0/16 gone_net
     fi
 
-    ./resources/topologies/${topology_file}.sh
+    ./resources/topologies/${TOPOLOGY_KEY}.sh
 
     clients_num=$(docker ps | grep "client" | wc -l)
     servers_num=$(docker ps | grep "server" | wc -l)
@@ -96,10 +122,15 @@ run_test() {
 }
 
 get_logs() {
-    directory=$1
+    local DIRECTORY=$1
+    local TEST_KEY=$2
+    local TOPOLOGY_KEY=$3
     local clients_num
     local servers_num
-    mv -f tmp_result/* $directory
+
+    mv -f $TEST_KEY\_$TOPOLOGY_KEY/* $DIRECTORY
+
+    rm -rf $TEST_KEY\_$TOPOLOGY_KEY
 }
 
 # Parse command-line arguments
@@ -131,17 +162,7 @@ done
 
 # Read the YAML file and execute the tests
 echo "Reading the configuration file..."
-IMPLEMENTATION=$(yq '.configs.globalVariables.implementation' $CONFIG_FILE | tr -d '"')
-TESTS=$(yq '.tests' $CONFIG_FILE)
-TOPOLOGIES=$(yq '.topologies' $TOPOLOGIES_FILE)
-
-GONE_URL=http://gone-$(hostname):3000
-
-# Check if the implementation is valid
-if [ ! -d "implementations/$IMPLEMENTATION" ]; then
-    echo "Error: Invalid implementation specified."
-    usage
-fi
+IMPLEMENTATION=$(grep 'implementation:' $CONFIG_FILE | awk '{print $2}')
 
 if ! docker ps --filter "name=neo" --format "{{.Names}}" | grep -q "^neo$"; then
     cd gone
@@ -149,22 +170,35 @@ if ! docker ps --filter "name=neo" --format "{{.Names}}" | grep -q "^neo$"; then
     cd ..
 fi
 
-docker image build -t quicsand-yq -f dockerfiles/Dockerfile.yq .
+# Check if the Docker image already exists
+if ! docker images | grep -q "quicsand-yaml-parser"; then
+    echo "Docker image 'quicsand-yaml-parser' not found. Building the image..."
+    docker image build -t quicsand-yaml-parser -f dockerfiles/Dockerfile.yq .
+else
+    echo "Docker image 'quicsand-yaml-parser' already exists. Skipping build."
+fi
 
-rm -rf keys
-mkdir -p keys
-docker run --rm -v "$(pwd)/keys:/result" quicsand-yq
+rm -rf keys_$CONFIG_FILE\_$TOPOLOGIES_FILE
+mkdir -p keys_$CONFIG_FILE\_$TOPOLOGIES_FILE
 
-for TEST_KEY in $(cat $(pwd)/keys/tests_keys.txt); do
-    for TOPOLOGY_KEY in $(cat $(pwd)/keys/topologies_keys.txt); do
+docker run --rm \
+  -v "$(pwd)/${CONFIG_FILE}:/app/tests.yaml" \
+  -v "$(pwd)/${TOPOLOGIES_FILE}:/app/topologies.yaml" \
+  -v "$(pwd)/keys_${CONFIG_FILE}_${TOPOLOGIES_FILE}:/result" \
+  quicsand-yaml-parser
+
+for TEST_KEY in $(cat $(pwd)/keys_$CONFIG_FILE\_$TOPOLOGIES_FILE/tests_keys.txt); do
+    for TOPOLOGY_KEY in $(cat $(pwd)/keys_$CONFIG_FILE\_$TOPOLOGIES_FILE/topologies_keys.txt); do
         echo "Running test $TEST_KEY with topology $TOPOLOGY_KEY"
         prepare_environment
         build_images $TEST_KEY
         DIRECTORY=resources/logs/$IMPLEMENTATION/$TEST_KEY\_$TOPOLOGY_KEY
         mkdir -p $DIRECTORY
-        run_test $TOPOLOGY_KEY $TEST_KEY $DIRECTORY
-        get_logs $DIRECTORY
+        run_test $TOPOLOGY_KEY $TEST_KEY $DIRECTORY $CONFIG_FILE $TOPOLOGIES_FILE
+        get_logs $DIRECTORY $TEST_KEY $TOPOLOGY_KEY
+        break
     done
+    break
 done
 
-rm -rf keys
+rm -rf keys_$CONFIG_FILE_$TOPOLOGIES_FILE

@@ -15,28 +15,47 @@ def parse_file_size(size_str):
     else:
         return int(size_str)
 
-def parse_resolution(resolution_str):
-    if resolution_str.endswith("Kbps"):
-        return int(resolution_str[:-4])
-    elif resolution_str.endswith("Mbps"):
-        return int(resolution_str[:-4]) * 1000
-    elif resolution_str.endswith("Gbps"):
-        return int(resolution_str[:-4]) * 1000000
+def parse_bitrate(bitrate):
+    if bitrate.endswith("Kbps"):
+        return int(bitrate[:-4])
+    elif bitrate.endswith("Mbps"):
+        return int(bitrate[:-4]) * 1000
+    elif bitrate.endswith("Gbps"):
+        return int(bitrate[:-4]) * 1000000
     else:
-        return int(resolution_str)
+        return int(bitrate)
+
+def parse_latency(latency):
+    if latency == 'low':
+        return 25
+    elif latency == 'mid':
+        return 200
+    elif latency == 'high':
+        return 100
+    else:
+        return -1
+
+def parse_bandwidth(bandwidth):
+    if bandwidth == 'low':
+        return 100
+    elif bandwidth == 'mid':
+        return 1000
+    elif bandwidth == 'high':
+        return 500
+    else:
+        return -1
 
 # Function to parse directory name and extract parameters
 def parse_directory_name(directory_name):
     parts = directory_name.split('_')
-    print(parts)
     match parts[1]:
         case 'rr':
             return {
                 'workload_type': parts[1],
                 'request_size': int(parts[2]),
                 'response_size': int(parts[3]) * int(parts[2]),
-                'latency': 50 if parts[5] == 'low' else 200 if parts[5] == 'mid' else 400,
-                'bandwidth': 100 if parts[7] == 'low' else 500 if parts[7] == 'mid' else 1000,
+                'latency': parse_latency(parts[5]),
+                'bandwidth': parse_bandwidth(parts[7]),
                 'number_clients': int(parts[9]),
                 'number_servers': int(parts[10])
             }
@@ -44,8 +63,8 @@ def parse_directory_name(directory_name):
             return {
                 'workload_type': parts[1],
                 'file_size': parse_file_size(parts[2]),
-                'latency': 50 if parts[4] == 'low' else 200 if parts[5] == 'mid' else 400,
-                'bandwidth': 100 if parts[6] == 'low' else 500 if parts[7] == 'mid' else 1000,
+                'latency': 25 if parts[4] == 'low' else 200 if parts[4] == 'mid' else 100,
+                'bandwidth': 100 if parts[6] == 'low' else 500 if parts[6] == 'mid' else 1000,
                 'number_clients': int(parts[8]),
                 'number_servers': int(parts[9])
             }
@@ -53,17 +72,17 @@ def parse_directory_name(directory_name):
             return {
                 'workload_type': parts[1],
                 'file_size': parse_file_size(parts[2]),
-                'latency': 50 if parts[4] == 'low' else 200 if parts[5] == 'mid' else 400,
-                'bandwidth': 100 if parts[6] == 'low' else 500 if parts[7] == 'mid' else 1000,
+                'latency': 25 if parts[4] == 'low' else 200 if parts[4] == 'mid' else 100,
+                'bandwidth': 100 if parts[6] == 'low' else 500 if parts[6] == 'mid' else 1000,
                 'number_clients': int(parts[9]),
                 'number_servers': int(parts[9])
             }
         case 'strm':
             return {
                 'workload_type': parts[1],
-                'resolution': parse_resolution(parts[2]),
-                'latency': 50 if parts[4] == 'low' else 200 if parts[5] == 'mid' else 400,
-                'bandwidth': 100 if parts[6] == 'low' else 500 if parts[7] == 'mid' else 1000,
+                'bitrate': parse_bitrate(parts[2]),
+                'latency': 25 if parts[4] == 'low' else 200 if parts[4] == 'mid' else 100,
+                'bandwidth': 100 if parts[6] == 'low' else 500 if parts[6] == 'mid' else 1000,
                 'number_clients': int(parts[8]),
                 'number_servers': int(parts[9])
             }
@@ -76,10 +95,17 @@ def process_experiment(base_directory, directory, implementation):
     if not csv_files:
         return None  # Skip if no CSV files found
 
+    # print(f"Processing {directory}...")
     dfs = []
     for csv_file in csv_files:
         file_path = os.path.join(directory, csv_file)
-        df = pd.read_csv(file_path)
+        # print(f"Reading {file_path}...")
+        try:
+            df = pd.read_csv(file_path)
+        except Exception as e:
+            # print(f"Error reading file {file_path}: {e}")
+            df = None
+            continue 
         dfs.append(df)
 
     if not dfs:
@@ -114,7 +140,7 @@ def process_experiment(base_directory, directory, implementation):
             mean_values['file_size'] = params['file_size']
             summary_file = os.path.join(base_directory, "dw_metrics_summary.csv")
         case 'strm':
-            mean_values['resolution'] = params['resolution']
+            mean_values['bitrate'] = params['bitrate']
             summary_file = os.path.join(base_directory, "strm_metrics_summary.csv")
 
     mean_values.drop(['total_bytes_sent','total_bytes_received','user_cpu_time_used','system_cpu_time_used','max_rtt','min_rtt','packet_loss','retransmitted_packets','total_sent_bytes','total_received_bytes'], inplace=True)
@@ -128,6 +154,11 @@ def process_experiment(base_directory, directory, implementation):
 
 def main():
     all_results = []
+
+    # remove old summary files
+    for file in os.listdir(BASE_DIR):
+        if file.endswith("summary.csv"):
+            os.remove(os.path.join(BASE_DIR, file))
     
     # Traverse directories
     for implementation in os.listdir(BASE_DIR):

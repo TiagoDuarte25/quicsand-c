@@ -1748,14 +1748,13 @@ context_t create_quic_context(char *cert_path, char *key_path) {
         
         quiche_config_set_max_recv_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
         quiche_config_set_max_send_udp_payload_size(ctx->config, MAX_DATAGRAM_SIZE);
-        quiche_config_set_initial_max_data(ctx->config, 10000000);
-        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1000000);
-        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 1000000);
+        quiche_config_set_initial_max_data(ctx->config, 1200);
+        quiche_config_set_initial_max_stream_data_bidi_local(ctx->config, 1048576);
+        quiche_config_set_initial_max_stream_data_bidi_remote(ctx->config, 1048576);
         quiche_config_set_max_stream_window(ctx->config, 16777216);
         quiche_config_set_max_connection_window(ctx->config, 25165824);
         quiche_config_set_initial_max_streams_bidi(ctx->config, 10000);
         quiche_config_set_cc_algorithm(ctx->config, QUICHE_CC_CUBIC);
-        quiche_config_enable_hystart(ctx->config, true);
 
         ctx->conns = (struct connections *)malloc(sizeof(struct connections));
         if (ctx->conns == NULL)

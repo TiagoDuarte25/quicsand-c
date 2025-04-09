@@ -1,8 +1,0 @@
-
-ax_strm_700Kbps
-ay_strm_1500Kbps
-az_strm_3Mbps
-ba_strm_8Mbps
-bb_12Mbps
-bc_20Mbps
-

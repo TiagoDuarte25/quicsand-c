@@ -1,17 +1,19 @@
 # FILE: Dockerfile.quicsand
 ARG IMPLEMENTATION="msquic"
 ARG TEST="no-test"
+ARG TESTS_FILE="tests.yaml"
 
 FROM ${IMPLEMENTATION}:latest AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ARG IMPLEMENTATION
 ARG TEST
+ARG TESTS_FILE
 ENV TEST=${TEST}
 
 COPY quicsand /app/quicsand
 COPY CMakeLists.txt /app/CMakeLists.txt
 COPY resources/testing_files /app/resources/testing_files
-COPY tests.yaml /app/tests.yaml
+COPY ${TESTS_FILE} /app/tests.yaml
 
 RUN apt update && apt install -y bind9 bind9utils bind9-doc dnsutils libglib2.0-dev yq procps libssl-dev
 RUN apt install -y cmake git liblttng-ust-dev lttng-tools libc6-dev-i386 libbpf-dev libnl-3-dev llvm clang m4 libpcap-dev \

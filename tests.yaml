@@ -87,49 +87,49 @@ tests:
   #   type: download
   #   file_path: /app/resources/testing_files/1gb_hex.txt
 
-  # as_dw_1mb:
-  #   type: download
-  #   file_path: /app/resources/testing_files/1mb_hex.txt
+  as_dw_1mb:
+    type: download
+    file_path: /app/resources/testing_files/1mb_hex.txt
 
-  # at_dw_500kb:
-  #   type: download
-  #   file_path: /app/resources/testing_files/500kb_hex.txt
+  at_dw_500kb:
+    type: download
+    file_path: /app/resources/testing_files/500kb_hex.txt
 
-  # au_dw_50mb:
-  #   type: download
-  #   file_path: /app/resources/testing_files/50mb_hex.txt
+  au_dw_50mb:
+    type: download
+    file_path: /app/resources/testing_files/50mb_hex.txt
 
   # aw_strm_200Kbps:
   #   type: streaming
   #   bitrate: 200 # Kbps (0.2 Mbps)
   #   duration: 600
 
-  ax_strm_700Kbps:
-    type: streaming
-    bitrate: 700 # Kbps (0.7 Mbps)
-    duration: 600
+  # ax_strm_700Kbps:
+  #   type: streaming
+  #   bitrate: 700 # Kbps (0.7 Mbps)
+  #   duration: 600
 
-  ay_strm_1500Kbps:
-    type: streaming
-    bitrate: 1500 # Kbps (1.5 Mbps)
-    duration: 600
+  # ay_strm_1500Kbps:
+  #   type: streaming
+  #   bitrate: 1500 # Kbps (1.5 Mbps)
+  #   duration: 600
 
-  az_strm_3Mbps:
-    type: streaming
-    bitrate: 3000 # Kbps (3 Mbps)
-    duration: 600
+  # az_strm_3Mbps:
+  #   type: streaming
+  #   bitrate: 3000 # Kbps (3 Mbps)
+  #   duration: 600
 
-  ba_strm_8Mbps:
-    type: streaming
-    bitrate: 8000 # Kbps (8 Mbps)
-    duration: 600
+  # ba_strm_8Mbps:
+  #   type: streaming
+  #   bitrate: 8000 # Kbps (8 Mbps)
+  #   duration: 600
 
-  bb_12Mbps:
-    type: streaming
-    bitrate: 12000 # Kbps (12 Mbps)
-    duration: 600
+  # bb_strm_12Mbps:
+  #   type: streaming
+  #   bitrate: 12000 # Kbps (12 Mbps)
+  #   duration: 600
 
-  bc_20Mbps:
-    type: streaming
-    bitrate: 20000 # Kbps (20 Mbps)
-    duration: 600
+  # bc_strm_20Mbps:
+  #   type: streaming
+  #   bitrate: 20000 # Kbps (20 Mbps)
+  #   duration: 600

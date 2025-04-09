@@ -28,6 +28,8 @@ CTestTestfile.cmake
 _deps
 
 resources/
+# resources/graphs/
+# resources/testing_files/
 
 implementations/
 
@@ -35,4 +37,7 @@ env/
 
 tmp_result/
 
-keys/
+keys*/
+
+run_local/
+

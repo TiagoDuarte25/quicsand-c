@@ -7,7 +7,6 @@ RUN pip install --no-cache-dir pyyaml
 
 # Copy the TopologyGenerator script and any other necessary files
 COPY TopologyGenerator.py .
-COPY topologies.yaml .
 
 # Set the entrypoint to run the TopologyGenerator script
 ENTRYPOINT ["python", "TopologyGenerator.py"]

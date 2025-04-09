@@ -24,7 +24,7 @@ LABELS = {
 
 # Set base directory
 BASE_DIR_LOGS = "/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/logs"
-BASE_DIR_GRAPHS = "/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/graphs"
+BASE_DIR_GRAPHS = "/home/tiagoduarte25/Desktop/thesis/quicsand-c/resources/graphs/msquic_graphs"
 
 # Set global font sizes for better readability in LaTeX papers
 plt.rcParams.update({
@@ -39,6 +39,8 @@ plt.rcParams.update({
 
 # remove old graphs
 os.system(f"rm -rf {BASE_DIR_GRAPHS}/*")
+
+os.makedirs(BASE_DIR_GRAPHS, exist_ok=True)
 
 # RR workload
 
@@ -56,6 +58,8 @@ rr_summary = pd.read_csv(RR_SUMMARY_FILE)
 y_metrics = ['avg_rtt', 'cpu_time_used', 'max_resident_set_size']
 x_metrics = ['latency', 'bandwidth', 'number_clients', 'number_servers', 'request_size', 'response_size']
 
+msquic_rr_summary = rr_summary[rr_summary['implementation'] == 'msquic']
+
 # Generate plots
 for y_metric in y_metrics:
     for x_metric in x_metrics:
@@ -66,7 +70,7 @@ for y_metric in y_metrics:
         os.makedirs(y_metric_dir, exist_ok=True)
 
         # Group by other variables
-        grouped_data = rr_summary.groupby(grouped_vars)
+        grouped_data = msquic_rr_summary.groupby(grouped_vars)
 
         for group_values, group_df in grouped_data:
             plt.figure(figsize=(7, 5))
@@ -110,6 +114,8 @@ os.makedirs(dw_graph_dir, exist_ok=True)
 up_summary = pd.read_csv(UP_SUMMARY_FILE)
 up_summary.columns = up_summary.columns.str.strip()
 
+msquic_up_summary = up_summary[up_summary['implementation'] == 'msquic']
+
 # Define y metrics and x metrics
 y_metrics = ['throughput', 'cpu_time_used', 'max_resident_set_size', 'app_throughput', 'avg_rtt']
 x_metrics = ['latency', 'bandwidth', 'number_clients', 'number_servers', 'file_size']
@@ -124,7 +130,7 @@ for y_metric in y_metrics:
         os.makedirs(y_metric_dir, exist_ok=True)
 
         # Group by other variables
-        grouped_data = up_summary.groupby(grouped_vars)
+        grouped_data = msquic_up_summary.groupby(grouped_vars)
 
         for group_values, group_df in grouped_data:
             plt.figure(figsize=(7, 5))
@@ -142,7 +148,7 @@ for y_metric in y_metrics:
             os.makedirs(x_metric_dir, exist_ok=True)
 
             # Plot data
-            sns.barplot(data=group_df, x=x_metric, y=y_metric, hue='implementation', errorbar=None)
+            sns.barplot(data=group_df, x=x_metric, y=y_metric, hue='implementation')
             # plt.title(f'{LABELS.get(y_metric, y_metric)} vs {LABELS.get(x_metric, x_metric)} | {group_label}')
             plt.xlabel(LABELS.get(x_metric, x_metric))
             plt.ylabel(LABELS.get(y_metric, y_metric))
@@ -156,6 +162,8 @@ for y_metric in y_metrics:
 dw_summary = pd.read_csv(DW_SUMMARY_FILE)
 dw_summary.columns = dw_summary.columns.str.strip()
 
+msquic_dw_summary = dw_summary[dw_summary['implementation'] == 'msquic']
+
 # Generate plots
 for y_metric in y_metrics:
     for x_metric in x_metrics:
@@ -166,7 +174,7 @@ for y_metric in y_metrics:
         os.makedirs(y_metric_dir, exist_ok=True)
 
         # Group by other variables
-        grouped_data = dw_summary.groupby(grouped_vars)
+        grouped_data = msquic_dw_summary.groupby(grouped_vars)
 
         for group_values, group_df in grouped_data:
             plt.figure(figsize=(7, 5))
@@ -184,7 +192,7 @@ for y_metric in y_metrics:
             os.makedirs(x_metric_dir, exist_ok=True)
 
             # Plot data
-            sns.barplot(data=group_df, x=x_metric, y=y_metric, hue='implementation', errorbar=None)
+            sns.barplot(data=group_df, x=x_metric, y=y_metric, hue='implementation')
             # plt.title(f'{LABELS.get(y_metric, y_metric)} vs {LABELS.get(x_metric, x_metric)} | {group_label}')
             plt.xlabel(LABELS.get(x_metric, x_metric))
             plt.ylabel(LABELS.get(y_metric, y_metric))
@@ -207,6 +215,8 @@ os.makedirs(strm_graph_dir, exist_ok=True)
 strm_summary = pd.read_csv(STRM_SUMMARY_FILE)
 strm_summary.columns = strm_summary.columns.str.strip()
 
+msquic_strm_summary = strm_summary[strm_summary['implementation'] == 'msquic']
+
 # Define y metrics and x metrics
 y_metrics = ['throughput', 'app_throughput', 'cpu_time_used', 'max_resident_set_size', 'avg_rtt']
 x_metrics = ['latency', 'bandwidth', 'number_clients', 'number_servers', 'bitrate']
@@ -221,7 +231,7 @@ for y_metric in y_metrics:
         os.makedirs(y_metric_dir, exist_ok=True)
 
         # Group by other variables
-        grouped_data = strm_summary.groupby(grouped_vars)
+        grouped_data = msquic_strm_summary.groupby(grouped_vars)
 
         for group_values, group_df in grouped_data:
             plt.figure(figsize=(7, 5))

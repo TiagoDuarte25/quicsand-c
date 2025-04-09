@@ -237,198 +237,198 @@ topologies:
       number_of_clients: 100
       number_of_servers: 100
 
-  bi_low_lat_mid_bw_10_1:
-      latency: 50
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
+  # bi_low_lat_mid_bw_10_1:
+  #     latency: 50
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 10
+  #     number_of_servers: 1
 
-  bj_high_lat_mid_bw_10_1:
-      latency: 200
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
+  # bj_high_lat_mid_bw_10_1:
+  #     latency: 200
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 10
+  #     number_of_servers: 1
 
-  bk_mid_lat_low_bw_10_1:
-      latency: 400
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
+  # bk_mid_lat_low_bw_10_1:
+  #     latency: 400
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 10
+  #     number_of_servers: 1
 
-  bl_mid_lat_high_bw_10_1:
-      latency: 400
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
+  # bl_mid_lat_high_bw_10_1:
+  #     latency: 400
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 10
+  #     number_of_servers: 1
 
-  bm_mid_lat_mid_bw_10_1:
-      latency: 400
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
+  # bm_mid_lat_mid_bw_10_1:
+  #     latency: 400
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 10
+  #     number_of_servers: 1
 
-  bn_high_lat_low_bw_10_1:
-      latency: 200
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
+  # bn_high_lat_low_bw_10_1:
+  #     latency: 200
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 10
+  #     number_of_servers: 1
 
-  bo_low_lat_high_bw_10_1:
-      latency: 50
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 10
-      number_of_servers: 1
+  # bo_low_lat_high_bw_10_1:
+  #     latency: 50
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 10
+  #     number_of_servers: 1
 
-  bp_low_lat_mid_bw_25_1:
-      latency: 50
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
+  # bp_low_lat_mid_bw_25_1:
+  #     latency: 50
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 25
+  #     number_of_servers: 1
 
-  bq_high_lat_mid_bw_25_1:
-      latency: 200
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
+  # bq_high_lat_mid_bw_25_1:
+  #     latency: 200
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 25
+  #     number_of_servers: 1
 
-  br_mid_lat_low_bw_25_1:
-      latency: 400
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
+  # br_mid_lat_low_bw_25_1:
+  #     latency: 400
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 25
+  #     number_of_servers: 1
 
-  bs_mid_lat_high_bw_25_1:
-      latency: 400
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
+  # bs_mid_lat_high_bw_25_1:
+  #     latency: 400
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 25
+  #     number_of_servers: 1
 
-  bt_mid_lat_mid_bw_25_1:
-      latency: 400
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
+  # bt_mid_lat_mid_bw_25_1:
+  #     latency: 400
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 25
+  #     number_of_servers: 1
 
-  bu_high_lat_low_bw_25_1:
-      latency: 200
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
+  # bu_high_lat_low_bw_25_1:
+  #     latency: 200
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 25
+  #     number_of_servers: 1
 
-  bv_low_lat_high_bw_25_1:
-      latency: 50
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 25
-      number_of_servers: 1
+  # bv_low_lat_high_bw_25_1:
+  #     latency: 50
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 25
+  #     number_of_servers: 1
 
-  bw_low_lat_mid_bw_50_1:
-      latency: 50
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
+  # bw_low_lat_mid_bw_50_1:
+  #     latency: 50
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 50
+  #     number_of_servers: 1
 
-  bx_high_lat_mid_bw_50_1:
-      latency: 200
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
+  # bx_high_lat_mid_bw_50_1:
+  #     latency: 200
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 50
+  #     number_of_servers: 1
 
-  by_mid_lat_low_bw_50_1:
-      latency: 400
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
+  # by_mid_lat_low_bw_50_1:
+  #     latency: 400
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 50
+  #     number_of_servers: 1
 
-  bz_mid_lat_high_bw_50_1:
-      latency: 400
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
+  # bz_mid_lat_high_bw_50_1:
+  #     latency: 400
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 50
+  #     number_of_servers: 1
 
-  ca_mid_lat_mid_bw_50_1:
-      latency: 400
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
+  # ca_mid_lat_mid_bw_50_1:
+  #     latency: 400
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 50
+  #     number_of_servers: 1
 
-  cb_high_lat_low_bw_50_1:
-      latency: 200
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
+  # cb_high_lat_low_bw_50_1:
+  #     latency: 200
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 50
+  #     number_of_servers: 1
 
-  cc_low_lat_high_bw_50_1:
-      latency: 50
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 50
-      number_of_servers: 1
+  # cc_low_lat_high_bw_50_1:
+  #     latency: 50
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 50
+  #     number_of_servers: 1
 
-  cd_low_lat_mid_bw_100_1:
-      latency: 50
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
+  # cd_low_lat_mid_bw_100_1:
+  #     latency: 50
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 100
+  #     number_of_servers: 1
 
-  ce_high_lat_mid_bw_100_1:
-      latency: 200
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
+  # ce_high_lat_mid_bw_100_1:
+  #     latency: 200
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 100
+  #     number_of_servers: 1
 
-  cf_mid_lat_low_bw_100_1:
-      latency: 400
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
+  # cf_mid_lat_low_bw_100_1:
+  #     latency: 400
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 100
+  #     number_of_servers: 1
 
-  cg_mid_lat_high_bw_100_1:
-      latency: 400
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
+  # cg_mid_lat_high_bw_100_1:
+  #     latency: 400
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 100
+  #     number_of_servers: 1
 
-  ch_mid_lat_mid_bw_100_1:
-      latency: 400
-      bandwidth: 500M
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
+  # ch_mid_lat_mid_bw_100_1:
+  #     latency: 400
+  #     bandwidth: 500M
+  #     image: quicsand
+  #     number_of_clients: 100
+  #     number_of_servers: 1
 
-  ci_high_lat_low_bw_100_1:
-      latency: 200
-      bandwidth: 100M
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
+  # ci_high_lat_low_bw_100_1:
+  #     latency: 200
+  #     bandwidth: 100M
+  #     image: quicsand
+  #     number_of_clients: 100
+  #     number_of_servers: 1
 
-  cj_low_lat_high_bw_100_1:
-      latency: 50
-      bandwidth: 1000M
-      image: quicsand
-      number_of_clients: 100
-      number_of_servers: 1
+  # cj_low_lat_high_bw_100_1:
+  #     latency: 50
+  #     bandwidth: 1000M
+  #     image: quicsand
+  #     number_of_clients: 100
+  #     number_of_servers: 1

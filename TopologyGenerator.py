@@ -1,8 +1,8 @@
 import yaml
 import sys
 
-def generate_topology(number_of_clients, number_of_servers, image, latency, bandwidth, topology_name):
-    with open(topology_name, "w") as f:
+def generate_topology(number_of_clients, number_of_servers, image, latency, bandwidth, topology_name, test_name):
+    with open(f"/result/topology.sh", "w") as f:
         f.write(f"#!/bin/bash\n")
         f.write(f"\n")
         f.write(f"# Create quicsand servers\n")
@@ -12,7 +12,7 @@ def generate_topology(number_of_clients, number_of_servers, image, latency, band
         f.write(f"# Create quicsand clients\n")
         for i in range(1, number_of_clients + 1):
             server_index = i % number_of_servers + 1
-            f.write(f"gone-cli node -- docker run --rm -d --network gone_net -v \"$(pwd)/tmp_result:/result\" --name client{i} quicsand 10.1.1.{server_index} client{i}\n")
+            f.write(f"gone-cli node -- docker run --rm -d --network gone_net -v \"$(pwd)/{test_name}_{topology_name}:/result\" --name client{i} quicsand 10.1.1.{server_index} client{i}\n")
         f.write(f"\n")
         
         f.write(f"# Create bridges for clients\n")
@@ -60,11 +60,12 @@ def generate_topology(number_of_clients, number_of_servers, image, latency, band
     f.close()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python TopologyGenerator.py <topology_name>")
+    if len(sys.argv) < 3:
+        print("Usage: python TopologyGenerator.py <topology_name> <test_name>")
         sys.exit(1)
 
     topology_name = sys.argv[1].strip('"')
+    test_name = sys.argv[2].strip('"')
 
     print(f"Generating topology {topology_name}...")
 
@@ -79,7 +80,8 @@ if __name__ == "__main__":
             image=topology['image'],
             latency=f"{topology['latency']}",
             bandwidth=topology['bandwidth'],
-            topology_name=f"{topology_name}.sh"
+            topology_name=f"{topology_name}",
+            test_name=test_name
         )
     else:
         print(f"Topology {topology_name} not found.")
