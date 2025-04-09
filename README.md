@@ -22,25 +22,17 @@ Usage
 1. For containerized application deployment
 
 ```
-run -i <implementation_folder_name>
-```
-
-2. For local deployment 
-
-```
-run_local -i <implementation_folder_name>
+quicsand-cli -c <tests_file> -t <topologies_file>
 ```
 
 Features
 ---------
 
-1. Automate client and server metrics collection and benchmarking for every implementation
+1. Automate client and server metrics collection for every implementation
 
 2. Network Scenario freedom selection
 
-3. Extensible option to add future implementations
-
-Contributing
+<!-- Contributing
 -------------
 
 We welcome contributions from the community to enhance QuicSand's capabilities:
@@ -53,4 +45,4 @@ We welcome contributions from the community to enhance QuicSand's capabilities:
 License
 --------
 
-QuicSand is licensed under the [Insert License Name] license. Refer to the LICENSE file for more details.
+QuicSand is licensed under the [Insert License Name] license. Refer to the LICENSE file for more details. -->
