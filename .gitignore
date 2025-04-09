@@ -7,7 +7,7 @@
 *.vsix
 
 # QUIC implementations
-#implementations/
+implementations/
 
 # every build directory
 [Bb][Uu][Ii][Ll][Dd]/
@@ -31,13 +31,11 @@ resources/
 # resources/graphs/
 # resources/testing_files/
 
-implementations/
-
 env/
 
 tmp_result/
 
 keys*/
 
-run_local/
+run_local
 
